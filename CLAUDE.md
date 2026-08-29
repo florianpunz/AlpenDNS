@@ -84,15 +84,18 @@ diesem Projekt. Das heißt konkret: erkläre nicht-offensichtliche Entscheidunge
 Commit oder in der Antwort, statt sie kommentarlos einzubauen. Ein Einzeiler
 "warum so und nicht anders" ist mehr wert als drei Absätze Doku.
 
-**Stand:** Phasen 1 bis 3 sind umgesetzt und abgenommen. Der gesamte testbare Code
+**Stand:** Phasen 1 bis 4 sind umgesetzt und abgenommen (Phase 4 technisch; das
+Abnahmekriterium "eine Woche im LAN ohne Beschwerden" steht noch aus). Der gesamte testbare Code
 liegt in der Library (`src/lib.rs` und die Module daneben), `main.rs` macht nur
 Start, Signale und Shutdown — Voraussetzung dafür, dass Module später ohne Umbau zu
 eigenen Crates werden.
 
 Die Pipeline ist eine Kette von `ResolveBackend`-Implementierungen, von außen nach
-innen: `CachingBackend` → `ZoneRouter` → `Pool` → `Transport` (DoT/DoH/DoQ) bzw.
-`ForwardBackend` (Klartext, nur für `forward_zone`). Keine Schicht kennt die anderen;
-Phase 4 hängt den Filter davor, ohne eine davon anzufassen.
+innen: `FilterBackend` → `CachingBackend` → `ZoneRouter` → `Pool` → `Transport`
+(DoT/DoH/DoQ) bzw. `ForwardBackend` (Klartext, nur für `forward_zone`). Keine Schicht
+kennt die anderen. Der Filter liegt **vor** dem Cache, damit dieser die ungefilterte
+Antwort hält (ARCHITECTURE.md §4) — Phase 5 hängt die Policies zwischen Filter und
+Cache, ohne eine der übrigen anzufassen.
 
 Klartext-DNS nach außen ist erledigt (B.1 Regel 7): `udp://` in einem
 `upstream_pool` ist ein Startfehler. Eine Abweichung bleibt offen — B.1 Regel 1:
@@ -102,7 +105,7 @@ Overflow-Checks an sind. Bewertung und Auflagen in ADR-0006, bekannter Fall in
 `deny.toml` (RUSTSEC-2026-0009 in einer dev-dependency). Der CI-Lauf fehlt
 weiterhin, dafür gibt es kein GitHub-Remote.
 
-Zahlen in `docs/BENCHMARKS.md`. Aktuelle Arbeit: Phase 4 (Blocklisten).
+Zahlen in `docs/BENCHMARKS.md`. Aktuelle Arbeit: Phase 5 (Clients und Policies).
 
 **Doku-Karte:** `docs/ROADMAP.md` = aktuelle Phase und Abnahmekriterien ·
 `docs/ARCHITECTURE.md` = Zielbild · `docs/TESTING.md` = Teststrategie ·

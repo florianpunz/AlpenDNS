@@ -11,6 +11,7 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
+arc-swap.workspace = true
 futures-util.workspace = true
 hickory-net.workspace = true
 hickory-proto.workspace = true
@@ -21,6 +22,7 @@ toml.workspace = true
 humantime-serde.workspace = true
 lru.workspace = true
 rand.workspace = true
+reqwest.workspace = true
 rustls.workspace = true
 thiserror.workspace = true
 anyhow.workspace = true

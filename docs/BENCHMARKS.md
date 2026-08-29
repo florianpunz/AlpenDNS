@@ -93,3 +93,58 @@ kostet nichts Messbares.
 Fake im selben Prozess misst vor allem die Krypto-Bibliothek, nicht AlpenDNS. Die
 Zahl, die zählt, ist ohnehin die Latenz zum echten Upstream — im Smoke-Test lagen
 Quad9 (DoT) bei 34 ms und Mullvad (DoH) bei 113 ms.
+
+---
+
+## Phase 4 — Blocklisten · gemessen am 2026-08-29
+
+Zwei Millionen Einträge, wie es das Abnahmekriterium verlangt.
+
+### Matcher
+
+| | |
+|---|---:|
+| Liste parsen (hosts-Format) | 396 ms |
+| Matcher bauen | 795 ms |
+| Nachschlagen, Treffer | p50 230 ns · p99 620 ns |
+| Nachschlagen, kein Treffer | p50 390 ns · p99 880 ns |
+
+Der teurere Fall ist der Nicht-Treffer: er läuft alle Suffix-Ebenen durch, während
+ein Treffer meist auf der ersten hängen bleibt. Genau deshalb wird er getrennt
+gemessen — im Betrieb ist er der Normalfall.
+
+### Speicher
+
+| | RSS |
+|---|---:|
+| vorher | 3 588 KiB |
+| mit Matcher | 326 460 KiB |
+| nach dem Freigeben des Matchers | 191 292 KiB |
+| **Matcher selbst** | **135 168 KiB — rund 69 Byte je Eintrag** |
+
+Die naheliegende Zahl (322 MB Zuwachs) wäre falsch: darin stecken die Liste im
+Rohtext und die geparsten Einträge, die es beim Aufbau zusätzlich gab, plus das,
+was der Allokator nach dem Freigeben nicht ans System zurückgibt. Die dritte Zeile
+trennt beides.
+
+### Anfrage aus dem Cache bei geladenen zwei Millionen Einträgen
+
+| | |
+|---|---:|
+| p50 | 18,8 µs |
+| **p99** | **28,1 µs** |
+| p999 | 37,6 µs |
+
+Das Abnahmekriterium verlangt unter 1 ms. Konsequenz für die Datenstruktur:
+[ADR-0008](adr/0008-hashmap-statt-bloom-und-trie.md).
+
+### Durchsatz unverändert
+
+| Korpus | Anfragen/s | Phase 3 | Upstream-Anfragen |
+|---|---:|---:|---:|
+| jede Anfrage ein neuer Name | 104 838 | 110 106 | 32 000 |
+| immer derselbe Name | 323 740 | 347 726 | **1** |
+
+Der Filter liegt vor dem Cache und wird damit bei *jeder* Anfrage befragt. Dass der
+Durchsatz trotzdem im Rauschen der Vormessung bleibt, passt zu den 880 ns pro
+Nachschlag.

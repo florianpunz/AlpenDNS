@@ -2,14 +2,27 @@
 
 Ein privacy-fokussierter DNS-Server für Linux, in Rust.
 
-> **Status: Phase 3 — verschlüsselte Upstreams.** UDP und TCP für Clients,
+> **Status: Phase 4 — Blocklisten.** Ab hier ersetzt AlpenDNS ein Pi-hole im
+> eigenen Netz: Listen in fünf Formaten (hosts, domains, wildcard, Adblock, RPZ),
+> Allowlists mit Vorrang, vier Block-Modi, Aktualisierung mit ETag und
+> Platten-Cache, Austausch der Regeln im laufenden Betrieb ohne Ausfall.
+> Zwei Millionen Einträge kosten 135 MB; eine Anfrage aus dem Cache bleibt bei
+> p99 28 µs ([BENCHMARKS.md](docs/BENCHMARKS.md)).
+> Noch keine Policies pro Client — das ist Phase 5.
+> Siehe [docs/ROADMAP.md](docs/ROADMAP.md).
+
+<details>
+<summary>Vorherige Stände</summary>
+
+> **Phase 3 — verschlüsselte Upstreams.** UDP und TCP für Clients,
 > Weiterleitung über **DoT, DoH oder DoQ** an einen Pool mehrerer Resolver mit
 > Auswahlstrategie und Ausfallerkennung. Dazu ein Cache mit TTL-Klemmung,
 > LRU-Verdrängung, serve-stale, Prefetch und Query-Deduplizierung, sowie
 > ECS-Stripping, EDNS-Padding, DNS Cookies und 0x20. Klartext geht nur noch in
 > ausdrücklich konfigurierte Zonen des eigenen Netzes.
-> Noch kein Filter und keine Policy — das ist Phase 4 und 5.
-> Siehe [docs/ROADMAP.md](docs/ROADMAP.md).
+> Noch kein Filter und keine Policy.
+
+</details>
 
 ```bash
 cargo run -- -c config/alpendns.minimal.toml

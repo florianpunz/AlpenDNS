@@ -52,6 +52,92 @@ pub struct Config {
     pub forward_zone: Vec<ForwardZone>,
     #[serde(default)]
     pub privacy: PrivacyConfig,
+    #[serde(default)]
+    pub blocking: BlockingConfig,
+    #[serde(default)]
+    pub blocklist: Vec<ListConfig>,
+    #[serde(default)]
+    pub allowlist: Vec<ListConfig>,
+}
+
+/// Wie geblockt wird.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BlockingConfig {
+    #[serde(default)]
+    pub mode: crate::filter::block::BlockMode,
+    #[serde(default = "default_sinkhole_v4")]
+    pub sinkhole_ipv4: std::net::Ipv4Addr,
+    #[serde(default = "default_sinkhole_v6")]
+    pub sinkhole_ipv6: std::net::Ipv6Addr,
+    /// Wohin heruntergeladene Listen geschrieben werden, damit ein Neustart
+    /// ohne Internet gefiltert startet (ARCHITECTURE.md §9).
+    #[serde(default = "default_list_cache_dir")]
+    pub cache_dir: std::path::PathBuf,
+}
+
+/// Eine Block- oder Allowlist.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ListConfig {
+    pub name: String,
+    /// Entweder `url` oder `path`, nicht beides.
+    #[serde(default)]
+    pub url: Option<String>,
+    #[serde(default)]
+    pub path: Option<std::path::PathBuf>,
+    pub format: crate::filter::parser::Format,
+    #[serde(with = "humantime_serde", default = "default_refresh")]
+    pub refresh: Duration,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+impl ListConfig {
+    fn validate(&self, kind: &str) -> Result<(), ConfigError> {
+        let name = &self.name;
+        match (&self.url, &self.path) {
+            (Some(_), Some(_)) => Err(ConfigError::Invalid(format!(
+                "{kind} '{name}': url und path zugleich — es kann nur eine Quelle geben"
+            ))),
+            (None, None) => Err(ConfigError::Invalid(format!(
+                "{kind} '{name}': weder url noch path angegeben"
+            ))),
+            (Some(url), None) if !url.starts_with("https://") && !url.starts_with("http://") => {
+                Err(ConfigError::Invalid(format!(
+                    "{kind} '{name}': '{url}' ist keine http(s)-URL"
+                )))
+            }
+            _ => Ok(()),
+        }
+    }
+}
+
+fn default_sinkhole_v4() -> std::net::Ipv4Addr {
+    std::net::Ipv4Addr::LOCALHOST
+}
+
+fn default_sinkhole_v6() -> std::net::Ipv6Addr {
+    std::net::Ipv6Addr::LOCALHOST
+}
+
+fn default_list_cache_dir() -> std::path::PathBuf {
+    std::path::PathBuf::from("/var/cache/alpendns/lists")
+}
+
+const fn default_refresh() -> Duration {
+    Duration::from_secs(24 * 60 * 60)
+}
+
+impl Default for BlockingConfig {
+    fn default() -> Self {
+        Self {
+            mode: crate::filter::block::BlockMode::default(),
+            sinkhole_ipv4: default_sinkhole_v4(),
+            sinkhole_ipv6: default_sinkhole_v6(),
+            cache_dir: default_list_cache_dir(),
+        }
+    }
 }
 
 /// Antwort-Cache.
@@ -437,6 +523,12 @@ impl Config {
         }
         for pool in &self.upstream_pool {
             pool.validate()?;
+        }
+        for list in &self.blocklist {
+            list.validate("blocklist")?;
+        }
+        for list in &self.allowlist {
+            list.validate("allowlist")?;
         }
         for zone in &self.forward_zone {
             if zone.upstream.is_encrypted() {

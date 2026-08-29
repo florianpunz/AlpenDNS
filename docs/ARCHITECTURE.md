@@ -125,8 +125,11 @@ Das Zielmodell:
 4. **Ein Match liefert eine `RuleRef`** (Listen-ID + Zeilennummer), nicht nur `true` —
    sonst gibt es keinen Trace.
 
-Das ist Phase 4. Bis dahin: `HashSet` und messen. Erst wenn die Zahlen es rechtfertigen,
-wird optimiert; der Benchmark ist Teil der Phase.
+**Gemessen, und vorerst nicht gebaut:** Phase 4 hat die einfache Variante umgesetzt und
+vermessen — zwei Millionen Einträge, Nachschlagen p99 unter einer Mikrosekunde, 135 MB.
+Damit rechtfertigt keine Zahl den Bloom-Filter. Das Zielmodell oben bleibt als Plan
+stehen; die Entscheidung und die Zahlen stehen in
+[ADR-0008](adr/0008-hashmap-statt-bloom-und-trie.md).
 
 **Updates ohne Ausfall:** Listen werden in eine neue Struktur geladen und per
 `arc_swap::ArcSwap` atomar getauscht. Laufende Anfragen sehen die alte, neue die neue.

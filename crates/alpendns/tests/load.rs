@@ -23,7 +23,10 @@ use std::time::{Duration, Instant};
 
 use alpendns::caching::CachingBackend;
 use alpendns::clock::SystemClock;
-use alpendns::config::{CacheConfig, Config};
+use alpendns::config::{BlockingConfig, CacheConfig, Config};
+use alpendns::filter::matcher::Builder as MatcherBuilder;
+use alpendns::filter::parser::{Format, parse};
+use alpendns::filter::{Filter, FilterBackend, FilterSet};
 use alpendns::privacy;
 use alpendns::server::Server;
 use alpendns::upstream::ForwardBackend;
@@ -89,6 +92,10 @@ struct Harness {
 }
 
 async fn start(cache_config: CacheConfig) -> Harness {
+    start_with_filter(cache_config, FilterSet::default()).await
+}
+
+async fn start_with_filter(cache_config: CacheConfig, rules: FilterSet) -> Harness {
     let upstream_hits = Arc::new(AtomicUsize::new(0));
     let upstream = fake_upstream(Arc::clone(&upstream_hits)).await;
 
@@ -97,14 +104,18 @@ async fn start(cache_config: CacheConfig) -> Harness {
     )
     .expect("Testkonfiguration");
 
-    let backend = CachingBackend::new(
-        ForwardBackend::new(
-            upstream,
-            Duration::from_secs(2),
-            privacy::Settings::default(),
+    let filter = Arc::new(Filter::new(rules, &BlockingConfig::default()));
+    let backend = FilterBackend::new(
+        filter,
+        CachingBackend::new(
+            ForwardBackend::new(
+                upstream,
+                Duration::from_secs(2),
+                privacy::Settings::default(),
+            ),
+            &cache_config,
+            SystemClock,
         ),
-        &cache_config,
-        SystemClock,
     );
     let bound = Server::new(backend, config.server.edns.udp_payload_size)
         .bind(&config.server)
@@ -232,6 +243,188 @@ async fn resident_memory_stays_bounded_beyond_max_entries() {
         growth < after_first,
         "RSS wuchs um {growth} KiB und damit stärker als der Ausgangswert \
          ({after_first} KiB) — das sieht nach fehlender Verdrängung aus"
+    );
+
+    harness.shutdown.cancel();
+}
+
+/// So viele Einträge verlangt das Abnahmekriterium von Phase 4.
+const BLOCKLIST_ENTRIES: usize = 2_000_000;
+
+/// Erzeugt eine Blockliste mit `count` verschiedenen Domains im hosts-Format.
+fn synthetic_blocklist(count: usize) -> String {
+    let mut text = String::with_capacity(count * 32);
+    for i in 0..count {
+        // Verteilt über viele TLDs und Tiefen, damit der Suffix-Nachschlag
+        // nicht durch lauter gleich lange Namen begünstigt wird.
+        text.push_str(&format!(
+            "0.0.0.0 host{i}.zone{}.example{}\n",
+            i % 5000,
+            i % 7
+        ));
+    }
+    text
+}
+
+fn percentile(sorted: &[Duration], p: f64) -> Duration {
+    if sorted.is_empty() {
+        return Duration::ZERO;
+    }
+    #[expect(
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "Stichprobengrößen weit unter 2^53"
+    )]
+    let index = ((sorted.len() - 1) as f64 * p) as usize;
+    sorted.get(index).copied().unwrap_or_default()
+}
+
+#[test]
+#[ignore = "Lastmessung: braucht Minuten und viel Speicher"]
+fn matcher_with_two_million_entries() {
+    let before = resident_kib();
+    let started = Instant::now();
+    let text = synthetic_blocklist(BLOCKLIST_ENTRIES);
+    let generated = started.elapsed();
+
+    let started = Instant::now();
+    let parsed = parse(&text, Format::Hosts);
+    let parse_time = started.elapsed();
+    assert_eq!(parsed.entries.len(), BLOCKLIST_ENTRIES);
+
+    let started = Instant::now();
+    let mut builder = MatcherBuilder::new();
+    builder.add("gross", &parsed);
+    let matcher = builder.build();
+    let build_time = started.elapsed();
+    drop(text);
+    drop(parsed);
+    let after = resident_kib();
+
+    // Nachschlagen messen: Treffer und Nicht-Treffer getrennt, weil ein
+    // Nicht-Treffer alle Suffix-Ebenen durchläuft und der teurere Fall ist.
+    let mut hits = Vec::with_capacity(20_000);
+    let mut misses = Vec::with_capacity(20_000);
+    for i in 0..20_000 {
+        let hit_name = format!(
+            "host{}.zone{}.example{}",
+            i * 97,
+            (i * 97) % 5000,
+            (i * 97) % 7
+        );
+        let started = Instant::now();
+        let found = matcher.lookup(&hit_name);
+        hits.push(started.elapsed());
+        assert!(found.is_some(), "{hit_name} sollte treffen");
+
+        let miss_name = format!("a.b.c.nichtdrin{i}.example.com");
+        let started = Instant::now();
+        let found = matcher.lookup(&miss_name);
+        misses.push(started.elapsed());
+        assert!(found.is_none());
+    }
+    hits.sort_unstable();
+    misses.sort_unstable();
+
+    println!("\nMatcher mit {} Einträgen", matcher.len());
+    println!("  Liste erzeugen:  {generated:>10.2?}");
+    println!("  Parsen:          {parse_time:>10.2?}");
+    println!("  Matcher bauen:   {build_time:>10.2?}");
+    println!("  RSS vorher:      {before:>8} KiB");
+    println!("  RSS nachher:     {after:>8} KiB");
+    println!("  Zuwachs:         {:>8} KiB", after.saturating_sub(before));
+    println!(
+        "  Treffer     p50 {:>8.0?}  p99 {:>8.0?}",
+        percentile(&hits, 0.5),
+        percentile(&hits, 0.99)
+    );
+    println!(
+        "  Nicht-Treffer p50 {:>6.0?}  p99 {:>8.0?}",
+        percentile(&misses, 0.5),
+        percentile(&misses, 0.99)
+    );
+
+    // Der Zuwachs oben ist eine Obergrenze: der Allokator gibt freigegebene
+    // Blöcke nicht sofort ans System zurück, und Liste wie Parse-Ergebnis lagen
+    // zwischenzeitlich zusätzlich im Speicher. Was nach dem Freigeben des
+    // Matchers übrig bleibt, trennt das eine vom anderen.
+    let entries = matcher.len();
+    drop(matcher);
+    let freed = resident_kib();
+    let owned = after.saturating_sub(freed);
+    println!("  RSS ohne Matcher:{freed:>8} KiB");
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "Byte-Zahlen und Eintragszahlen liegen weit unter 2^53"
+    )]
+    let per_entry = (owned as f64 * 1024.0) / entries as f64;
+    println!("  Matcher selbst:  {owned:>8} KiB, rund {per_entry:.0} Byte je Eintrag");
+
+    assert!(
+        percentile(&misses, 0.99) < Duration::from_micros(50),
+        "p99 für einen Nicht-Treffer: {:?}",
+        percentile(&misses, 0.99)
+    );
+    assert_eq!(entries, BLOCKLIST_ENTRIES);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "Lastmessung: braucht Minuten und viel Speicher"]
+async fn cache_hit_latency_with_two_million_blocklist_entries() {
+    // Das Abnahmekriterium von Phase 4: mit zwei Millionen geladenen Einträgen
+    // muss ein Cache-Treffer p99 unter einer Millisekunde bleiben.
+    let parsed = parse(&synthetic_blocklist(BLOCKLIST_ENTRIES), Format::Hosts);
+    let mut builder = MatcherBuilder::new();
+    builder.add("gross", &parsed);
+    let rules = FilterSet {
+        block: builder.build(),
+        allow: Default::default(),
+    };
+    let entries = rules.block.len();
+    drop(parsed);
+
+    let harness = start_with_filter(CacheConfig::default(), rules).await;
+    let rss = resident_kib();
+
+    // Einmal aufwärmen, danach kommt alles aus dem Cache.
+    let request = packet("nicht-geblockt.example.", 1);
+    let warmup = UdpSocket::bind("127.0.0.1:0").await.expect("bind");
+    warmup.connect(harness.addr).await.expect("connect");
+    warmup.send(&request).await.expect("send");
+    let mut buf = vec![0_u8; 4096];
+    let _ = tokio::time::timeout(Duration::from_secs(2), warmup.recv(&mut buf)).await;
+
+    let mut latencies = Vec::with_capacity(20_000);
+    for i in 0..20_000 {
+        let packet = packet(
+            "nicht-geblockt.example.",
+            u16::try_from(i % 65_535).unwrap_or(0),
+        );
+        let started = Instant::now();
+        warmup.send(&packet).await.expect("send");
+        let _ = tokio::time::timeout(Duration::from_secs(2), warmup.recv(&mut buf))
+            .await
+            .expect("Antwort");
+        latencies.push(started.elapsed());
+    }
+    latencies.sort_unstable();
+
+    println!("\nCache-Treffer bei {entries} Blocklisten-Einträgen");
+    println!("  RSS des Prozesses: {rss:>8} KiB");
+    println!("  p50 {:>10.2?}", percentile(&latencies, 0.5));
+    println!("  p99 {:>10.2?}", percentile(&latencies, 0.99));
+    println!("  p999 {:>9.2?}", percentile(&latencies, 0.999));
+
+    assert_eq!(
+        harness.upstream_hits.load(Ordering::Relaxed),
+        1,
+        "Cache griff nicht"
+    );
+    assert!(
+        percentile(&latencies, 0.99) < Duration::from_millis(1),
+        "p99 war {:?}, verlangt sind unter 1 ms",
+        percentile(&latencies, 0.99)
     );
 
     harness.shutdown.cancel();

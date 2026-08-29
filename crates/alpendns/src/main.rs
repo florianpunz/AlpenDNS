@@ -7,7 +7,9 @@ use std::time::Duration;
 
 use alpendns::caching::CachingBackend;
 use alpendns::clock::SystemClock;
-use alpendns::config::Config;
+use alpendns::config::{Config, ListConfig};
+use alpendns::filter::source::{ListSpec, Loader, Source};
+use alpendns::filter::{Filter, FilterBackend, Lists};
 use alpendns::privacy;
 use alpendns::router::ZoneRouter;
 use alpendns::server::Server;
@@ -146,6 +148,24 @@ fn run() -> anyhow::Result<()> {
         .map(|zone| zone.zone.0.to_string())
         .collect();
 
+    let blocking_config = config.blocking;
+    let block_specs = to_specs(&config.blocklist);
+    let allow_specs = to_specs(&config.allowlist);
+    // Kürzestes Intervall aller Listen; Details in filter::run_updater.
+    let refresh = config
+        .blocklist
+        .iter()
+        .chain(config.allowlist.iter())
+        .filter(|list| list.enabled)
+        .map(|list| list.refresh)
+        .min()
+        .unwrap_or(Duration::from_secs(24 * 60 * 60));
+    let lists = Arc::new(Lists::new(
+        Loader::new(blocking_config.cache_dir.clone())?,
+        block_specs,
+        allow_specs,
+    ));
+
     // Die Runtime wird von Hand gebaut statt über #[tokio::main]: ein Fehler
     // beim Start soll eine Fehlermeldung geben, kein Panic (CLAUDE.md B.1).
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -162,7 +182,18 @@ fn run() -> anyhow::Result<()> {
             pool_config.fanout,
             SystemClock,
         ));
-        let backend = CachingBackend::new(
+        // Erststart ist strikt: lieber gar kein DNS als ungefiltertes DNS
+        // (B.1 Regel 6). Spätere Ausfälle behandelt run_updater nachsichtig.
+        let initial = lists
+            .load(true)
+            .await
+            .context("Blocklisten konnten beim Start nicht geladen werden")?;
+        let filter = Arc::new(Filter::new(initial, &blocking_config));
+
+        // Von außen nach innen: Filter → Cache → Zonen-Weiche → Pool.
+        // Gefiltert wird vor dem Cache, damit dieser die ungefilterte Antwort
+        // hält und alle Clients sie teilen können (ARCHITECTURE.md §4).
+        let caching = CachingBackend::new(
             ZoneRouter::new(zones, Arc::clone(&pool)),
             &cache_config,
             SystemClock,
@@ -170,7 +201,8 @@ fn run() -> anyhow::Result<()> {
         // Handle auf den Cache behalten, bevor das Backend in den Server wandert:
         // beim Herunterfahren soll die Trefferquote im Log stehen. Ein
         // Metrik-Endpunkt dafür kommt in Phase 6.
-        let cache = Arc::clone(backend.cache());
+        let cache = Arc::clone(caching.cache());
+        let backend = FilterBackend::new(Arc::clone(&filter), caching);
         let bound = Server::new(backend, server_config.edns.udp_payload_size)
             .bind(&server_config)
             .await
@@ -184,6 +216,9 @@ fn run() -> anyhow::Result<()> {
             forward_zones = ?zone_names,
             cache_entries = cache_config.max_entries,
             serve_stale = cache_config.serve_stale,
+            block_entries = filter.stats().block_entries,
+            allow_entries = filter.stats().allow_entries,
+            blocking = ?blocking_config.mode,
             "AlpenDNS gestartet"
         );
 
@@ -192,6 +227,13 @@ fn run() -> anyhow::Result<()> {
         tokio::spawn(report_stats(
             Arc::clone(&cache),
             Arc::clone(&pool),
+            Arc::clone(&filter),
+            shutdown.clone(),
+        ));
+        tokio::spawn(alpendns::filter::run_updater(
+            Arc::clone(&filter),
+            Arc::clone(&lists),
+            refresh,
             shutdown.clone(),
         ));
 
@@ -203,7 +245,7 @@ fn run() -> anyhow::Result<()> {
         });
 
         bound.run(shutdown).await;
-        log_stats(&cache, &pool, "Cache-Bilanz");
+        log_stats(&cache, &pool, &filter, "Cache-Bilanz");
         tracing::info!("beendet");
         Ok(())
     })
@@ -214,9 +256,33 @@ fn run() -> anyhow::Result<()> {
 /// Nur Summen, keine Namen — das ist unabhängig vom Log-Modus zulässig
 /// (CLAUDE.md B.1, Regel 3). Ohne Verkehr wird nichts geschrieben, damit ein
 /// Server im Leerlauf still bleibt.
+/// Übersetzt die Konfiguration in das, was der Loader braucht.
+///
+/// Abgeschaltete Listen fallen hier heraus; die Validierung hat schon
+/// sichergestellt, dass genau eine Quelle angegeben ist.
+fn to_specs(lists: &[ListConfig]) -> Vec<ListSpec> {
+    lists
+        .iter()
+        .filter(|list| list.enabled)
+        .filter_map(|list| {
+            let source = match (&list.url, &list.path) {
+                (Some(url), _) => Source::Url(url.clone()),
+                (None, Some(path)) => Source::File(path.clone()),
+                (None, None) => return None,
+            };
+            Some(ListSpec {
+                name: list.name.clone(),
+                source,
+                format: list.format,
+            })
+        })
+        .collect()
+}
+
 async fn report_stats<C: alpendns::clock::Clock>(
     cache: Arc<alpendns::cache::Cache<C>>,
     pool: Arc<Pool<Transport, SystemClock>>,
+    filter: Arc<Filter>,
     shutdown: CancellationToken,
 ) {
     let mut ticker = tokio::time::interval(STATS_INTERVAL);
@@ -230,7 +296,7 @@ async fn report_stats<C: alpendns::clock::Clock>(
         }
         let current = cache.stats();
         if current != last {
-            log_stats(&cache, &pool, "Cache");
+            log_stats(&cache, &pool, &filter, "Cache");
             last = current;
         }
     }
@@ -239,6 +305,7 @@ async fn report_stats<C: alpendns::clock::Clock>(
 fn log_stats<C: alpendns::clock::Clock>(
     cache: &alpendns::cache::Cache<C>,
     pool: &Pool<Transport, SystemClock>,
+    filter: &Filter,
     message: &'static str,
 ) {
     let stats = cache.stats();
@@ -249,6 +316,14 @@ fn log_stats<C: alpendns::clock::Clock>(
         entries = cache.len(),
         hit_rate = format!("{:.1} %", stats.hit_rate() * 100.0),
         "{message}"
+    );
+    let filtered = filter.stats();
+    tracing::info!(
+        blocked = filtered.blocked,
+        allowed = filtered.allowed,
+        passed = filtered.passed,
+        entries = filtered.block_entries,
+        "Filter"
     );
     for upstream in pool.stats() {
         tracing::info!(

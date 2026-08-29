@@ -4,7 +4,7 @@ Der Plan ist in Phasen geschnitten. Jede Phase hat ein **Ziel**, eine **Schrittl
 Verify-Format** (siehe CLAUDE.md, Teil A.4) und ein **Abnahmekriterium**. Eine Phase gilt
 als fertig, wenn das Abnahmekriterium erfüllt ist — nicht, wenn der Code kompiliert.
 
-**Aktuelle Phase: 4.**
+**Aktuelle Phase: 5.**
 
 Die Reihenfolge ist so gewählt, dass **nach Phase 4 ein Server steht, den du produktiv
 im eigenen Netz benutzen kannst**. Alles danach macht ihn besser, nicht erst benutzbar.
@@ -174,6 +174,20 @@ ein Pi-hole im eigenen Netz.
 **Abnahme:** 2 Millionen Einträge geladen, p99-Latenz für einen Cache-Hit unter 1 ms,
 RSS dokumentiert. Werbung ist im eigenen Netz weg. Der Server läuft eine Woche als
 einziger Resolver im LAN, ohne dass jemand meckert.
+
+**Technisch abgenommen am 2026-08-29**, mit einem offenen Teil.
+
+* **Zahlen erfüllt und deutlich:** zwei Millionen Einträge geladen, p99 für eine
+  Anfrage aus dem Cache **28 µs** statt der geforderten 1 ms. Der Matcher braucht
+  135 MB, rund 69 Byte je Eintrag; Nachschlagen p99 880 ns im teuren Fall (kein
+  Treffer, alle Suffix-Ebenen). Alles in [BENCHMARKS.md](BENCHMARKS.md).
+* **Fallstrick beantwortet:** die Messung rechtfertigt weder Bloom-Filter noch
+  invertierten Trie. Entscheidung und Umkehrbedingung in
+  [ADR-0008](adr/0008-hashmap-statt-bloom-und-trie.md) — der Speicherbedarf ist die
+  Zahl, die sie kippen würde, nicht die Latenz.
+* **Noch nicht abgenommen:** "eine Woche als einziger Resolver im LAN, ohne dass
+  jemand meckert". Das kann kein Test ersetzen und keine Sitzung erledigen. Bis
+  dahin ist die Phase funktional fertig, aber nicht im Betrieb bewährt.
 
 **Fallstricke:** Erst messen, dann optimieren. Bloom-Filter und invertierter Trie
 (ARCHITECTURE.md §3) kommen nur, wenn Schritt 11 zeigt, dass es nötig ist.
