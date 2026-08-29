@@ -84,8 +84,9 @@ diesem Projekt. Das heißt konkret: erkläre nicht-offensichtliche Entscheidunge
 Commit oder in der Antwort, statt sie kommentarlos einzubauen. Ein Einzeiler
 "warum so und nicht anders" ist mehr wert als drei Absätze Doku.
 
-**Stand:** Phasen 1 bis 4 sind umgesetzt und abgenommen (Phase 4 technisch; das
-Abnahmekriterium "eine Woche im LAN ohne Beschwerden" steht noch aus). Der gesamte testbare Code
+**Stand:** Phasen 1 bis 4 sind umgesetzt und abgenommen. Der Praxistest im echten
+Netz ist bewusst auf Phase 9 verschoben — vorher gibt es keine systemd-Unit und
+damit keinen Betrieb auf Port 53. Der gesamte testbare Code
 liegt in der Library (`src/lib.rs` und die Module daneben), `main.rs` macht nur
 Start, Signale und Shutdown — Voraussetzung dafür, dass Module später ohne Umbau zu
 eigenen Crates werden.

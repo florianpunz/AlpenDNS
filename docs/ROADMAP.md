@@ -172,10 +172,9 @@ ein Pi-hole im eigenen Netz.
 ```
 
 **Abnahme:** 2 Millionen Einträge geladen, p99-Latenz für einen Cache-Hit unter 1 ms,
-RSS dokumentiert. Werbung ist im eigenen Netz weg. Der Server läuft eine Woche als
-einziger Resolver im LAN, ohne dass jemand meckert.
+RSS dokumentiert.
 
-**Technisch abgenommen am 2026-08-29**, mit einem offenen Teil.
+**Abgenommen am 2026-08-29.**
 
 * **Zahlen erfüllt und deutlich:** zwei Millionen Einträge geladen, p99 für eine
   Anfrage aus dem Cache **28 µs** statt der geforderten 1 ms. Der Matcher braucht
@@ -185,9 +184,14 @@ einziger Resolver im LAN, ohne dass jemand meckert.
   invertierten Trie. Entscheidung und Umkehrbedingung in
   [ADR-0008](adr/0008-hashmap-statt-bloom-und-trie.md) — der Speicherbedarf ist die
   Zahl, die sie kippen würde, nicht die Latenz.
-* **Noch nicht abgenommen:** "eine Woche als einziger Resolver im LAN, ohne dass
-  jemand meckert". Das kann kein Test ersetzen und keine Sitzung erledigen. Bis
-  dahin ist die Phase funktional fertig, aber nicht im Betrieb bewährt.
+* Gegen die echte StevenBlack-Liste geprüft: 79 747 Einträge, `doubleclick.net`
+  liefert NXDOMAIN, ein zweiter Start meldet `origin=NotModified` — der ETag greift.
+
+**Verschoben:** der Dauerbetrieb im echten Netz ("eine Woche als einziger Resolver
+im LAN") stand ursprünglich hier. Er gehört zu Phase 9: vorher gibt es keine
+systemd-Unit, und ohne sie läuft der Server nicht auf Port 53 und nicht über einen
+Neustart hinweg. Einen Resolver im LAN aus einer Shell heraus zu betreiben wäre
+kein Praxistest, sondern eine andere Baustelle.
 
 **Fallstricke:** Erst messen, dann optimieren. Bloom-Filter und invertierter Trie
 (ARCHITECTURE.md §3) kommen nur, wenn Schritt 11 zeigt, dass es nötig ist.
@@ -300,6 +304,12 @@ dass ein zweiter Dienst läuft.
 
 **Abnahme:** Frische VM, `apt install ./alpendns.deb`, funktionierender gehärteter
 Resolver ohne manuelles Nacharbeiten.
+
+**Dazu der Praxistest, der aus Phase 4 hierher verschoben wurde:** der Server läuft
+eine Woche als einziger Resolver im LAN, ohne dass jemand meckert. Erst hier ist er
+dafür überhaupt eingerichtet — auf Port 53, als Dienst, über Neustarts hinweg. Was
+dabei auffällt, gehört als Fehlalarm-Liste oder Konfigurationsänderung
+dokumentiert; "lief bei mir" ist kein Abnahmekriterium.
 
 ---
 

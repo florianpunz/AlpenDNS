@@ -8,7 +8,8 @@ Ein privacy-fokussierter DNS-Server für Linux, in Rust.
 > Platten-Cache, Austausch der Regeln im laufenden Betrieb ohne Ausfall.
 > Zwei Millionen Einträge kosten 135 MB; eine Anfrage aus dem Cache bleibt bei
 > p99 28 µs ([BENCHMARKS.md](docs/BENCHMARKS.md)).
-> Noch keine Policies pro Client — das ist Phase 5.
+> Noch keine Policies pro Client — das ist Phase 5. Im Dauerbetrieb erprobt ist
+> er noch nicht; das gehört zu Phase 9, wenn es eine systemd-Unit gibt.
 > Siehe [docs/ROADMAP.md](docs/ROADMAP.md).
 
 <details>
