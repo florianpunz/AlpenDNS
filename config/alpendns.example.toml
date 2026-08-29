@@ -1,0 +1,225 @@
+# AlpenDNS — Beispielkonfiguration
+#
+# Diese Datei ist die ZIEL-Konfiguration, nicht der Stand der Implementierung.
+# Sie dient als Spezifikation: jede Phase in docs/ROADMAP.md aktiviert einen Teil davon.
+# Abschnitte, die noch nicht implementiert sind, sind mit [PHASE n] markiert.
+#
+# Konvention: der Server startet nur, wenn die Konfiguration vollständig geparst werden
+# kann. Unbekannte Schlüssel sind ein Fehler, kein Warning (siehe CLAUDE.md).
+
+[server]
+# Listener für unverschlüsseltes DNS im LAN.
+listen_udp = ["0.0.0.0:53", "[::]:53"]
+listen_tcp = ["0.0.0.0:53", "[::]:53"]
+# Maximale gleichzeitig in Bearbeitung befindliche Anfragen, bevor SERVFAIL/Drop.
+max_inflight = 4096
+# Timeout für eine komplette Client-Anfrage inkl. Upstream.
+query_timeout = "3s"
+
+[server.edns]
+# Antwortgröße für UDP; darüber wird TC gesetzt und der Client auf TCP gezwungen.
+udp_payload_size = 1232
+# RFC 7830 / 8467: Padding für verschlüsselte Transporte.
+padding = true
+
+# [PHASE 3] Verschlüsselte Listener für eigene Clients (Laptop unterwegs, Handy).
+[server.doh]
+enabled = false
+listen = "0.0.0.0:443"
+# Pfad-Token identifiziert den Client, siehe [clients].
+path = "/dns-query"
+cert = "/etc/alpendns/tls/fullchain.pem"
+key = "/etc/alpendns/tls/privkey.pem"
+
+[server.dot]
+enabled = false
+listen = "0.0.0.0:853"
+
+[server.doq]
+enabled = false
+listen = "0.0.0.0:853"
+
+# ---------------------------------------------------------------------------
+# Upstreams
+# ---------------------------------------------------------------------------
+
+# [PHASE 2/3] Upstream-Pools. Ein Pool ist eine Menge gleichwertiger Resolver
+# plus eine Auswahlstrategie.
+[[upstream_pool]]
+name = "default"
+# fastest       — niedrigste gemessene Latenz (klassisch)
+# round_robin   — gleichmäßig
+# split_by_zone — Registrable Domain wird gehasht und immer demselben Upstream
+#                 zugewiesen. Kein Upstream sieht das ganze Profil, der Cache
+#                 bleibt trotzdem wirksam. Siehe docs/FEATURES.md P2.
+strategy = "split_by_zone"
+# Wieviele Upstreams parallel gefragt werden. >1 kostet Privacy, spart Latenz.
+fanout = 1
+
+[[upstream_pool.resolver]]
+name = "quad9"
+addr = "dot://9.9.9.9:853"
+tls_name = "dns.quad9.net"
+
+[[upstream_pool.resolver]]
+name = "mullvad"
+addr = "doh://194.242.2.4/dns-query"
+tls_name = "dns.mullvad.net"
+
+[[upstream_pool.resolver]]
+name = "dnsforge"
+addr = "doh://176.9.93.198/dns-query"
+tls_name = "dnsforge.de"
+
+# [PHASE 5] Conditional Forwarding: interne Zonen gehen nie ins Internet.
+[[forward_zone]]
+zone = "home.arpa"
+upstream = "udp://10.0.0.1:53"
+
+[[forward_zone]]
+zone = "10.in-addr.arpa"
+upstream = "udp://10.0.0.1:53"
+
+# ---------------------------------------------------------------------------
+# Cache
+# ---------------------------------------------------------------------------
+
+[cache]
+max_entries = 100_000
+min_ttl = "10s"
+max_ttl = "24h"
+# Negative Antworten (NXDOMAIN/NODATA) eigener TTL-Deckel.
+max_negative_ttl = "15m"
+# Serve-stale (RFC 8767): abgelaufene Antworten ausliefern, wenn der Upstream
+# nicht erreichbar ist. Erhöht Verfügbarkeit, kann veraltete IPs liefern.
+serve_stale = true
+serve_stale_max = "1h"
+# Prefetch: Einträge, die oft abgefragt werden, kurz vor Ablauf erneuern.
+prefetch = true
+prefetch_threshold = 0.85
+
+# ---------------------------------------------------------------------------
+# Privacy
+# ---------------------------------------------------------------------------
+
+[privacy]
+# EDNS Client Subnet niemals an Upstreams weitergeben.
+strip_ecs = true
+# DNS Cookies (RFC 7873) gegen Off-Path-Spoofing.
+cookies = true
+# 0x20 Encoding: zufällige Groß-/Kleinschreibung im QNAME zu Upstreams.
+# Manche Upstreams reagieren allergisch — deshalb per Pool abschaltbar.
+dns0x20 = true
+# [PHASE 7] Oblivious DoH (RFC 9230): Upstream sieht die Query, Proxy die IP,
+# aber niemand beides.
+odoh = { enabled = false, proxy = "https://odoh-proxy.example/proxy" }
+
+[privacy.logging]
+# none      — keine Query-Namen, weder auf Platte noch im RAM
+# aggregate — nur Zähler und Top-N über Schwellwert (k-Anonymität)
+# ring      — letzte N Sekunden im RAM für Debugging, nie persistiert
+# full      — Query-Log auf Platte. Bewusste Entscheidung, nicht Default.
+mode = "aggregate"
+ring_seconds = 300
+# Unter diesem Zählerstand taucht eine Domain in keiner Statistik auf.
+aggregate_k = 5
+
+# ---------------------------------------------------------------------------
+# Blocking
+# ---------------------------------------------------------------------------
+
+[blocking]
+# nxdomain | zero_ip | refused | sinkhole
+# sinkhole zeigt für HTTP eine Erklärseite; für HTTPS bricht die Verbindung
+# unvermeidlich ab, deshalb nicht Default.
+mode = "nxdomain"
+sinkhole_ipv4 = "127.0.0.1"
+sinkhole_ipv6 = "::1"
+
+[[blocklist]]
+name = "stevenblack-unified"
+url = "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts"
+format = "hosts"       # hosts | domains | adblock | rpz | wildcard
+refresh = "24h"
+enabled = true
+
+[[blocklist]]
+name = "oisd-big"
+url = "https://big.oisd.nl/domainswild"
+format = "wildcard"
+refresh = "24h"
+enabled = true
+
+# [PHASE 4] Lokale Listen haben immer Vorrang vor entfernten.
+[[allowlist]]
+name = "local-allow"
+path = "/etc/alpendns/allow.txt"
+format = "domains"
+
+# ---------------------------------------------------------------------------
+# [PHASE 5] Clients und Policies
+# ---------------------------------------------------------------------------
+
+[[client]]
+name = "kids-tablet"
+# Identifikation, in dieser Reihenfolge ausgewertet:
+match = { ip = ["10.0.10.42"] }
+policy = "kids"
+
+[[client]]
+name = "florian-laptop"
+# Über DoH-Pfad-Token identifiziert, funktioniert auch unterwegs.
+match = { doh_token = "REPLACE_WITH_RANDOM_32_BYTES" }
+policy = "default"
+
+[[policy]]
+name = "default"
+blocklists = ["stevenblack-unified", "oisd-big"]
+allowlists = ["local-allow"]
+
+[[policy]]
+name = "kids"
+blocklists = ["stevenblack-unified", "oisd-big"]
+allowlists = ["local-allow"]
+# Zeitfenster, in denen zusätzlich blockiert wird.
+[[policy.schedule]]
+name = "bedtime"
+days = ["mon", "tue", "wed", "thu", "sun"]
+from = "21:00"
+to = "07:00"
+action = "block_all_except_allowlist"
+
+# ---------------------------------------------------------------------------
+# [PHASE 8] Heuristik / Detection
+# ---------------------------------------------------------------------------
+
+[detection]
+# Jede Heuristik liefert einen Score 0.0–1.0 und eine Begründung.
+# action: off | log | flag | block
+dga = { action = "flag", threshold = 0.85 }
+tunneling = { action = "block", threshold = 0.9 }
+# Schutz vor DNS Rebinding: private IPs in Antworten für öffentliche Namen.
+rebinding = { action = "block", allow_zones = ["home.arpa"] }
+# Typosquatting relativ zu Domains, die dir wichtig sind.
+typosquat = { action = "flag", threshold = 0.9, protect = [
+  "sparkasse.at",
+  "id.austria.gv.at",
+  "hale.at",
+] }
+# Neu registrierte Domains, Alter aus lokaler Datei (AlpenShield-Feed).
+nrd = { action = "flag", max_age = "30d", source = "/var/lib/alpendns/nrd.txt" }
+
+# ---------------------------------------------------------------------------
+# [PHASE 6] API, UI, Metriken
+# ---------------------------------------------------------------------------
+
+[api]
+enabled = true
+listen = "127.0.0.1:8053"
+# Token-Auth; die UI wird vom selben Prozess ausgeliefert.
+token_file = "/etc/alpendns/api.token"
+
+[metrics]
+enabled = true
+listen = "127.0.0.1:9153"
+path = "/metrics"

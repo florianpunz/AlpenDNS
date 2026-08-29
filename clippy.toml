@@ -1,0 +1,16 @@
+# Warum diese Datei: B.1 verbietet unwrap()/expect()/panic!() im Produktionscode und
+# erlaubt sie ausdrücklich in #[cfg(test)]-Code. Die Workspace-Lints in Cargo.toml
+# unterscheiden das nicht — sie gelten auch für Testcode. Ohne diese Datei scheitert
+# `cargo clippy --all-targets -- -D warnings` (die Definition of Done) am ersten Test,
+# der ein unwrap() benutzt.
+
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+
+# Für indexing_slicing gibt es denselben Schalter erst ab neueren Clippy-Versionen.
+# Vor dem Einkommentieren prüfen, ob die installierte Version den Schlüssel kennt —
+# ein unbekannter Schlüssel in clippy.toml ist ein harter Fehler, kein Warning:
+#   allow-indexing-slicing-in-tests = true
+# Solange er auskommentiert ist, braucht Testcode mit buf[i] ein lokales
+# #[allow(clippy::indexing_slicing)].

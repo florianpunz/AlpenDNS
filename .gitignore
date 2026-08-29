@@ -1,0 +1,25 @@
+/target
+**/*.rs.bk
+*.pdb
+
+# Local runtime state — never commit
+/run/
+/data/
+*.sqlite
+*.sqlite-*
+*.redb
+
+# Local config with real upstreams/keys
+/alpendns.toml
+/config/local.*.toml
+*.pem
+*.key
+
+# Blocklist caches
+/lists/
+
+# Web UI build output
+/web/node_modules/
+/web/dist/
+
+.DS_Store

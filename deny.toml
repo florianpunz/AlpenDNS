@@ -1,0 +1,52 @@
+# cargo-deny: Lizenz- und Advisory-Prüfung. Läuft in CI (Job `deny`) und lokal
+# über `cargo deny check`. Siehe CLAUDE.md B.2.
+
+[graph]
+# Das Projekt zielt auf Linux. Andere Targets zu prüfen erzeugt nur Rauschen.
+targets = ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"]
+all-features = true
+
+[advisories]
+# Kein Dependency mit offenem RUSTSEC-Advisory. Ausnahmen kommen hier rein,
+# jeweils mit Ablaufdatum im Kommentar und einer Begründung.
+ignore = []
+yanked = "deny"
+
+[licenses]
+# Der Workspace steht auf AGPL-3.0-or-later. Erlaubt ist deshalb, was damit
+# kompatibel ist: die üblichen permissiven Lizenzen des Rust-Ökosystems.
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "CC0-1.0",
+    "Unlicense",
+    # unicode-ident (über proc-macro2/syn in praktisch jedem Baum) verlangt das.
+    "Unicode-3.0",
+    # GPL-kompatibel laut FSF, wird u. a. von webpki-roots-Nachbarn benutzt.
+    "MPL-2.0",
+    # Unsere eigenen Crates. Ohne diesen Eintrag meldet cargo-deny den Workspace
+    # gegen sich selbst.
+    "AGPL-3.0-or-later",
+]
+confidence-threshold = 0.9
+# Einzelne Crates mit sonst nicht erlaubter Lizenz kommen hier rein, nicht in `allow`.
+# Erwartbarer Kandidat ab Phase 3: aws-lc-rs (rustls-Backend) führt "OpenSSL" mit.
+exceptions = []
+
+[bans]
+# Mehrfache Versionen derselben Crate sind im Rust-Ökosystem normal und meist nicht
+# lösbar — sichtbar machen ja, Build brechen nein.
+multiple-versions = "warn"
+# Wildcard-Versionen ("*") machen Builds unreproduzierbar.
+wildcards = "deny"
+deny = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

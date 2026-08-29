@@ -1,0 +1,111 @@
+# Teststrategie
+
+Ein DNS-Server ist besonders gut testbar: Eingabe und Ausgabe sind Bytes über einen Socket,
+und es gibt einen normativen Standard dafür, was richtig ist. Das nutzen wir aus.
+
+## Die fünf Ebenen
+
+### 1. Unit-Tests
+
+Neben dem Code, `#[cfg(test)]`. Zuständig für: Blocklisten-Parser, Config-Deserialisierung,
+Cache-TTL-Logik, Upstream-Auswahlstrategien, Heuristik-Scoring, Trace-Aufbau.
+
+Regel: Jeder Parser wird nicht nur mit gültigen, sondern mit **kaputten** Eingaben getestet.
+Für Blocklisten heißt das mindestens: leere Datei, Datei ohne Zeilenumbruch am Ende, Zeilen
+mit CRLF, Kommentare, Inline-Kommentare, Unicode/IDN, Labels über 63 Zeichen, Namen über
+255 Zeichen, führende/abschließende Punkte, doppelte Einträge, eine 300-MB-Zeile.
+
+### 2. Property-Tests (`proptest`)
+
+Für Invarianten, die für *alle* Eingaben gelten müssen:
+
+* Blocklisten-Matcher: wenn `example.com` als Wildcard gelistet ist, matcht jede
+  Subdomain und `notexample.com` matcht nie.
+* Cache: eine gecachte Antwort hat nie eine höhere TTL als beim Einfügen.
+* 0x20: `unrandomize(randomize(name)) == name`, und der Vergleich ist
+  case-insensitive.
+* Name-Normalisierung ist idempotent.
+
+### 3. Fuzzing (`cargo fuzz`)
+
+Alles, was Bytes vom Netzwerk oder aus fremden Dateien liest, bekommt ein Fuzz-Target:
+
+* Parsen einer DNS-Nachricht (auch wenn `hickory-proto` das macht — wir fuzzen unsere
+  Verwendung davon, inklusive der Stellen, an denen wir Felder herausziehen).
+* Blocklisten-Zeilen, alle Formate.
+* Config-TOML.
+* DoH-Pfad-Parsing (Token-Extraktion).
+
+Erfolgskriterium: kein Panic, keine Endlosschleife, kein unbegrenztes Wachstum. Ein
+gefundener Crash wird als Corpus-Datei eingecheckt und wird zum Regressionstest.
+
+In CI läuft jedes Target kurz (120 s) auf dem bestehenden Corpus. Lange Läufe macht man
+lokal.
+
+### 4. Integrations-Tests
+
+Ein echter AlpenDNS-Prozess auf einem Loopback-Port, echte Anfragen, echte Antworten.
+Der Upstream ist **immer** ein Fake — ein in-process DNS-Server mit fest verdrahteten
+Antworten. Tests gehen nie ins Internet: nicht zu Resolvern, nicht zu Blocklisten-URLs.
+Ein Test, der Netzwerk braucht, ist ein Test, der irgendwann rot ist, ohne dass sich
+Code geändert hat.
+
+Testfälle, die es geben muss:
+
+* Query wird beantwortet (A, AAAA, CNAME-Kette, MX, TXT, NS, PTR).
+* Query auf Blocklisten-Domain liefert die konfigurierte Block-Antwort.
+* Allowlist schlägt Blocklist.
+* Zweiter identischer Query kommt aus dem Cache (Upstream sieht genau eine Anfrage).
+* 100 gleichzeitige identische Queries → genau eine Upstream-Anfrage (Dedup).
+* Upstream tot → nächster Resolver; alle tot → `serve_stale`, dann SERVFAIL.
+* Antwort mit falscher Query-ID/falschem QNAME wird verworfen und nicht gecacht.
+* Antwort über 1232 Byte über UDP setzt TC; derselbe Query über TCP liefert die volle
+  Antwort.
+* Rebinding: Upstream antwortet mit `192.168.1.1` auf einen öffentlichen Namen → blockiert.
+* SIGHUP mit kaputter Config → alte Config bleibt aktiv, Server antwortet weiter.
+* Policy-Zeitfenster: derselbe Query zu zwei simulierten Uhrzeiten, zwei Ergebnisse.
+  (Zeit muss injizierbar sein — kein direkter `SystemTime::now()`-Aufruf in der Policy.)
+
+### 5. Konformität und Last
+
+* **Konformität:** eine Sammlung realer Anfragen als pcap, gegen AlpenDNS und gegen
+  `unbound` abgespielt; die Antworten müssen in den relevanten Feldern übereinstimmen
+  (RCODE, Answer-Section, Flags). Unterschiede sind entweder Bugs oder bewusste
+  Abweichungen, die dokumentiert werden.
+* **Last:** `dnsperf` oder `flamethrower` gegen einen Fake-Upstream. Gemessen werden
+  Anfragen/s, p50/p99/p999-Latenz, RSS. Die Zahlen kommen in `docs/BENCHMARKS.md` und
+  werden pro Phase neu erhoben. Ohne Baseline ist "das ist jetzt schneller" eine Behauptung.
+
+## Der Replay-Harness
+
+Das Werkzeug, das sich am meisten auszahlt und das man früh baut:
+
+```
+alpendns-replay --corpus queries.jsonl --config test.toml --expect expected.jsonl
+```
+
+Eine Datei mit Anfragen (Name, Typ, Client), eine mit erwarteten Verdikten. Damit wird
+jede Änderung an Listen, Policies oder Heuristiken zu einem messbaren Diff statt zu einem
+Bauchgefühl. Der Harness ist auch die Grundlage für den Blocklist-Diff-Review aus
+[FEATURES.md](FEATURES.md) (O3).
+
+Für die Heuristiken braucht es zwei Korpora:
+
+* **Benign:** die Top-100k-Domains einer öffentlichen Popularitätsliste. Erwartung:
+  Falsch-Positiv-Rate unter 0.1 %. Das ist das eigentliche Qualitätsmaß für DGA- und
+  Typosquat-Erkennung, nicht die Trefferquote.
+* **Malign:** bekannte DGA-Familien und Tunneling-Beispiele. Erwartung: Trefferquote pro
+  Familie dokumentiert, nicht als eine Zahl gemittelt.
+
+## Definition of Done
+
+Ein Change ist fertig, wenn:
+
+```bash
+cargo fmt --all --check
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test --all-features
+```
+
+durchlaufen, **und** der Change entweder einen neuen Test mitbringt oder eine Zeile
+Begründung, warum er keinen braucht. "Kompiliert" ist nicht fertig.

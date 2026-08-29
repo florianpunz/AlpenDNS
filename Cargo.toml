@@ -1,0 +1,29 @@
+[workspace]
+resolver = "3"
+members = ["crates/alpendns"]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2024"
+rust-version = "1.85"
+license = "AGPL-3.0-or-later"
+repository = "https://github.com/florianpunz/alpendns"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+# Panics in a network daemon are availability bugs. Make them visible.
+unwrap_used = "deny"
+expect_used = "warn"
+panic = "deny"
+indexing_slicing = "deny"
+integer_division = "warn"
+todo = "warn"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
