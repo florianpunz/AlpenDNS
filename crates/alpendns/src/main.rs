@@ -3,6 +3,7 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
+use std::time::Duration;
 
 use alpendns::caching::CachingBackend;
 use alpendns::clock::SystemClock;
@@ -11,6 +12,13 @@ use alpendns::server::Server;
 use alpendns::upstream::ForwardBackend;
 use anyhow::Context as _;
 use tokio_util::sync::CancellationToken;
+
+/// Abstand, in dem die Cache-Bilanz im Log erscheint.
+///
+/// Fünf Minuten sind ein Kompromiss: oft genug, um beim Zusehen etwas zu sehen,
+/// selten genug, dass ein Dauerbetrieb das Log nicht zumüllt. Ein abfragbarer
+/// Endpunkt dafür kommt in Phase 6.
+const STATS_INTERVAL: Duration = Duration::from_secs(300);
 
 const USAGE: &str = "alpendns — privacy-fokussierter DNS-Server
 
@@ -132,6 +140,9 @@ fn run() -> anyhow::Result<()> {
         );
 
         let shutdown = CancellationToken::new();
+
+        tokio::spawn(report_stats(Arc::clone(&cache), shutdown.clone()));
+
         let signals = shutdown.clone();
         tokio::spawn(async move {
             wait_for_signal().await;
@@ -140,18 +151,48 @@ fn run() -> anyhow::Result<()> {
         });
 
         bound.run(shutdown).await;
-        let stats = cache.stats();
-        tracing::info!(
-            hits = stats.hits,
-            stale_hits = stats.stale_hits,
-            misses = stats.misses,
-            entries = cache.len(),
-            hit_rate = format!("{:.1} %", stats.hit_rate() * 100.0),
-            "Cache-Bilanz"
-        );
+        log_stats(&cache, "Cache-Bilanz");
         tracing::info!("beendet");
         Ok(())
     })
+}
+
+/// Schreibt die Cache-Bilanz regelmäßig ins Log, solange sich etwas getan hat.
+///
+/// Nur Summen, keine Namen — das ist unabhängig vom Log-Modus zulässig
+/// (CLAUDE.md B.1, Regel 3). Ohne Verkehr wird nichts geschrieben, damit ein
+/// Server im Leerlauf still bleibt.
+async fn report_stats<C: alpendns::clock::Clock>(
+    cache: Arc<alpendns::cache::Cache<C>>,
+    shutdown: CancellationToken,
+) {
+    let mut ticker = tokio::time::interval(STATS_INTERVAL);
+    // Der erste Tick kommt sofort; den wollen wir nicht.
+    ticker.tick().await;
+    let mut last = cache.stats();
+    loop {
+        tokio::select! {
+            () = shutdown.cancelled() => return,
+            _ = ticker.tick() => {}
+        }
+        let current = cache.stats();
+        if current != last {
+            log_stats(&cache, "Cache");
+            last = current;
+        }
+    }
+}
+
+fn log_stats<C: alpendns::clock::Clock>(cache: &alpendns::cache::Cache<C>, message: &'static str) {
+    let stats = cache.stats();
+    tracing::info!(
+        hits = stats.hits,
+        stale_hits = stats.stale_hits,
+        misses = stats.misses,
+        entries = cache.len(),
+        hit_rate = format!("{:.1} %", stats.hit_rate() * 100.0),
+        "{message}"
+    );
 }
 
 /// Wartet auf SIGINT oder SIGTERM.

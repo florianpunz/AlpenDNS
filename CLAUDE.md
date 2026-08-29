@@ -100,6 +100,7 @@ eines kaputten TSIG-Records, wenn Overflow-Checks an sind — Bewertung und Aufl
 in ADR-0006, bekannter Fall in `crates/alpendns/fuzz/known-crashes/`. Der CI-Lauf
 fehlt weiterhin, dafür gibt es kein GitHub-Remote.
 
+Phase 2 ist abgenommen, Zahlen in `docs/BENCHMARKS.md`.
 Aktuelle Arbeit: Phase 3 (verschlüsselte Upstreams).
 
 **Doku-Karte:** `docs/ROADMAP.md` = aktuelle Phase und Abnahmekriterien ·

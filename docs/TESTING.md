@@ -75,6 +75,16 @@ Testfälle, die es geben muss:
 * **Last:** `dnsperf` oder `flamethrower` gegen einen Fake-Upstream. Gemessen werden
   Anfragen/s, p50/p99/p999-Latenz, RSS. Die Zahlen kommen in `docs/BENCHMARKS.md` und
   werden pro Phase neu erhoben. Ohne Baseline ist "das ist jetzt schneller" eine Behauptung.
+  Solange keines der beiden Werkzeuge installiert ist, übernimmt der Lastgenerator in
+  `crates/alpendns/tests/load.rs` diese Rolle:
+
+  ```bash
+  cargo test --release --test load -- --ignored --nocapture --test-threads=1
+  ```
+
+  Er läuft wegen `#[ignore]` nicht in CI und nicht bei `cargo test` — eine Lastmessung
+  in der Definition of Done würde jeden Durchlauf verlangsamen und wäre auf fremder
+  Hardware ohnehin nicht vergleichbar.
 
 ## Der Replay-Harness
 
@@ -105,7 +115,10 @@ Ein Change ist fertig, wenn:
 cargo fmt --all --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-features
+cargo deny check
 ```
 
 durchlaufen, **und** der Change entweder einen neuen Test mitbringt oder eine Zeile
 Begründung, warum er keinen braucht. "Kompiliert" ist nicht fertig.
+
+Die Lastmessung gehört ausdrücklich **nicht** dazu (siehe §5).
