@@ -90,8 +90,13 @@ Fuzz-Target. Der gesamte testbare Code liegt in der Library (`src/lib.rs` und di
 Module daneben), `main.rs` macht nur Start, Signale und Shutdown — das ist die
 Voraussetzung dafür, dass Module später ohne Umbau zu eigenen Crates werden.
 Der Upstream spricht noch Klartext-UDP; das ist der von der Roadmap vorgesehene
-Zwischenstand bis Phase 3 und die einzige offene Abweichung von B.1. Der CI-Lauf
+Zwischenstand bis Phase 3 und eine bewusste Abweichung von B.1 Regel 7. Die zweite
+offene Abweichung betrifft B.1 Regel 1: `hickory-proto 0.26.1` panict beim Parsen
+eines kaputten TSIG-Records, wenn Overflow-Checks an sind — Bewertung und Auflagen
+in ADR-0005, bekannter Fall in `crates/alpendns/fuzz/known-crashes/`. Der CI-Lauf
 fehlt weiterhin, dafür gibt es kein GitHub-Remote.
+
+Aktuelle Arbeit: Phase 2 (Cache).
 
 **Doku-Karte:** `docs/ROADMAP.md` = aktuelle Phase und Abnahmekriterien ·
 `docs/ARCHITECTURE.md` = Zielbild · `docs/TESTING.md` = Teststrategie ·

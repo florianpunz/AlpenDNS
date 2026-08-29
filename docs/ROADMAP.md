@@ -4,7 +4,7 @@ Der Plan ist in Phasen geschnitten. Jede Phase hat ein **Ziel**, eine **Schrittl
 Verify-Format** (siehe CLAUDE.md, Teil A.4) und ein **Abnahmekriterium**. Eine Phase gilt
 als fertig, wenn das Abnahmekriterium erfüllt ist — nicht, wenn der Code kompiliert.
 
-**Aktuelle Phase: 1.**
+**Aktuelle Phase: 2.**
 
 Die Reihenfolge ist so gewählt, dass **nach Phase 4 ein Server steht, den du produktiv
 im eigenen Netz benutzen kannst**. Alles danach macht ihn besser, nicht erst benutzbar.
@@ -53,6 +53,12 @@ Projekt real wird.
 
 **Abnahme:** `dig` über UDP und TCP liefert korrekte Antworten. Ein Fuzz-Target auf dem
 Anfragepfad läuft 5 Minuten ohne Crash.
+
+**Erledigt am 2026-08-29.** Mit einer Abweichung: der Fuzz-Lauf ist crashfrei in der
+Auslieferungs-Konfiguration (`cargo +nightly fuzz run -O`). Mit aktiven Overflow-Checks
+findet er einen Panic in `hickory-proto 0.26.1` selbst, den wir nicht reparieren können.
+Bewertung, Auflagen und der Weg zurück: [ADR-0005](adr/0005-tsig-panic-in-hickory-proto.md).
+Weiterhin offen aus Phase 0: der CI-Lauf, dafür fehlt ein GitHub-Remote.
 
 **Fallstricke:** Port 53 braucht Rechte — in der Entwicklung auf 5353 gehen. UDP hat keine
 Verbindung: die Antwort muss an genau die Quelladresse zurück, von der die Anfrage kam,
