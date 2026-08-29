@@ -8,17 +8,20 @@
 </head>
 <body>
 <noscript>
-  <p class="notice">Diese Seite braucht JavaScript, um den Live-Strom zu zeigen.
-  Die Daten selbst liegen unter <code>/api/status</code>.</p>
+  <p class="note">Diese Seite braucht JavaScript für den Live-Strom. Die Daten
+  selbst liegen unter <code>/api/status</code>.</p>
 </noscript>
 
 <form id="login" class="login" hidden>
-  <h1><svg class="logo" viewBox="0 0 40 26" role="img" aria-label="Alpen">
-  <path class="ridge-back" d="M1 25 L13 7 L20 17 L24 11 L39 25 Z"/>
-  <path class="ridge-front" d="M7 25 L20 2 L33 25 Z"/>
-  <path class="snow" d="M20 2 L25.5 11.7 L22.6 10 L20 12.2 L17.4 10 L14.5 11.7 Z"/>
-</svg><span class="wordmark"><span class="brand">Alpen</span>DNS</span></h1>
-  <p>Der API-Token befindet sich in der Datei
+  <h1 class="mark">
+    <svg class="logo" viewBox="0 0 44 26" role="img" aria-label="Alpen">
+      <path class="ridge-back" d="M0 26 L12 6 L19 16 L23 10 L44 26 Z"/>
+      <path class="ridge-front" d="M6 26 L20 1 L34 26 Z"/>
+      <path class="snow" d="M20 1 L26 11.5 L22.9 9.6 L20 12 L17.1 9.6 L14 11.5 Z"/>
+    </svg>
+    <span class="wordmark"><b>Alpen</b>DNS</span>
+  </h1>
+  <p class="note">Der API-Token befindet sich in der Datei
   <code>/AlpenDNS/lists/api.token_file</code>.</p>
   <label for="token">Token</label>
   <input id="token" type="password" autocomplete="off" spellcheck="false">
@@ -26,75 +29,76 @@
   <p id="login-error" class="error" hidden></p>
 </form>
 
-<main id="app" hidden>
-  <header>
-    <h1><svg class="logo" viewBox="0 0 40 26" role="img" aria-label="Alpen">
-  <path class="ridge-back" d="M1 25 L13 7 L20 17 L24 11 L39 25 Z"/>
-  <path class="ridge-front" d="M7 25 L20 2 L33 25 Z"/>
-  <path class="snow" d="M20 2 L25.5 11.7 L22.6 10 L20 12.2 L17.4 10 L14.5 11.7 Z"/>
-</svg><span class="wordmark"><span class="brand">Alpen</span>DNS</span></h1>
-    <div class="meta">
-      <span id="version"></span>
-      <span class="live-dot" title="Der Server antwortet">
-        <span class="dot" aria-hidden="true"></span><span id="uptime"></span>
-      </span>
-      <span id="mode" title="Logging-Modus"></span>
-    </div>
+<div id="app" class="shell" hidden>
+
+  <!-- Der Rahmen: wer hier läuft, seit wann, und was er sich merkt. -->
+  <header class="masthead">
+    <h1 class="mark">
+      <svg class="logo" viewBox="0 0 44 26" role="img" aria-label="Alpen">
+        <path class="ridge-back" d="M0 26 L12 6 L19 16 L23 10 L44 26 Z"/>
+        <path class="ridge-front" d="M6 26 L20 1 L34 26 Z"/>
+        <path class="snow" d="M20 1 L26 11.5 L22.9 9.6 L20 12 L17.1 9.6 L14 11.5 Z"/>
+      </svg>
+      <span class="wordmark"><b>Alpen</b>DNS</span>
+    </h1>
+    <dl class="facts">
+      <div class="fact"><dt>Version</dt><dd id="version">–</dd></div>
+      <div class="fact"><dt>Läuft</dt>
+        <dd class="reach" id="reach"><span class="dot" aria-hidden="true"></span><span id="uptime">–</span></dd>
+      </div>
+      <div class="fact"><dt>Logging</dt><dd id="mode">–</dd></div>
+    </dl>
   </header>
 
-  <!-- Frage 1: Läuft er? -->
-  <section aria-labelledby="h-status">
-    <h2 id="h-status">Läuft er?</h2>
-    <div class="figures">
-      <div class="figure">
-        <span class="value" id="queries">–</span>
-        <span class="label">Anfragen</span>
-      </div>
-      <div class="figure">
-        <span class="value" id="blocked">–</span>
-        <span class="label">geblockt</span>
-      </div>
-      <div class="figure">
-        <span class="value" id="hitrate">–</span>
-        <span class="label">aus dem Cache</span>
-      </div>
-      <div class="figure">
-        <span class="value" id="entries">–</span>
-        <span class="label">Listeneinträge</span>
-      </div>
-    </div>
-    <table class="upstreams">
-      <caption class="sr-only">Upstreams</caption>
-      <thead>
-        <tr><th>Upstream</th><th>Antwortzeit</th><th>Erfolgreich</th><th>Fehler</th><th>Zustand</th></tr>
-      </thead>
-      <tbody id="upstreams"></tbody>
-    </table>
+  <!-- Frage 1. Bewusst klein: die Summen sind der Rahmen, nicht der Inhalt. -->
+  <section class="figures" aria-labelledby="h-status">
+    <h2 id="h-status" class="sr-only">Läuft er?</h2>
+    <div class="figure"><span class="value" id="queries">–</span><span class="label">Anfragen</span></div>
+    <div class="figure"><span class="value" id="blocked">–</span><span class="label">geblockt</span></div>
+    <div class="figure"><span class="value" id="hitrate">–</span><span class="label">aus dem Cache</span></div>
+    <div class="figure"><span class="value" id="entries">–</span><span class="label">Listeneinträge</span></div>
+    <p class="upstreams" id="upstreams"></p>
   </section>
 
-  <!-- Frage 3 steht bewusst vor der Liste: die Begründung ist die Antwort,
-       die am seltensten gesucht und am schwersten gefunden wird. -->
-  <section aria-labelledby="h-why">
+  <!-- Frage 3, und der wertvollste Teil der Seite: die größte Schrift. -->
+  <section class="why" aria-labelledby="h-why" aria-live="polite">
     <h2 id="h-why">Warum wurde das geblockt?</h2>
-    <div id="why" class="why">
-      <p class="empty">Noch nichts geblockt, seit diese Seite offen ist.</p>
+    <div id="why-body">
+      <p class="idle">Seit diese Seite offen ist, wurde nichts geblockt.</p>
     </div>
   </section>
 
-  <!-- Frage 2: Was wurde gerade geblockt? -->
-  <section aria-labelledby="h-live">
-    <h2 id="h-live">Was gerade passiert</h2>
-    <p id="live-note" class="notice" hidden></p>
-    <table class="live">
-      <caption class="sr-only">Die jüngsten Anfragen</caption>
-      <thead>
-        <tr><th>Zeit</th><th>Name</th><th>Client</th><th>Antwort</th><th class="num">ms</th></tr>
-      </thead>
-      <tbody id="live"></tbody>
-    </table>
+  <!-- Frage 2, und der Inhalt: der Strom. Er scrollt, die Seite nicht. -->
+  <section class="stream" aria-labelledby="h-live">
+    <div class="stream-head">
+      <h2 id="h-live">Was gerade passiert</h2>
+      <p class="note" id="live-note" hidden></p>
+    </div>
+    <div class="panes">
+      <div class="log" id="log-scroll" tabindex="0">
+        <table class="log-table">
+          <caption class="sr-only">Die jüngsten Anfragen</caption>
+          <thead>
+            <tr>
+              <th class="c-time">Zeit</th>
+              <th class="c-name">Name</th>
+              <th class="c-client">Client</th>
+              <th class="c-rcode">Antwort</th>
+              <th class="c-ms">ms</th>
+            </tr>
+          </thead>
+          <tbody id="log"></tbody>
+        </table>
+      </div>
+      <aside class="side" aria-labelledby="h-top">
+        <h2 id="h-top">Häufigste Namen</h2>
+        <ol class="top" id="top"></ol>
+        <p class="note" id="top-note" hidden></p>
+      </aside>
+    </div>
   </section>
-</main>
 
+</div>
 <script src="/app.js"></script>
 </body>
 </html>

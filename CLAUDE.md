@@ -274,15 +274,24 @@ Linear/Vercel-Dashboards, nicht an bunten Admin-Templates.
 
 * Keine Gradient-Hero-Sections, keine Emoji als Icons, keine animierten Zahlen-Counter,
   keine Glassmorphism-Karten, keine bunten Badges für alles.
-* **Drei Farben, drei Bedeutungen** — und keine davon schmückt: Blau für die Marke
-  (Logo und die erste Hälfte des Schriftzugs), Grün für "der Server antwortet",
-  Terrakotta für "geblockt". Alles andere neutrale Graustufen. Hell und dunkel
-  gleichwertig. Eine vierte Farbe braucht eine vierte Bedeutung, sonst ist sie Deko.
+* **Ein Akzentton**, und er markiert ausschließlich Geblocktes — nirgends sonst.
+  Nicht das Blau, das jedes Framework mitliefert. Alles andere neutrale
+  Graustufen; hell und dunkel gleichwertig. Wo Farbe alles markiert, markiert sie
+  nichts. Unterschiede, die keine Farbe brauchen, werden über Gewicht, Größe und
+  Form gemacht — der Schriftzug über das Schriftgewicht, der Erreichbarkeitspunkt
+  über gefüllt gegen hohl.
 * Grafiken werden als SVG in die Seite eingebettet, nicht als Datei geladen —
   eine Route weniger und keine Seite, die ohne Netz halb aussieht.
 * System-Schriftart. Zahlen tabular (`font-variant-numeric: tabular-nums`), damit Werte
   in Tabellen nicht springen.
 * Großzügige Weißräume, klare Hierarchie über Größe und Gewicht, nicht über Farbe.
+* Typografische Skala und Abstände liegen als CSS-Variablen fest; im Regelwerk
+  stehen keine Ad-hoc-Pixelwerte. Getrennt wird über Haarlinien und Weißraum,
+  nicht über Boxen — keine Karte in einer Karte.
+* Domainnamen in einer Monospace-Schrift aus dem System-Stack: ein Name ist
+  Material, kein Fließtext.
+* Die Seite füllt einen Bildschirm und scrollt nicht; es scrollt das Protokoll.
+  Nur so stehen die drei Fragen gleichzeitig da.
 * Die Startseite beantwortet drei Fragen ohne Klick: Läuft er? Was wurde gerade geblockt?
   Warum? Alles andere ist eine Ebene tiefer.
 * Kein Client-seitiges Analytics, keine externen Fonts, keine CDN-Ressourcen. Die UI wird

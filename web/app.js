@@ -4,13 +4,23 @@
 // im Binary und funktioniert ohne Internet (CLAUDE.md B.6). Der Token wird im
 // Browser gehalten und bei jeder Anfrage mitgeschickt; der Server kennt keine
 // Sitzungen.
+//
+// Benutzt werden genau die Endpunkte, die es gibt: /api/status für den Rahmen,
+// /api/events und /api/recent für das Protokoll, /api/top für die Nebenspalte.
 "use strict";
 
 const TOKEN_KEY = "alpendns.token";
-const MAX_ROWS = 60;
+/** So viele Zeilen hält das Protokoll. Darüber fällt die älteste heraus. */
+const MAX_ROWS = 300;
+const POLL_MS = 5000;
 
+// Nur aus dem Speicher des Browsers. Den Token zusätzlich aus der URL zu lesen
+// wäre bequem und würde ihn in jeden Verlauf schreiben; für den Live-Strom ist
+// er dort unvermeidlich, überall sonst nicht.
 let token = localStorage.getItem(TOKEN_KEY) || "";
 let stream = null;
+/** Ohne Namen (Modus none/aggregate) hat das Protokoll keine Namensspalte. */
+let namesAvailable = true;
 
 const $ = (id) => document.getElementById(id);
 
@@ -27,125 +37,169 @@ async function api(path) {
   const response = await fetch(path, {
     headers: { Authorization: `Bearer ${token}` },
   });
-  if (response.status === 401) throw new Error("unauthorized");
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   return response.json();
 }
+
+const thousands = (value) => value.toLocaleString("de-AT");
+
+/** Die Uhrzeit aus einem Zeitstempel.
+ *
+ *  /api/recent liefert den vollen ISO-Stempel, der Live-Strom nur die Uhrzeit.
+ *  Im Protokoll steht beides untereinander, also wird hier vereinheitlicht —
+ *  ein Datum in jeder Zeile wäre in einem Live-Protokoll ohnehin Ballast. */
+function clockTime(at) {
+  return at.includes("T") ? at.slice(11, 19) : at;
+}
+const percent = (value) => `${(value * 100).toFixed(1)} %`;
 
 function formatUptime(seconds) {
   const d = Math.floor(seconds / 86400);
   const h = Math.floor((seconds % 86400) / 3600);
   const m = Math.floor((seconds % 3600) / 60);
-  if (d > 0) return `seit ${d} d ${h} h`;
-  if (h > 0) return `seit ${h} h ${m} min`;
-  return `seit ${m} min`;
+  if (d > 0) return `${d} d ${h} h`;
+  if (h > 0) return `${h} h ${m} min`;
+  return `${m} min`;
 }
 
-const percent = (value) => `${(value * 100).toFixed(1)} %`;
-const thousands = (value) => value.toLocaleString("de-AT");
-
-/** Zeigt am Punkt neben der Laufzeit, ob der Server gerade antwortet. */
+/** Der Punkt neben der Laufzeit: ist der Status gerade abrufbar? */
 function setReachable(reachable) {
-  const dot = document.querySelector(".live-dot");
-  if (dot) dot.classList.toggle("is-stale", !reachable);
-  if (dot) {
-    dot.title = reachable
-      ? "Der Server antwortet"
-      : "Keine Antwort — die Zahlen sind der letzte bekannte Stand";
-  }
+  const box = $("reach");
+  box.classList.toggle("is-stale", !reachable);
+  box.title = reachable
+    ? "Der Status ist abrufbar"
+    : "Keine Antwort — die Zahlen sind der letzte bekannte Stand";
 }
 
-/** Frage 1: Läuft er? */
+// ── Frage 1: Läuft er? ────────────────────────────────────────────────────
+
 async function refreshStatus() {
   const status = await api("/api/status");
   setReachable(true);
 
-  $("version").textContent = `Version ${status.version}`;
+  $("version").textContent = status.version;
   $("uptime").textContent = formatUptime(status.uptime_seconds);
-  $("mode").textContent = `Logging: ${status.logging_mode}`;
+  $("mode").textContent = status.logging_mode;
 
   $("queries").textContent = thousands(status.queries);
-  $("blocked").textContent =
-    `${thousands(status.blocked)} · ${percent(status.block_rate)}`;
+  $("blocked").textContent = `${thousands(status.blocked)} · ${percent(status.block_rate)}`;
   $("hitrate").textContent = percent(status.cache_hit_rate);
   $("entries").textContent = thousands(status.list_entries);
 
-  const body = $("upstreams");
-  body.replaceChildren();
-  for (const upstream of status.upstreams) {
-    const row = document.createElement("tr");
-    row.append(
-      cell(upstream.name),
-      cell(upstream.rtt_ms === null ? "–" : `${upstream.rtt_ms.toFixed(0)} ms`, "num"),
-      cell(thousands(upstream.ok), "num"),
-      cell(thousands(upstream.failed), "num"),
-      cell(upstream.down ? "ausgefallen" : "erreichbar"),
-    );
-    if (upstream.down) row.className = "is-blocked";
-    body.append(row);
-  }
+  const upstreams = $("upstreams");
+  upstreams.replaceChildren();
+  status.upstreams.forEach((upstream, index) => {
+    if (index > 0) {
+      const sep = document.createElement("span");
+      sep.className = "sep";
+      sep.textContent = "·";
+      upstreams.append(sep);
+    }
+    const span = document.createElement("span");
+    if (upstream.down) span.className = "down";
+    const rtt = upstream.rtt_ms === null ? "–" : `${upstream.rtt_ms.toFixed(0)} ms`;
+    span.textContent = upstream.down
+      ? `${upstream.name} ausgefallen`
+      : `${upstream.name} ${rtt}`;
+    upstreams.append(span);
+  });
 
-  // Der Log-Modus bestimmt, was der Live-Strom überhaupt zeigen kann. Das
-  // gehört sichtbar auf die Seite und nicht in einen Einstellungsdialog
-  // (ADR-0004).
+  // Der aktive Log-Modus steht dauerhaft auf der Seite, nicht in einem
+  // Einstellungsdialog (ADR-0004). Er bestimmt, was das Protokoll zeigen kann.
+  const quiet = status.logging_mode === "none" || status.logging_mode === "aggregate";
+  namesAvailable = !quiet;
   const note = $("live-note");
-  if (status.logging_mode === "none" || status.logging_mode === "aggregate") {
+  if (quiet) {
     note.textContent =
-      `Im Modus '${status.logging_mode}' werden keine Namen gespeichert. ` +
-      `Der Strom zeigt, dass etwas passiert, aber nicht was. ` +
-      `Für Namen braucht es 'ring' (nur im Arbeitsspeicher) oder 'full' (auf Platte).`;
+      `Modus '${status.logging_mode}': der Server speichert keine Namen. ` +
+      `Sichtbar ist, dass etwas passiert — nicht was.`;
     note.hidden = false;
   } else {
     note.hidden = true;
   }
+  $("top-note").hidden = !quiet;
+  $("top-note").textContent =
+    `Nur Namen ab ${status.logging_mode === "none" ? "—" : "der k-Schwelle"}.`;
+  if (status.logging_mode === "none") {
+    $("top-note").textContent = "Im Modus 'none' werden keine Namen gezählt.";
+  }
 }
 
-/** Frage 3: Warum wurde das geblockt? */
+// ── Frage 3: Warum wurde das geblockt? ────────────────────────────────────
+
 function showReason(event) {
-  const box = $("why");
+  const box = $("why-body");
   box.replaceChildren();
 
-  const heading = document.createElement("p");
-  heading.append(document.createTextNode("Geblockt: "));
   const subject = document.createElement("span");
   subject.className = "subject";
   subject.textContent = event.name;
-  heading.append(subject);
-  if (event.client) {
-    heading.append(document.createTextNode(` — angefragt von ${event.client}`));
-  }
-  box.append(heading);
+  box.append(subject);
 
-  const when = document.createElement("p");
-  when.className = "when";
-  when.textContent = `um ${event.at}, beantwortet mit ${event.rcode}`;
-  box.append(when);
+  const context = document.createElement("p");
+  context.className = "context";
+  context.textContent =
+    `um ${clockTime(event.at)} · ${event.client ?? "unbekannt"} · beantwortet mit ${event.rcode}`;
+  box.append(context);
 
-  const list = document.createElement("ol");
-  for (const step of event.why || []) {
+  const chain = document.createElement("ol");
+  chain.className = "chain";
+  for (const step of event.why ?? []) {
     const item = document.createElement("li");
     item.textContent = step;
-    list.append(item);
+    chain.append(item);
   }
-  box.append(list);
+  box.append(chain);
 }
 
-/** Frage 2: Was gerade passiert. */
+// ── Frage 2: Was gerade passiert ──────────────────────────────────────────
+
+function row(event) {
+  const tr = document.createElement("tr");
+  if (event.blocked) tr.className = "is-blocked";
+  tr.append(cell(clockTime(event.at), "c-time"));
+
+  const name = cell(event.name ?? "ohne Namen", "c-name");
+  if (!event.name) name.classList.add("unnamed");
+  tr.append(name);
+
+  tr.append(cell(event.client ?? "–", "c-client"));
+  tr.append(cell(event.rcode, "c-rcode"));
+  tr.append(cell(event.ms.toFixed(1), "c-ms"));
+  return tr;
+}
+
 function addRow(event) {
-  const body = $("live");
-  const row = document.createElement("tr");
-  if (event.blocked) row.className = "is-blocked";
-  row.append(
-    cell(event.at),
-    cell(event.name || "(nicht gespeichert)", "name"),
-    cell(event.client || "–"),
-    cell(event.rcode, "rcode"),
-    cell(event.ms.toFixed(1), "num"),
-  );
-  body.prepend(row);
+  const body = $("log");
+  const scroller = $("log-scroll");
+  const wasAtTop = scroller.scrollTop < 4;
+
+  const tr = row(event);
+  body.prepend(tr);
   while (body.childElementCount > MAX_ROWS) body.lastElementChild.remove();
 
+  // Wer im Protokoll nach unten gescrollt hat, soll nicht mitgeschoben werden.
+  if (!wasAtTop) scroller.scrollTop += tr.offsetHeight;
+
   if (event.blocked && event.name) showReason(event);
+}
+
+async function refreshTop() {
+  const top = await api("/api/top?limit=12");
+  const list = $("top");
+  list.replaceChildren();
+  for (const entry of top) {
+    const item = document.createElement("li");
+    if (entry.blocked) item.className = "is-blocked";
+    const name = document.createElement("span");
+    name.className = "n";
+    name.textContent = entry.name;
+    const count = document.createElement("span");
+    count.className = "c";
+    count.textContent = thousands(entry.count);
+    item.append(name, count);
+    list.append(item);
+  }
 }
 
 function connectStream() {
@@ -161,13 +215,16 @@ function connectStream() {
   };
 }
 
-/** Füllt die Liste beim Laden, damit die Seite nicht leer beginnt. */
+/** Füllt das Protokoll beim Laden, damit die Seite nicht leer beginnt. */
 async function loadRecent() {
-  const recent = await api("/api/recent?limit=40");
-  for (const entry of recent.slice().reverse()) addRow(entry);
+  const recent = await api("/api/recent?limit=80");
+  const body = $("log");
+  // Rückwärts anhängen ist billiger als 80-mal voranzustellen.
+  for (const event of recent.slice().reverse()) body.prepend(row(event));
+  const newestBlocked = recent.find((event) => event.blocked && event.name);
+  if (newestBlocked) showReason(newestBlocked);
 }
 
-/** Blendet das Anmeldefenster aus und die Zahlen ein. */
 function showApp() {
   $("login").hidden = true;
   $("app").hidden = false;
@@ -176,12 +233,16 @@ function showApp() {
 async function start() {
   await refreshStatus();
   showApp();
-  await loadRecent().catch(() => {});
+  await Promise.allSettled([loadRecent(), refreshTop()]);
   connectStream();
-  setInterval(
-    () => refreshStatus().catch(() => setReachable(false)),
-    5000,
-  );
+  setInterval(async () => {
+    try {
+      await refreshStatus();
+      await refreshTop();
+    } catch {
+      setReachable(false);
+    }
+  }, POLL_MS);
 }
 
 $("login").addEventListener("submit", async (submitEvent) => {
