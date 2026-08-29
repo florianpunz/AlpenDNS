@@ -39,10 +39,15 @@ humantime-serde = "1.1"
 # Zufällige Query-IDs zum Upstream. Die ID des Clients ist von außen wählbar und
 # darf nicht nach draußen durchgereicht werden.
 rand = "0.10"
+# LRU-Verdrängung im Cache. Eine intrusive Liste von Hand ist genau die Sorte
+# Code, bei der Off-by-one-Fehler wochenlang unentdeckt bleiben.
+lru = "0.18"
 thiserror = "2.0"
 anyhow = "1.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# Property-Tests, siehe docs/TESTING.md §2.
+proptest = "1.11"
 
 [profile.release]
 lto = "thin"

@@ -1,8 +1,9 @@
-# AlpenDNS — lauffähige Minimalkonfiguration für Phase 1.
+# AlpenDNS — lauffähige Minimalkonfiguration.
 #
 # Die vollständige Ziel-Konfiguration steht in alpendns.example.toml. Diese Datei
-# enthält nur die Schlüssel, die Phase 1 wirklich umsetzt — mehr akzeptiert der
-# Server auch nicht: unbekannte Schlüssel sind ein Startfehler, kein Warning.
+# enthält nur die Schlüssel, die schon umgesetzt sind (Stand: Phase 2) — mehr
+# akzeptiert der Server auch nicht: unbekannte Schlüssel sind ein Startfehler,
+# kein Warning.
 #
 # ACHTUNG: Der Upstream läuft hier unverschlüsselt über UDP. Das widerspricht der
 # harten Regel B.1.7 ("kein Klartext-DNS nach außen") und ist ausschließlich der
@@ -18,6 +19,19 @@ query_timeout = "3s"
 [server.edns]
 # Ab dieser Antwortgröße wird über UDP das TC-Flag gesetzt (DNS Flag Day 2020).
 udp_payload_size = 1232
+
+# Alle Werte hier sind auch die Defaults; sie stehen nur da, um sichtbar zu sein.
+[cache]
+max_entries = 100_000
+min_ttl = "10s"
+max_ttl = "24h"
+max_negative_ttl = "15m"
+# Abgelaufene Antworten weiter ausliefern und parallel auffrischen (RFC 8767).
+serve_stale = true
+serve_stale_max = "1h"
+# Oft gefragte Einträge bei 85 % der TTL im Hintergrund erneuern.
+prefetch = true
+prefetch_threshold = 0.85
 
 [[upstream_pool]]
 name = "default"

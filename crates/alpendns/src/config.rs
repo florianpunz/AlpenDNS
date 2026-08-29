@@ -44,6 +44,39 @@ pub struct Config {
     /// so beschreibt — Phase 3 füllt sie, ohne das Format zu ändern.
     #[serde(default)]
     pub upstream_pool: Vec<UpstreamPool>,
+    #[serde(default)]
+    pub cache: CacheConfig,
+}
+
+/// Antwort-Cache.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CacheConfig {
+    /// Obergrenze für die Zahl gehaltener Antworten. Darüber wird die am
+    /// längsten nicht benutzte verdrängt.
+    #[serde(default = "default_max_entries")]
+    pub max_entries: usize,
+    /// Untergrenze für die TTL. Schützt vor Zonen, die mit TTL 0 arbeiten und
+    /// den Cache damit wirkungslos machen würden.
+    #[serde(with = "humantime_serde", default = "default_min_ttl")]
+    pub min_ttl: Duration,
+    #[serde(with = "humantime_serde", default = "default_max_ttl")]
+    pub max_ttl: Duration,
+    /// Eigener Deckel für negative Antworten (RFC 2308).
+    #[serde(with = "humantime_serde", default = "default_max_negative_ttl")]
+    pub max_negative_ttl: Duration,
+    /// Abgelaufene Antworten weiter ausliefern und parallel auffrischen
+    /// (RFC 8767). Erhöht die Verfügbarkeit, kann veraltete Adressen liefern.
+    #[serde(default = "default_true")]
+    pub serve_stale: bool,
+    #[serde(with = "humantime_serde", default = "default_serve_stale_max")]
+    pub serve_stale_max: Duration,
+    /// Oft gefragte Einträge kurz vor Ablauf im Hintergrund erneuern.
+    #[serde(default = "default_true")]
+    pub prefetch: bool,
+    /// Anteil der TTL, ab dem aufgefrischt wird.
+    #[serde(default = "default_prefetch_threshold")]
+    pub prefetch_threshold: f32,
 }
 
 /// Listener und Grenzwerte des Servers.
@@ -125,6 +158,49 @@ const fn default_query_timeout() -> Duration {
     Duration::from_secs(3)
 }
 
+const fn default_max_entries() -> usize {
+    100_000
+}
+
+const fn default_min_ttl() -> Duration {
+    Duration::from_secs(10)
+}
+
+const fn default_max_ttl() -> Duration {
+    Duration::from_secs(24 * 60 * 60)
+}
+
+const fn default_max_negative_ttl() -> Duration {
+    Duration::from_secs(15 * 60)
+}
+
+const fn default_serve_stale_max() -> Duration {
+    Duration::from_secs(60 * 60)
+}
+
+const fn default_true() -> bool {
+    true
+}
+
+const fn default_prefetch_threshold() -> f32 {
+    0.85
+}
+
+impl Default for CacheConfig {
+    fn default() -> Self {
+        Self {
+            max_entries: default_max_entries(),
+            min_ttl: default_min_ttl(),
+            max_ttl: default_max_ttl(),
+            max_negative_ttl: default_max_negative_ttl(),
+            serve_stale: default_true(),
+            serve_stale_max: default_serve_stale_max(),
+            prefetch: default_true(),
+            prefetch_threshold: default_prefetch_threshold(),
+        }
+    }
+}
+
 const fn default_udp_payload_size() -> u16 {
     1232
 }
@@ -159,6 +235,24 @@ impl Config {
                 "kein Listener konfiguriert: server.listen_udp und server.listen_tcp sind beide leer"
                     .to_owned(),
             ));
+        }
+        if self.cache.max_entries == 0 {
+            return Err(ConfigError::Invalid(
+                "cache.max_entries = 0 schaltet den Cache nicht ab, sondern ergibt einen \
+                 Cache ohne Platz; setze einen sinnvollen Wert"
+                    .to_owned(),
+            ));
+        }
+        if self.cache.min_ttl > self.cache.max_ttl {
+            return Err(ConfigError::Invalid(
+                "cache.min_ttl ist größer als cache.max_ttl".to_owned(),
+            ));
+        }
+        if !(0.0..=1.0).contains(&self.cache.prefetch_threshold) {
+            return Err(ConfigError::Invalid(format!(
+                "cache.prefetch_threshold muss zwischen 0.0 und 1.0 liegen, ist aber {}",
+                self.cache.prefetch_threshold
+            )));
         }
         let resolvers: usize = self.upstream_pool.iter().map(|p| p.resolver.len()).sum();
         match resolvers {

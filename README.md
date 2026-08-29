@@ -2,14 +2,15 @@
 
 Ein privacy-fokussierter DNS-Server für Linux, in Rust.
 
-> **Status: Phase 1 — der Server antwortet.** UDP und TCP auf einem konfigurierbaren
-> Port, Weiterleitung an *einen* Upstream, Validierung der Antwort gegen die Frage,
-> TC-Flag bei zu großen Antworten, Graceful Shutdown. Noch kein Cache, kein Filter,
-> keine Policy — und der Upstream läuft noch unverschlüsselt, das ändert Phase 3.
+> **Status: Phase 2 — Server mit Cache.** UDP und TCP, Weiterleitung an *einen*
+> Upstream, Validierung der Antwort gegen die Frage, TC-Flag, Graceful Shutdown.
+> Dazu ein Cache mit TTL-Klemmung, LRU-Verdrängung, serve-stale, Prefetch und
+> Query-Deduplizierung. Noch kein Filter, keine Policy — und der Upstream läuft
+> noch unverschlüsselt, das ändert Phase 3.
 > Siehe [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ```bash
-cargo run -- -c config/alpendns.phase1.toml
+cargo run -- -c config/alpendns.minimal.toml
 dig @127.0.0.1 -p 5353 example.com
 ```
 

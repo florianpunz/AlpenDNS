@@ -2,7 +2,10 @@
 
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::sync::Arc;
 
+use alpendns::caching::CachingBackend;
+use alpendns::clock::SystemClock;
 use alpendns::config::Config;
 use alpendns::server::Server;
 use alpendns::upstream::ForwardBackend;
@@ -87,6 +90,7 @@ fn run() -> anyhow::Result<()> {
         (upstream.name.clone(), upstream.addr.0)
     };
     let server_config = config.server;
+    let cache_config = config.cache;
 
     // Die Runtime wird von Hand gebaut statt über #[tokio::main]: ein Fehler
     // beim Start soll eine Fehlermeldung geben, kein Panic (CLAUDE.md B.1).
@@ -96,7 +100,17 @@ fn run() -> anyhow::Result<()> {
         .context("tokio-Runtime konnte nicht gestartet werden")?;
 
     runtime.block_on(async move {
-        let backend = ForwardBackend::new(upstream_addr, server_config.query_timeout);
+        // Der Cache liegt als Schicht vor dem Forwarder: der Server merkt davon
+        // nichts, und Phase 3 tauscht darunter den Upstream-Pool ein.
+        let backend = CachingBackend::new(
+            ForwardBackend::new(upstream_addr, server_config.query_timeout),
+            &cache_config,
+            SystemClock,
+        );
+        // Handle auf den Cache behalten, bevor das Backend in den Server wandert:
+        // beim Herunterfahren soll die Trefferquote im Log stehen. Ein
+        // Metrik-Endpunkt dafür kommt in Phase 6.
+        let cache = Arc::clone(backend.cache());
         let bound = Server::new(backend, server_config.edns.udp_payload_size)
             .bind(&server_config)
             .await
@@ -106,6 +120,8 @@ fn run() -> anyhow::Result<()> {
             udp = ?bound.udp_addrs(),
             tcp = ?bound.tcp_addrs(),
             upstream = %upstream_name,
+            cache_entries = cache_config.max_entries,
+            serve_stale = cache_config.serve_stale,
             "AlpenDNS gestartet"
         );
         // Phase 1 spricht Klartext-DNS nach außen. Das widerspricht B.1 Regel 7
@@ -124,6 +140,15 @@ fn run() -> anyhow::Result<()> {
         });
 
         bound.run(shutdown).await;
+        let stats = cache.stats();
+        tracing::info!(
+            hits = stats.hits,
+            stale_hits = stats.stale_hits,
+            misses = stats.misses,
+            entries = cache.len(),
+            hit_rate = format!("{:.1} %", stats.hit_rate() * 100.0),
+            "Cache-Bilanz"
+        );
         tracing::info!("beendet");
         Ok(())
     })
