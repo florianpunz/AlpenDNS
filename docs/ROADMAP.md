@@ -4,7 +4,7 @@ Der Plan ist in Phasen geschnitten. Jede Phase hat ein **Ziel**, eine **Schrittl
 Verify-Format** (siehe CLAUDE.md, Teil A.4) und ein **Abnahmekriterium**. Eine Phase gilt
 als fertig, wenn das Abnahmekriterium erfüllt ist — nicht, wenn der Code kompiliert.
 
-**Aktuelle Phase: 5.**
+**Aktuelle Phase: 6.**
 
 Die Reihenfolge ist so gewählt, dass **nach Phase 4 ein Server steht, den du produktiv
 im eigenen Netz benutzen kannst**. Alles danach macht ihn besser, nicht erst benutzbar.
@@ -215,6 +215,34 @@ Zeitfenster.
 
 **Abnahme:** Ein Gerät im Netz hat eine strengere Policy als der Rest, inklusive
 Zeitfenster, und `alpendns policy test` erklärt jede Entscheidung ohne Blick ins Log.
+
+**Abgenommen am 2026-08-29.** Gegen die echte StevenBlack-Liste:
+
+```
+$ alpendns -c … policy test doubleclick.net
+Verdikt:  GEBLOCKT
+  1. kein Client-Eintrag passt, es gilt 'default'
+  2. Policy 'default'
+  3. Blockliste 'stevenblack-unified' Zeile 7092: 'doubleclick.net'
+  4. Antwort selbst erzeugt, Modus Nxdomain
+
+$ alpendns -c … policy test www.spiele.example --client kids-tablet
+Verdikt:  GEBLOCKT
+  3. Regex-Regel von Policy 'kids': /(?:^|\.)spiele\./
+```
+
+Dieselbe Domain ohne `--client` läuft durch — die Regel gehört nur der einen Policy.
+
+* **Strukturell:** `resolve` bekommt jetzt einen `Ctx` mit Client-Adresse und Trace.
+  Der Trace wird über einen Mutex geteilt statt exklusiv durchgereicht, weil bei
+  `fanout > 1` mehrere Upstream-Aufgaben gleichzeitig eintragen; Begründung in
+  [ADR-0009](adr/0009-decision-trace-mit-mutex.md).
+* **Schritt 5 zur Hälfte:** befristete Freigaben gibt es samt Ablauf und
+  Subdomain-Abdeckung, aber noch nicht "über die API" — die kommt in Phase 6,
+  Schritt 1. Bis dahin sind sie nur von innen erreichbar.
+* **Zum Backtracking (Schritt 6):** die Regex-Engine arbeitet mit endlichen
+  Automaten. `(a+)+$` gegen 10 000 Zeichen läuft in unter einer Millisekunde statt
+  exponentiell. Das ist eine Eigenschaft der Engine, keine Vorsichtsmaßnahme.
 
 ---
 

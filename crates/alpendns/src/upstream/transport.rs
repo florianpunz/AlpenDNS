@@ -233,7 +233,10 @@ impl crate::resolve::ResolveBackend for Transport {
     fn resolve(
         &self,
         request: &Message,
+        _ctx: &crate::trace::Ctx,
     ) -> impl std::future::Future<Output = Result<Message, ResolveError>> + Send {
+        // Der Transport trägt nichts in den Trace ein; der Pool weiß, welcher
+        // Resolver er ist, und schreibt den Schritt.
         self.send(request)
     }
 }

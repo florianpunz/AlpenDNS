@@ -9,6 +9,7 @@ use hickory_proto::op::Message;
 use hickory_proto::rr::Name;
 
 use crate::resolve::{ResolveBackend, ResolveError};
+use crate::trace::Ctx;
 
 /// Schickt Anfragen je nach Zone an unterschiedliche Backends.
 #[derive(Debug)]
@@ -38,12 +39,13 @@ impl<Z: ResolveBackend, D: ResolveBackend> ResolveBackend for ZoneRouter<Z, D> {
     fn resolve(
         &self,
         request: &Message,
+        ctx: &Ctx,
     ) -> impl std::future::Future<Output = Result<Message, ResolveError>> + Send {
         let question = request.queries.first().map(|q| q.name().clone());
         async move {
             match question.as_ref().and_then(|name| self.zone_for(name)) {
-                Some(zone) => zone.resolve(request).await,
-                None => self.default.resolve(request).await,
+                Some(zone) => zone.resolve(request, ctx).await,
+                None => self.default.resolve(request, ctx).await,
             }
         }
     }
@@ -52,6 +54,7 @@ impl<Z: ResolveBackend, D: ResolveBackend> ResolveBackend for ZoneRouter<Z, D> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::trace::Ctx;
     use hickory_proto::op::{MessageType, OpCode, Query};
     use hickory_proto::rr::RecordType;
     use std::sync::Arc;
@@ -77,6 +80,7 @@ mod tests {
         fn resolve(
             &self,
             request: &Message,
+            _ctx: &Ctx,
         ) -> impl std::future::Future<Output = Result<Message, ResolveError>> + Send {
             let id = request.metadata.id;
             async move {
@@ -89,6 +93,11 @@ mod tests {
                 Ok(response)
             }
         }
+    }
+
+    /// Ein Kontext für Tests, die sich nicht für den Trace interessieren.
+    fn ctx() -> Ctx {
+        Ctx::new(std::net::SocketAddr::from(([127, 0, 0, 1], 5555)))
     }
 
     fn ask(name: &str) -> Message {
@@ -114,7 +123,7 @@ mod tests {
         );
 
         router
-            .resolve(&ask("nas.home.arpa."))
+            .resolve(&ask("nas.home.arpa."), &ctx())
             .await
             .expect("Antwort");
         assert_eq!(lan.calls.load(Ordering::SeqCst), 1);
@@ -130,7 +139,10 @@ mod tests {
             Arc::clone(&internet),
         );
 
-        router.resolve(&ask("home.arpa.")).await.expect("Antwort");
+        router
+            .resolve(&ask("home.arpa."), &ctx())
+            .await
+            .expect("Antwort");
         assert_eq!(lan.calls.load(Ordering::SeqCst), 1);
     }
 
@@ -149,7 +161,7 @@ mod tests {
             "nothome.arpa.",
             "home.arpa.evil.com.",
         ] {
-            router.resolve(&ask(name)).await.expect("Antwort");
+            router.resolve(&ask(name), &ctx()).await.expect("Antwort");
         }
         assert_eq!(
             lan.calls.load(Ordering::SeqCst),
@@ -174,7 +186,7 @@ mod tests {
         );
 
         router
-            .resolve(&ask("host.dev.home.arpa."))
+            .resolve(&ask("host.dev.home.arpa."), &ctx())
             .await
             .expect("Antwort");
         assert_eq!(narrow.calls.load(Ordering::SeqCst), 1);
@@ -191,7 +203,7 @@ mod tests {
         );
 
         router
-            .resolve(&ask("NAS.Home.ARPA."))
+            .resolve(&ask("NAS.Home.ARPA."), &ctx())
             .await
             .expect("Antwort");
         assert_eq!(lan.calls.load(Ordering::SeqCst), 1);
@@ -202,7 +214,10 @@ mod tests {
         let internet = Marker::new("internet");
         let router: ZoneRouter<Arc<Marker>, Arc<Marker>> =
             ZoneRouter::new(Vec::new(), Arc::clone(&internet));
-        router.resolve(&ask("example.com.")).await.expect("Antwort");
+        router
+            .resolve(&ask("example.com."), &ctx())
+            .await
+            .expect("Antwort");
         assert_eq!(internet.calls.load(Ordering::SeqCst), 1);
     }
 }

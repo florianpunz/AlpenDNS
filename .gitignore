@@ -12,6 +12,7 @@
 # Local config with real upstreams/keys
 /alpendns.toml
 /config/local.*.toml
+/config/*.dev.txt
 *.pem
 *.key
 

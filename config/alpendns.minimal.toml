@@ -104,3 +104,39 @@ enabled = true
 # name = "lokal"
 # path = "./allow.txt"
 # format = "wildcard"
+
+# ---------------------------------------------------------------------------
+# Clients und Policies
+# ---------------------------------------------------------------------------
+#
+# Ohne diesen Abschnitt gilt eine Regel für alle: eine Policy namens "default",
+# die alle konfigurierten Listen benutzt. Sobald hier ein [[client]] steht,
+# muss es auch eine [[policy]] namens "default" geben — für alles, was keinem
+# Client-Eintrag entspricht.
+#
+# Reihenfolge der Auswertung: befristete Freigabe → Allowlist → Blocklisten →
+# Regex → Zeitplan. Die Allowlist steht vorn, weil sie sonst keinen Zweck hätte.
+#
+# Prüfen, ohne den Server zu starten:
+#   alpendns -c <datei> policy test <domain> [--client <name>]
+
+# [[client]]
+# name = "kids-tablet"
+# match = { ip = ["10.0.10.42", "10.0.11.0/24"] }
+# policy = "kids"
+#
+# [[policy]]
+# name = "default"
+# blocklists = ["stevenblack-unified"]
+#
+# [[policy]]
+# name = "kids"
+# blocklists = ["stevenblack-unified"]
+# regex = ["(?:^|\\.)spiele\\."]
+#
+# [[policy.schedule]]
+# name = "bedtime"
+# days = ["mon", "tue", "wed", "thu", "sun"]
+# from = "21:00"
+# to = "07:00"
+# action = "block_all_except_allowlist"

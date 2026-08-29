@@ -22,6 +22,7 @@ use hickory_proto::rr::Name;
 use crate::clock::Clock;
 use crate::config::Strategy;
 use crate::resolve::{ResolveBackend, ResolveError};
+use crate::trace::{Ctx, Step};
 
 use super::strategy;
 
@@ -248,14 +249,24 @@ impl<B: ResolveBackend, C: Clock> Pool<B, C> {
     }
 
     /// Fragt einen einzelnen Upstream und schreibt das Ergebnis in die Statistik.
-    async fn try_one(&self, index: usize, request: &Message) -> Result<Message, ResolveError> {
+    async fn try_one(
+        &self,
+        index: usize,
+        request: &Message,
+        ctx: &Ctx,
+    ) -> Result<Message, ResolveError> {
         let Some(upstream) = self.upstreams.get(index) else {
             return Err(ResolveError::NoUpstreamLeft);
         };
         let started = self.clock.now();
-        match upstream.backend.resolve(request).await {
+        match upstream.backend.resolve(request, ctx).await {
             Ok(response) => {
-                self.record_success(index, self.clock.now().saturating_duration_since(started));
+                let rtt = self.clock.now().saturating_duration_since(started);
+                self.record_success(index, rtt);
+                ctx.record(Step::UpstreamUsed {
+                    resolver: std::sync::Arc::from(upstream.name.as_str()),
+                    rtt,
+                });
                 Ok(response)
             }
             Err(error) => {
@@ -280,6 +291,7 @@ impl<B: ResolveBackend, C: Clock> ResolveBackend for Pool<B, C> {
     fn resolve(
         &self,
         request: &Message,
+        ctx: &Ctx,
     ) -> impl std::future::Future<Output = Result<Message, ResolveError>> + Send {
         let question = request.queries.first().map(|q| q.name().clone());
         async move {
@@ -299,7 +311,7 @@ impl<B: ResolveBackend, C: Clock> ResolveBackend for Pool<B, C> {
                 // parallel und der erste Erfolg gewinnt.
                 let mut attempts: FuturesUnordered<_> = now
                     .iter()
-                    .map(|&index| self.try_one(index, request))
+                    .map(|&index| self.try_one(index, request, ctx))
                     .collect();
                 while let Some(result) = attempts.next().await {
                     match result {
@@ -317,6 +329,7 @@ impl<B: ResolveBackend, C: Clock> ResolveBackend for Pool<B, C> {
 mod tests {
     use super::*;
     use crate::clock::{SystemClock, TestClock};
+    use crate::trace::Ctx;
     use hickory_proto::op::{MessageType, OpCode, Query};
     use hickory_proto::rr::RecordType;
     use std::sync::Arc;
@@ -353,6 +366,7 @@ mod tests {
         fn resolve(
             &self,
             request: &Message,
+            _ctx: &Ctx,
         ) -> impl std::future::Future<Output = Result<Message, ResolveError>> + Send {
             let request = request.clone();
             async move {
@@ -368,6 +382,11 @@ mod tests {
                 Ok(response)
             }
         }
+    }
+
+    /// Ein Kontext für Tests, die sich nicht für den Trace interessieren.
+    fn ctx() -> Ctx {
+        Ctx::new(std::net::SocketAddr::from(([127, 0, 0, 1], 5555)))
     }
 
     fn question(name: &str) -> Message {
@@ -407,7 +426,7 @@ mod tests {
 
         // Genug Anfragen, dass der tote Upstream die Schwelle reißt.
         for _ in 0..6 {
-            pool.resolve(&question("example.com."))
+            pool.resolve(&question("example.com."), &ctx())
                 .await
                 .expect("der lebende Upstream antwortet");
         }
@@ -420,7 +439,7 @@ mod tests {
 
         // Ab jetzt wird er übersprungen.
         for _ in 0..5 {
-            pool.resolve(&question("example.com."))
+            pool.resolve(&question("example.com."), &ctx())
                 .await
                 .expect("weiter beantwortet");
         }
@@ -444,7 +463,7 @@ mod tests {
         );
 
         for _ in 0..6 {
-            let _ = pool.resolve(&question("example.com.")).await;
+            let _ = pool.resolve(&question("example.com."), &ctx()).await;
         }
         assert!(pool.stats().first().expect("Statistik").down);
 
@@ -457,7 +476,7 @@ mod tests {
 
         let before = flaky.calls();
         for _ in 0..4 {
-            pool.resolve(&question("example.com."))
+            pool.resolve(&question("example.com."), &ctx())
                 .await
                 .expect("beantwortet");
         }
@@ -476,12 +495,16 @@ mod tests {
         let pool = pool_of(&[Arc::clone(&dead)], Strategy::RoundRobin, clock);
 
         for _ in 0..5 {
-            assert!(pool.resolve(&question("example.com.")).await.is_err());
+            assert!(
+                pool.resolve(&question("example.com."), &ctx())
+                    .await
+                    .is_err()
+            );
         }
         assert!(pool.stats().first().expect("Statistik").down);
 
         let before = dead.calls();
-        let _ = pool.resolve(&question("example.com.")).await;
+        let _ = pool.resolve(&question("example.com."), &ctx()).await;
         assert!(dead.calls() > before, "es wurde niemand mehr gefragt");
     }
 
@@ -498,13 +521,13 @@ mod tests {
 
         // Zwei Anfragen zum Einmessen, danach sollte der schnelle gewinnen.
         for _ in 0..2 {
-            pool.resolve(&question("example.com."))
+            pool.resolve(&question("example.com."), &ctx())
                 .await
                 .expect("beantwortet");
         }
         let slow_after_warmup = slow.calls();
         for _ in 0..10 {
-            pool.resolve(&question("example.com."))
+            pool.resolve(&question("example.com."), &ctx())
                 .await
                 .expect("beantwortet");
         }
@@ -524,7 +547,7 @@ mod tests {
         let pool = pool_of(&fakes, Strategy::SplitByZone, clock);
 
         for _ in 0..12 {
-            pool.resolve(&question("www.example.com."))
+            pool.resolve(&question("www.example.com."), &ctx())
                 .await
                 .expect("beantwortet");
         }
@@ -545,7 +568,7 @@ mod tests {
         let pool = pool_of(&fakes, Strategy::SplitByZone, clock);
 
         // Herausfinden, wer zuständig ist, und ihn kaputt machen.
-        pool.resolve(&question("www.example.com."))
+        pool.resolve(&question("www.example.com."), &ctx())
             .await
             .expect("beantwortet");
         let responsible = fakes
@@ -556,7 +579,7 @@ mod tests {
             fake.broken.store(true, Ordering::SeqCst);
         }
 
-        pool.resolve(&question("www.example.com."))
+        pool.resolve(&question("www.example.com."), &ctx())
             .await
             .expect("ein anderer Upstream muss einspringen");
         let answered_elsewhere = fakes
@@ -573,7 +596,7 @@ mod tests {
         let pool = pool_of(&fakes, Strategy::RoundRobin, clock);
 
         for _ in 0..9 {
-            pool.resolve(&question("example.com."))
+            pool.resolve(&question("example.com."), &ctx())
                 .await
                 .expect("beantwortet");
         }
@@ -597,7 +620,7 @@ mod tests {
         ];
         let pool = Pool::with_seed(upstreams, Strategy::RoundRobin, 2, SystemClock, 1);
 
-        pool.resolve(&question("example.com."))
+        pool.resolve(&question("example.com."), &ctx())
             .await
             .expect("beantwortet");
 
@@ -610,7 +633,7 @@ mod tests {
         let clock = Arc::new(TestClock::new());
         let pool: Pool<Arc<Fake>, Arc<TestClock>> = pool_of(&[], Strategy::RoundRobin, clock);
         assert!(matches!(
-            pool.resolve(&question("example.com.")).await,
+            pool.resolve(&question("example.com."), &ctx()).await,
             Err(ResolveError::NoUpstreamLeft)
         ));
     }

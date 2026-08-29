@@ -22,7 +22,7 @@ pub(crate) async fn serve<B: ResolveBackend>(
     tracker: TaskTracker,
 ) {
     loop {
-        let (stream, _peer) = tokio::select! {
+        let (stream, peer) = tokio::select! {
             () = shutdown.cancelled() => break,
             result = listener.accept() => match result {
                 Ok(accepted) => accepted,
@@ -36,7 +36,7 @@ pub(crate) async fn serve<B: ResolveBackend>(
         let backend = Arc::clone(&backend);
         let shutdown = shutdown.clone();
         tracker.spawn(async move {
-            if let Err(error) = handle_connection(stream, backend.as_ref(), &shutdown).await {
+            if let Err(error) = handle_connection(stream, peer, backend.as_ref(), &shutdown).await {
                 tracing::debug!(%error, "TCP-Verbindung beendet");
             }
         });
@@ -46,6 +46,7 @@ pub(crate) async fn serve<B: ResolveBackend>(
 /// Beantwortet Anfragen auf einer Verbindung, bis der Client sie schließt.
 async fn handle_connection<B: ResolveBackend>(
     mut stream: TcpStream,
+    peer: std::net::SocketAddr,
     backend: &B,
     shutdown: &CancellationToken,
 ) -> std::io::Result<()> {
@@ -67,7 +68,7 @@ async fn handle_connection<B: ResolveBackend>(
         let mut packet = vec![0_u8; usize::from(u16::from_be_bytes(len_buf))];
         stream.read_exact(&mut packet).await?;
 
-        let Some(response) = crate::server::handle_request(backend, &packet).await else {
+        let Some(response) = crate::server::handle_request(backend, &packet, peer).await else {
             continue;
         };
         let bytes = match response.to_vec() {

@@ -110,6 +110,12 @@ die Logging-Schicht:
 Die UI zeigt "warum" aus dem Ringpuffer. Deshalb funktioniert die Erklärung auch bei
 Log-Modus `ring`, ohne dass irgendwo ein Query-Log liegt.
 
+**Zwei Abweichungen in der Umsetzung** (Phase 5): der Trace wird über einen `Mutex`
+geteilt statt exklusiv durchgereicht — sonst könnten bei `fanout > 1` nicht mehrere
+Upstream-Aufgaben gleichzeitig eintragen. Und die Schritte tragen Namen als `Arc<str>`
+statt IDs, damit ein Trace ohne die Konfiguration daneben lesbar ist. Begründung:
+[ADR-0009](adr/0009-decision-trace-mit-mutex.md).
+
 ## 3. Blocklisten: Datenstruktur
 
 Das Naive wäre ein `HashSet<String>` mit den Domains. Bei 1–2 Millionen Einträgen sind das

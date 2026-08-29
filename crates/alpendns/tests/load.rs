@@ -22,11 +22,13 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use alpendns::caching::CachingBackend;
-use alpendns::clock::SystemClock;
+use alpendns::clock::{SystemClock, SystemWallClock};
 use alpendns::config::{BlockingConfig, CacheConfig, Config};
+use alpendns::filter::LoadedLists;
 use alpendns::filter::matcher::Builder as MatcherBuilder;
 use alpendns::filter::parser::{Format, parse};
-use alpendns::filter::{Filter, FilterBackend, FilterSet};
+use alpendns::policy::rules::RegexRules;
+use alpendns::policy::{Blueprint, Engine, PolicyBackend, PolicyBlueprint};
 use alpendns::privacy;
 use alpendns::server::Server;
 use alpendns::upstream::ForwardBackend;
@@ -92,10 +94,11 @@ struct Harness {
 }
 
 async fn start(cache_config: CacheConfig) -> Harness {
-    start_with_filter(cache_config, FilterSet::default()).await
+    start_with_lists(cache_config, LoadedLists::default()).await
 }
 
-async fn start_with_filter(cache_config: CacheConfig, rules: FilterSet) -> Harness {
+/// Startet den Server mit einer Policy, die alle übergebenen Listen benutzt.
+async fn start_with_lists(cache_config: CacheConfig, lists: LoadedLists) -> Harness {
     let upstream_hits = Arc::new(AtomicUsize::new(0));
     let upstream = fake_upstream(Arc::clone(&upstream_hits)).await;
 
@@ -104,8 +107,26 @@ async fn start_with_filter(cache_config: CacheConfig, rules: FilterSet) -> Harne
     )
     .expect("Testkonfiguration");
 
-    let filter = Arc::new(Filter::new(rules, &BlockingConfig::default()));
-    let backend = FilterBackend::new(
+    let blueprint = Blueprint::new(
+        Vec::new(),
+        Arc::from("default"),
+        vec![PolicyBlueprint {
+            name: Arc::from("default"),
+            blocklists: lists.names().cloned().collect(),
+            allowlists: Vec::new(),
+            regex: Arc::new(RegexRules::default()),
+            schedules: Vec::new(),
+        }],
+    );
+    let entries = lists.total_entries();
+    let filter = Arc::new(Engine::new(
+        blueprint.build(&lists).expect("Regelstand"),
+        entries,
+        &BlockingConfig::default(),
+        SystemClock,
+        SystemWallClock,
+    ));
+    let backend = PolicyBackend::new(
         filter,
         CachingBackend::new(
             ForwardBackend::new(
@@ -374,17 +395,18 @@ fn matcher_with_two_million_entries() {
 async fn cache_hit_latency_with_two_million_blocklist_entries() {
     // Das Abnahmekriterium von Phase 4: mit zwei Millionen geladenen Einträgen
     // muss ein Cache-Treffer p99 unter einer Millisekunde bleiben.
-    let parsed = parse(&synthetic_blocklist(BLOCKLIST_ENTRIES), Format::Hosts);
-    let mut builder = MatcherBuilder::new();
-    builder.add("gross", &parsed);
-    let rules = FilterSet {
-        block: builder.build(),
-        allow: Default::default(),
-    };
-    let entries = rules.block.len();
-    drop(parsed);
+    let lists = LoadedLists::from_matchers(vec![(
+        Arc::from("gross"),
+        Arc::new({
+            let parsed = parse(&synthetic_blocklist(BLOCKLIST_ENTRIES), Format::Hosts);
+            let mut builder = MatcherBuilder::new();
+            builder.add("gross", &parsed);
+            builder.build()
+        }),
+    )]);
+    let entries = lists.total_entries();
 
-    let harness = start_with_filter(CacheConfig::default(), rules).await;
+    let harness = start_with_lists(CacheConfig::default(), lists).await;
     let rss = resident_kib();
 
     // Einmal aufwärmen, danach kommt alles aus dem Cache.

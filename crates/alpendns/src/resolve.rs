@@ -10,6 +10,8 @@ use std::future::Future;
 
 use hickory_proto::op::Message;
 
+use crate::trace::Ctx;
+
 /// Warum eine Auflösung fehlgeschlagen ist.
 #[derive(Debug, thiserror::Error)]
 pub enum ResolveError {
@@ -45,6 +47,7 @@ pub trait ResolveBackend: Send + Sync + 'static {
     fn resolve(
         &self,
         request: &Message,
+        ctx: &Ctx,
     ) -> impl Future<Output = Result<Message, ResolveError>> + Send;
 }
 
@@ -54,7 +57,8 @@ impl<B: ResolveBackend> ResolveBackend for std::sync::Arc<B> {
     fn resolve(
         &self,
         request: &Message,
+        ctx: &Ctx,
     ) -> impl Future<Output = Result<Message, ResolveError>> + Send {
-        (**self).resolve(request)
+        (**self).resolve(request, ctx)
     }
 }

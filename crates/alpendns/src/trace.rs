@@ -1,0 +1,304 @@
+//! Der Decision-Trace: warum eine Anfrage so beantwortet wurde, wie sie
+//! beantwortet wurde.
+//!
+//! Das ist das architektonisch wichtigste Detail des Projekts
+//! (ARCHITECTURE.md §2). Der Trace entsteht **immer**, unabhängig vom Log-Modus;
+//! erst die Logging-Schicht entscheidet, was mit ihm passiert. Deshalb darf er
+//! Query-Namen enthalten — und deshalb darf ihn niemand außerhalb dieser
+//! Schicht einfach ins Log schreiben (B.1 Regel 3).
+//!
+//! **Warum ein Mutex und kein `&mut`:** der Upstream-Pool fragt bei `fanout > 1`
+//! mehrere Resolver gleichzeitig, und jeder will seinen Schritt eintragen. Mit
+//! einer exklusiven Referenz ginge das nicht. Ein unumkämpfter Mutex kostet
+//! wenige Nanosekunden gegen 28 µs für eine ganze Anfrage.
+
+use std::net::SocketAddr;
+use std::sync::{Arc, Mutex, PoisonError};
+use std::time::{Duration, Instant};
+
+use crate::filter::block::BlockMode;
+
+/// Woran ein Client erkannt wurde.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MatchKind {
+    /// Quell-IP oder Subnetz.
+    Address,
+    /// Kein Eintrag hat gepasst, es gilt die Default-Policy.
+    Default,
+}
+
+/// Was ein Zeitplan angeordnet hat.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScheduleEffect {
+    /// Innerhalb des Fensters: alles außer der Allowlist wird geblockt.
+    BlockAllExceptAllowlist,
+}
+
+/// Ein Schritt auf dem Weg zur Antwort.
+///
+/// Namen sind als `Arc<str>` eingebettet statt als IDs mit Nachschlagetabelle:
+/// ein Trace soll für sich allein lesbar sein, ohne die Konfiguration daneben.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Step {
+    ClientMatched {
+        client: Arc<str>,
+        by: MatchKind,
+    },
+    PolicyApplied {
+        policy: Arc<str>,
+    },
+    /// Eine befristete Freigabe hat gegriffen.
+    TemporaryAllow {
+        remaining: Duration,
+    },
+    AllowlistHit {
+        list: Arc<str>,
+        line: u32,
+        /// Der Eintrag, der zutraf — bei einer Wildcard nicht der gefragte Name.
+        matched: String,
+    },
+    BlocklistHit {
+        list: Arc<str>,
+        line: u32,
+        matched: String,
+    },
+    RegexHit {
+        policy: Arc<str>,
+        pattern: Arc<str>,
+    },
+    ScheduleHit {
+        schedule: Arc<str>,
+        effect: ScheduleEffect,
+    },
+    CacheHit {
+        ttl_left: u32,
+        stale: bool,
+    },
+    UpstreamUsed {
+        resolver: Arc<str>,
+        rtt: Duration,
+    },
+    Synthesized {
+        mode: BlockMode,
+    },
+}
+
+impl std::fmt::Display for Step {
+    /// Eine Zeile pro Schritt, so wie `alpendns policy test` sie ausgibt.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ClientMatched { client, by } => match by {
+                MatchKind::Address => write!(f, "Client '{client}' über die Quelladresse erkannt"),
+                MatchKind::Default => write!(f, "kein Client-Eintrag passt, es gilt '{client}'"),
+            },
+            Self::PolicyApplied { policy } => write!(f, "Policy '{policy}'"),
+            Self::TemporaryAllow { remaining } => {
+                write!(f, "befristete Freigabe, noch {remaining:.0?}")
+            }
+            Self::AllowlistHit {
+                list,
+                line,
+                matched,
+            } => write!(f, "Allowlist '{list}' Zeile {line}: '{matched}'"),
+            Self::BlocklistHit {
+                list,
+                line,
+                matched,
+            } => write!(f, "Blockliste '{list}' Zeile {line}: '{matched}'"),
+            Self::RegexHit { policy, pattern } => {
+                write!(f, "Regex-Regel von Policy '{policy}': /{pattern}/")
+            }
+            Self::ScheduleHit { schedule, effect } => match effect {
+                ScheduleEffect::BlockAllExceptAllowlist => write!(
+                    f,
+                    "Zeitplan '{schedule}' aktiv: alles außer der Allowlist wird geblockt"
+                ),
+            },
+            Self::CacheHit { ttl_left, stale } => {
+                let label = if *stale { "abgelaufen" } else { "gültig" };
+                write!(f, "aus dem Cache ({label}, noch {ttl_left} s)")
+            }
+            Self::UpstreamUsed { resolver, rtt } => {
+                write!(f, "Upstream '{resolver}' antwortete in {rtt:.1?}")
+            }
+            Self::Synthesized { mode } => write!(f, "Antwort selbst erzeugt, Modus {mode:?}"),
+        }
+    }
+}
+
+/// Kontext einer einzelnen Anfrage.
+///
+/// Wandert durch alle Schichten der Pipeline. Geteilt und nicht exklusiv, damit
+/// nebenläufige Schichten eintragen können.
+#[derive(Debug)]
+pub struct Ctx {
+    /// Woher die Anfrage kam. Grundlage der Client-Identifikation.
+    pub peer: SocketAddr,
+    started: Instant,
+    steps: Mutex<Vec<Step>>,
+}
+
+impl Ctx {
+    pub fn new(peer: SocketAddr) -> Self {
+        Self {
+            peer,
+            started: Instant::now(),
+            // Acht Schritte decken den Normalfall ohne Nachallokieren ab.
+            steps: Mutex::new(Vec::with_capacity(8)),
+        }
+    }
+
+    /// Kontext ohne echten Client — für Hintergrundaufgaben wie Prefetch, die
+    /// keine Anfrage eines Clients sind.
+    pub fn internal() -> Self {
+        Self::new(SocketAddr::from(([127, 0, 0, 1], 0)))
+    }
+
+    pub fn record(&self, step: Step) {
+        self.steps
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(step);
+    }
+
+    pub fn steps(&self) -> Vec<Step> {
+        self.steps
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    pub fn elapsed(&self) -> Duration {
+        self.started.elapsed()
+    }
+
+    /// Die Begründungskette als Text, ein Schritt pro Zeile.
+    pub fn explain(&self) -> String {
+        self.steps()
+            .iter()
+            .enumerate()
+            .map(|(index, step)| format!("  {}. {step}", index.saturating_add(1)))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ctx() -> Ctx {
+        Ctx::new(SocketAddr::from(([10, 0, 0, 5], 1234)))
+    }
+
+    #[test]
+    fn steps_are_kept_in_order() {
+        let ctx = ctx();
+        ctx.record(Step::ClientMatched {
+            client: Arc::from("laptop"),
+            by: MatchKind::Address,
+        });
+        ctx.record(Step::PolicyApplied {
+            policy: Arc::from("default"),
+        });
+        let steps = ctx.steps();
+        assert_eq!(steps.len(), 2);
+        assert!(matches!(steps.first(), Some(Step::ClientMatched { .. })));
+        assert!(matches!(steps.get(1), Some(Step::PolicyApplied { .. })));
+    }
+
+    #[test]
+    fn a_fresh_context_has_no_steps() {
+        assert!(ctx().steps().is_empty());
+        assert_eq!(ctx().explain(), "");
+    }
+
+    #[test]
+    fn several_threads_can_record_at_once() {
+        // Der Grund für den Mutex: bei fanout > 1 tragen mehrere Aufgaben
+        // gleichzeitig ein.
+        let ctx = Arc::new(ctx());
+        let mut handles = Vec::new();
+        for i in 0..8 {
+            let ctx = Arc::clone(&ctx);
+            handles.push(std::thread::spawn(move || {
+                ctx.record(Step::UpstreamUsed {
+                    resolver: Arc::from(format!("r{i}")),
+                    rtt: Duration::from_millis(i),
+                });
+            }));
+        }
+        for handle in handles {
+            handle.join().expect("Thread");
+        }
+        assert_eq!(ctx.steps().len(), 8);
+    }
+
+    #[test]
+    fn the_explanation_numbers_every_step() {
+        let ctx = ctx();
+        ctx.record(Step::ClientMatched {
+            client: Arc::from("kids-tablet"),
+            by: MatchKind::Address,
+        });
+        ctx.record(Step::BlocklistHit {
+            list: Arc::from("stevenblack"),
+            line: 42,
+            matched: "ads.example.com".to_owned(),
+        });
+        let text = ctx.explain();
+        assert!(text.contains("1. Client 'kids-tablet'"), "{text}");
+        assert!(
+            text.contains("2. Blockliste 'stevenblack' Zeile 42"),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn every_step_renders_without_panicking() {
+        let steps = [
+            Step::ClientMatched {
+                client: Arc::from("c"),
+                by: MatchKind::Default,
+            },
+            Step::PolicyApplied {
+                policy: Arc::from("p"),
+            },
+            Step::TemporaryAllow {
+                remaining: Duration::from_secs(42),
+            },
+            Step::AllowlistHit {
+                list: Arc::from("a"),
+                line: 1,
+                matched: "x.example".to_owned(),
+            },
+            Step::BlocklistHit {
+                list: Arc::from("b"),
+                line: 2,
+                matched: "y.example".to_owned(),
+            },
+            Step::RegexHit {
+                policy: Arc::from("p"),
+                pattern: Arc::from("^ads"),
+            },
+            Step::ScheduleHit {
+                schedule: Arc::from("bedtime"),
+                effect: ScheduleEffect::BlockAllExceptAllowlist,
+            },
+            Step::CacheHit {
+                ttl_left: 30,
+                stale: true,
+            },
+            Step::UpstreamUsed {
+                resolver: Arc::from("quad9"),
+                rtt: Duration::from_millis(12),
+            },
+            Step::Synthesized {
+                mode: BlockMode::Nxdomain,
+            },
+        ];
+        for step in steps {
+            assert!(!step.to_string().is_empty(), "{step:?}");
+        }
+    }
+}
