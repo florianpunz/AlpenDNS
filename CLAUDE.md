@@ -84,7 +84,8 @@ diesem Projekt. Das heißt konkret: erkläre nicht-offensichtliche Entscheidunge
 Commit oder in der Antwort, statt sie kommentarlos einzubauen. Ein Einzeiler
 "warum so und nicht anders" ist mehr wert als drei Absätze Doku.
 
-**Stand:** Phasen 1 bis 5 sind umgesetzt und abgenommen. Der Praxistest im echten
+**Stand:** Phasen 1 bis 6 sind umgesetzt. Abgenommen sind 1 bis 5; bei Phase 6
+fehlt nur der Blick eines Menschen auf die gerenderte UI (Roadmap, Schritt 8). Der Praxistest im echten
 Netz ist bewusst auf Phase 9 verschoben — vorher gibt es keine systemd-Unit und
 damit keinen Betrieb auf Port 53. Der gesamte testbare Code
 liegt in der Library (`src/lib.rs` und die Module daneben), `main.rs` macht nur
@@ -99,9 +100,11 @@ ungefilterte Antwort hält und alle Clients sie teilen können (ARCHITECTURE.md 
 
 `resolve` bekommt neben der Nachricht einen `Ctx` mit Client-Adresse und
 Decision-Trace. Der Trace entsteht immer, unabhängig vom Log-Modus, und **enthält
-Query-Namen** — bis die Logging-Schicht in Phase 6 existiert, darf ihn niemand ins
-Log schreiben (B.1 Regel 3). Was heute geloggt wird, sind Listennamen und
-Zeilennummern.
+Query-Namen**. Er verlässt die Pipeline an genau einer Stelle: `server::handle_request`
+übergibt ihn an `logging::QueryLog`, und nur dort entscheidet der konfigurierte
+Modus, was davon den Prozess überlebt (B.1 Regel 3, ADR-0004). Wer anderswo einen
+Namen loggen will, macht etwas falsch — der Test
+`no_query_name_leaves_the_process_in_the_quiet_modes` fängt es.
 
 Klartext-DNS nach außen ist erledigt (B.1 Regel 7): `udp://` in einem
 `upstream_pool` ist ein Startfehler. Eine Abweichung bleibt offen — B.1 Regel 1:
@@ -111,7 +114,7 @@ Overflow-Checks an sind. Bewertung und Auflagen in ADR-0006, bekannter Fall in
 `deny.toml` (RUSTSEC-2026-0009 in einer dev-dependency). Der CI-Lauf fehlt
 weiterhin, dafür gibt es kein GitHub-Remote.
 
-Zahlen in `docs/BENCHMARKS.md`. Aktuelle Arbeit: Phase 6 (API, Metriken, Web-UI).
+Zahlen in `docs/BENCHMARKS.md`. Aktuelle Arbeit: Phase 7 (Privacy-Ausbau).
 
 **Doku-Karte:** `docs/ROADMAP.md` = aktuelle Phase und Abnahmekriterien ·
 `docs/ARCHITECTURE.md` = Zielbild · `docs/TESTING.md` = Teststrategie ·

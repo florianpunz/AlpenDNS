@@ -2,16 +2,23 @@
 
 Ein privacy-fokussierter DNS-Server für Linux, in Rust.
 
-> **Status: Phase 5 — Clients und Policies.** Unterschiedliche Geräte,
-> unterschiedliche Regeln: Policies pro Client (über IP oder Subnetz), eigene
-> Listen, Regex-Regeln und Zeitfenster je Policy, befristete Freigaben. Jede
-> Entscheidung ist erklärbar — `alpendns policy test <domain> --client <name>`
-> nennt Liste, Zeile und Regel, ohne dass der Server laufen muss.
-> Noch keine API und keine Web-UI — das ist Phase 6.
+> **Status: Phase 6 — Sichtbarkeit.** HTTP-API mit Token, Prometheus-Endpunkt,
+> Live-Strom und eine Web-UI, die drei Fragen ohne Klick beantwortet: Läuft er?
+> Was gerade passiert? Warum wurde das geblockt? Dazu die vier Log-Modi aus
+> [ADR-0004](docs/adr/0004-logging-default-aggregiert.md) — Default ist
+> `aggregate`, und ein automatisierter Test prüft, dass in den leisen Modi kein
+> Query-Name den Prozess verlässt.
 > Siehe [docs/ROADMAP.md](docs/ROADMAP.md).
 
 <details>
 <summary>Vorherige Stände</summary>
+
+> **Phase 5 — Clients und Policies.** Unterschiedliche Geräte,
+> unterschiedliche Regeln: Policies pro Client (über IP oder Subnetz), eigene
+> Listen, Regex-Regeln und Zeitfenster je Policy, befristete Freigaben. Jede
+> Entscheidung ist erklärbar — `alpendns policy test <domain> --client <name>`
+> nennt Liste, Zeile und Regel, ohne dass der Server laufen muss.
+> Noch keine API und keine Web-UI.
 
 > **Phase 4 — Blocklisten.** Ab hier ersetzt AlpenDNS ein Pi-hole im
 > eigenen Netz: Listen in fünf Formaten (hosts, domains, wildcard, Adblock, RPZ),
@@ -34,6 +41,11 @@ Ein privacy-fokussierter DNS-Server für Linux, in Rust.
 ```bash
 cargo run -- -c config/alpendns.minimal.toml
 dig @127.0.0.1 -p 5353 example.com
+
+# Warum wurde etwas geblockt? Ohne laufenden Server:
+cargo run -- -c config/alpendns.minimal.toml policy test doubleclick.net
+
+# Web-UI: http://127.0.0.1:8053 — der Token steht in api.token_file
 ```
 
 ## Warum noch ein DNS-Server?

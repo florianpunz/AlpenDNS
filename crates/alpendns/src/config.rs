@@ -62,6 +62,73 @@ pub struct Config {
     pub client: Vec<ClientEntry>,
     #[serde(default)]
     pub policy: Vec<PolicyEntry>,
+    #[serde(default)]
+    pub api: ApiConfig,
+    #[serde(default)]
+    pub metrics: MetricsConfig,
+}
+
+/// HTTP-API und Web-UI.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ApiConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_api_listen")]
+    pub listen: SocketAddr,
+    /// Datei mit dem Token. Fehlt sie, wird beim Start einer erzeugt — sonst
+    /// müsste man vor dem ersten Start von Hand etwas anlegen, um die UI
+    /// überhaupt sehen zu können.
+    #[serde(default = "default_token_file")]
+    pub token_file: std::path::PathBuf,
+}
+
+/// Prometheus-Endpunkt.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MetricsConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_metrics_listen")]
+    pub listen: SocketAddr,
+    #[serde(default = "default_metrics_path")]
+    pub path: String,
+}
+
+fn default_api_listen() -> SocketAddr {
+    SocketAddr::from(([127, 0, 0, 1], 8053))
+}
+
+fn default_token_file() -> std::path::PathBuf {
+    std::path::PathBuf::from("/etc/alpendns/api.token")
+}
+
+fn default_metrics_listen() -> SocketAddr {
+    SocketAddr::from(([127, 0, 0, 1], 9153))
+}
+
+fn default_metrics_path() -> String {
+    "/metrics".to_owned()
+}
+
+impl Default for ApiConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            listen: default_api_listen(),
+            token_file: default_token_file(),
+        }
+    }
+}
+
+impl Default for MetricsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            listen: default_metrics_listen(),
+            path: default_metrics_path(),
+        }
+    }
 }
 
 /// Ein Gerät oder eine Gruppe von Geräten.
@@ -509,6 +576,8 @@ pub struct PrivacyConfig {
     /// Klartext-Weg sinnvoll.
     #[serde(default = "default_true")]
     pub cookies: bool,
+    #[serde(default)]
+    pub logging: LoggingConfig,
     /// Zufällige Groß-/Kleinschreibung im QNAME (0x20). Erschwert Spoofing.
     /// Nicht jeder Upstream verträgt es, deshalb pro Pool abschaltbar und im
     /// Fehlerfall automatisch aus.
@@ -522,7 +591,48 @@ impl Default for PrivacyConfig {
             strip_ecs: default_true(),
             padding: default_true(),
             cookies: default_true(),
+            logging: LoggingConfig::default(),
             dns0x20: default_true(),
+        }
+    }
+}
+
+/// Was eine Anfrage hinterlässt. Begründung der Modi: ADR-0004.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LoggingConfig {
+    #[serde(default)]
+    pub mode: crate::logging::Mode,
+    /// Zeitfenster des Ringpuffers im Modus `ring`.
+    #[serde(with = "humantime_serde", default = "default_ring_seconds")]
+    pub ring_seconds: Duration,
+    /// Unter diesem Zählerstand taucht eine Domain in keiner Statistik auf.
+    #[serde(default = "default_aggregate_k")]
+    pub aggregate_k: u32,
+    /// Nur im Modus `full`.
+    #[serde(default = "default_query_log_path")]
+    pub path: std::path::PathBuf,
+}
+
+const fn default_ring_seconds() -> Duration {
+    Duration::from_secs(300)
+}
+
+const fn default_aggregate_k() -> u32 {
+    5
+}
+
+fn default_query_log_path() -> std::path::PathBuf {
+    std::path::PathBuf::from("/var/log/alpendns/queries.jsonl")
+}
+
+impl Default for LoggingConfig {
+    fn default() -> Self {
+        Self {
+            mode: crate::logging::Mode::default(),
+            ring_seconds: default_ring_seconds(),
+            aggregate_k: default_aggregate_k(),
+            path: default_query_log_path(),
         }
     }
 }
@@ -707,6 +817,20 @@ impl Config {
             for entry in &policy.schedule {
                 entry.validate(&policy.name)?;
             }
+        }
+        if self.metrics.enabled && !self.metrics.path.starts_with('/') {
+            return Err(ConfigError::Invalid(format!(
+                "metrics.path = '{}' muss mit einem Schrägstrich beginnen",
+                self.metrics.path
+            )));
+        }
+        if self.api.enabled && self.api.listen == self.metrics.listen {
+            return Err(ConfigError::Invalid(
+                "api.listen und metrics.listen sind gleich — die Metriken haben \
+                 bewusst keinen Token und dürfen nicht auf demselben Port liegen wie \
+                 die API, die Namen zeigt"
+                    .to_owned(),
+            ));
         }
         for zone in &self.forward_zone {
             if zone.upstream.is_encrypted() {

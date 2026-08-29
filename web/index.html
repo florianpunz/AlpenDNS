@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AlpenDNS</title>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<noscript>
+  <p class="notice">Diese Seite braucht JavaScript, um den Live-Strom zu zeigen.
+  Die Daten selbst liegen unter <code>/api/status</code>.</p>
+</noscript>
+
+<form id="login" class="login" hidden>
+  <h1>AlpenDNS</h1>
+  <p>Der API-Token steht in der Datei, die <code>api.token_file</code> nennt.</p>
+  <label for="token">Token</label>
+  <input id="token" type="password" autocomplete="off" spellcheck="false">
+  <button type="submit">Anmelden</button>
+  <p id="login-error" class="error" hidden></p>
+</form>
+
+<main id="app" hidden>
+  <header>
+    <h1>AlpenDNS</h1>
+    <div class="meta">
+      <span id="version"></span>
+      <span id="uptime"></span>
+      <span id="mode" title="Logging-Modus"></span>
+    </div>
+  </header>
+
+  <!-- Frage 1: Läuft er? -->
+  <section aria-labelledby="h-status">
+    <h2 id="h-status">Läuft er?</h2>
+    <div class="figures">
+      <div class="figure">
+        <span class="value" id="queries">–</span>
+        <span class="label">Anfragen</span>
+      </div>
+      <div class="figure">
+        <span class="value" id="blocked">–</span>
+        <span class="label">geblockt</span>
+      </div>
+      <div class="figure">
+        <span class="value" id="hitrate">–</span>
+        <span class="label">aus dem Cache</span>
+      </div>
+      <div class="figure">
+        <span class="value" id="entries">–</span>
+        <span class="label">Listeneinträge</span>
+      </div>
+    </div>
+    <table class="upstreams">
+      <caption class="sr-only">Upstreams</caption>
+      <thead>
+        <tr><th>Upstream</th><th>Antwortzeit</th><th>Erfolgreich</th><th>Fehler</th><th>Zustand</th></tr>
+      </thead>
+      <tbody id="upstreams"></tbody>
+    </table>
+  </section>
+
+  <!-- Frage 3 steht bewusst vor der Liste: die Begründung ist die Antwort,
+       die am seltensten gesucht und am schwersten gefunden wird. -->
+  <section aria-labelledby="h-why">
+    <h2 id="h-why">Warum wurde das geblockt?</h2>
+    <div id="why" class="why">
+      <p class="empty">Noch nichts geblockt, seit diese Seite offen ist.</p>
+    </div>
+  </section>
+
+  <!-- Frage 2: Was wurde gerade geblockt? -->
+  <section aria-labelledby="h-live">
+    <h2 id="h-live">Was gerade passiert</h2>
+    <p id="live-note" class="notice" hidden></p>
+    <table class="live">
+      <caption class="sr-only">Die jüngsten Anfragen</caption>
+      <thead>
+        <tr><th>Zeit</th><th>Name</th><th>Client</th><th>Antwort</th><th class="num">ms</th></tr>
+      </thead>
+      <tbody id="live"></tbody>
+    </table>
+  </section>
+</main>
+
+<script src="/app.js"></script>
+</body>
+</html>

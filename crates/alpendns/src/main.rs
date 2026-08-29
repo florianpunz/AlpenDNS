@@ -5,11 +5,13 @@ use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::Duration;
 
+use alpendns::api::{ApiState, ListInfo, PolicyInfo, StatusSource};
 use alpendns::caching::CachingBackend;
 use alpendns::clock::{SystemClock, SystemWallClock};
 use alpendns::config::{Config, ListConfig};
 use alpendns::filter::Lists;
 use alpendns::filter::source::{ListSpec, Loader, Source};
+use alpendns::logging::QueryLog;
 use alpendns::policy::{Blueprint, Engine, PolicyBackend};
 use alpendns::privacy;
 use alpendns::router::ZoneRouter;
@@ -140,9 +142,30 @@ fn run() -> anyhow::Result<()> {
     let blueprint = Arc::new(Blueprint::from_config(&config)?);
     let client_count = config.client.len();
     let policy_count = config.policy.len();
+    // Für die API zusammenstellen, solange die Konfiguration noch vollständig ist.
+    let policy_infos: Vec<PolicyInfo> = config
+        .policy
+        .iter()
+        .map(|entry| PolicyInfo {
+            name: entry.name.clone(),
+            blocklists: entry.blocklists.clone(),
+            allowlists: entry.allowlists.clone(),
+            regex: entry.regex.len(),
+            schedules: entry.schedule.iter().map(|s| s.name.clone()).collect(),
+            clients: config
+                .client
+                .iter()
+                .filter(|client| client.policy == entry.name)
+                .map(|client| client.name.clone())
+                .collect(),
+        })
+        .collect();
     let server_config = config.server;
     let cache_config = config.cache;
-    let privacy = privacy::Settings::from(&config.privacy);
+    let privacy_config = config.privacy;
+    let privacy = privacy::Settings::from(&privacy_config);
+    let api_config = config.api;
+    let metrics_config = config.metrics;
     let timeout = server_config.query_timeout;
 
     // Ein Pool; mehrere auszuwählen ist Sache der Policies in Phase 5.
@@ -224,6 +247,10 @@ fn run() -> anyhow::Result<()> {
             pool_config.fanout,
             SystemClock,
         ));
+        let query_log = Arc::new(
+            QueryLog::new(&privacy_config.logging).context("Query-Log konnte nicht geöffnet werden")?,
+        );
+
         // Erststart ist strikt: lieber gar kein DNS als ungefiltertes DNS
         // (B.1 Regel 6). Spätere Ausfälle behandelt run_updater nachsichtig.
         let loaded = lists
@@ -231,6 +258,13 @@ fn run() -> anyhow::Result<()> {
             .await
             .context("Blocklisten konnten beim Start nicht geladen werden")?;
         let entries = loaded.total_entries();
+        let list_infos: Vec<ListInfo> = loaded
+            .names()
+            .map(|name| ListInfo {
+                name: name.to_string(),
+                entries: loaded.get(name).map_or(0, |matcher| matcher.len()),
+            })
+            .collect();
         let engine = Arc::new(Engine::new(
             blueprint.build(&loaded)?,
             entries,
@@ -252,7 +286,11 @@ fn run() -> anyhow::Result<()> {
         // Metrik-Endpunkt dafür kommt in Phase 6.
         let cache = Arc::clone(caching.cache());
         let backend = PolicyBackend::new(Arc::clone(&engine), caching);
-        let bound = Server::new(backend, server_config.edns.udp_payload_size)
+        let bound = Server::new(
+            backend,
+            server_config.edns.udp_payload_size,
+            Arc::clone(&query_log),
+        )
             .bind(&server_config)
             .await
             .context("Listener konnten nicht geöffnet werden")?;
@@ -269,6 +307,7 @@ fn run() -> anyhow::Result<()> {
             clients = client_count,
             policies = policy_count,
             blocking = ?blocking_config.mode,
+            logging = ?privacy_config.logging.mode,
             "AlpenDNS gestartet"
         );
 
@@ -280,6 +319,58 @@ fn run() -> anyhow::Result<()> {
             Arc::clone(&engine),
             shutdown.clone(),
         ));
+        // API und Metriken sind zwei Listener, weil sie verschiedene Zielgruppen
+        // haben: die API zeigt Namen und braucht einen Token, die Metriken
+        // enthalten keine und werden von einem Scraper ohne Token abgeholt.
+        let source: Arc<dyn StatusSource> = Arc::new(Runtime {
+            cache: Arc::clone(&cache),
+            pool: Arc::clone(&pool),
+            engine: Arc::clone(&engine),
+            log: Arc::clone(&query_log),
+            lists: list_infos.clone(),
+            policies: policy_infos.clone(),
+            started: std::time::Instant::now(),
+        });
+
+        if api_config.enabled {
+            let token = read_or_create_token(&api_config.token_file)?;
+            let state = ApiState::new(
+                Arc::clone(&source),
+                Arc::clone(&query_log),
+                Arc::from(token.as_str()),
+            );
+            let listener = tokio::net::TcpListener::bind(api_config.listen)
+                .await
+                .with_context(|| format!("API-Listener auf {} ", api_config.listen))?;
+            tracing::info!(listen = %api_config.listen, token_file = %api_config.token_file.display(), "API und Web-UI");
+            let router = alpendns::api::router(state);
+            let signal = shutdown.clone();
+            tokio::spawn(async move {
+                let _ = axum::serve(listener, router)
+                    .with_graceful_shutdown(async move { signal.cancelled().await })
+                    .await;
+            });
+        }
+
+        if metrics_config.enabled {
+            let state = ApiState::new(
+                Arc::clone(&source),
+                Arc::clone(&query_log),
+                Arc::from(""),
+            );
+            let listener = tokio::net::TcpListener::bind(metrics_config.listen)
+                .await
+                .with_context(|| format!("Metrik-Listener auf {}", metrics_config.listen))?;
+            tracing::info!(listen = %metrics_config.listen, path = %metrics_config.path, "Metriken");
+            let router = alpendns::api::metrics_router(state, &metrics_config.path);
+            let signal = shutdown.clone();
+            tokio::spawn(async move {
+                let _ = axum::serve(listener, router)
+                    .with_graceful_shutdown(async move { signal.cancelled().await })
+                    .await;
+            });
+        }
+
         tokio::spawn(alpendns::policy::run_updater(
             Arc::clone(&engine),
             Arc::clone(&blueprint),
@@ -391,6 +482,89 @@ fn log_stats<C: alpendns::clock::Clock>(
 
 /// Kurzform für den Engine-Typ, wie ihn das Binary benutzt.
 type PolicyEngine = Engine<SystemClock, SystemWallClock>;
+
+/// Was die API vom laufenden Server sieht.
+///
+/// Bündelt die konkreten Typen, damit das API-Modul nicht über Cache-, Uhr- und
+/// Backend-Typ generisch sein muss.
+struct Runtime {
+    cache: Arc<alpendns::cache::Cache<SystemClock>>,
+    pool: Arc<Pool<Transport, SystemClock>>,
+    engine: Arc<PolicyEngine>,
+    log: Arc<QueryLog>,
+    lists: Vec<ListInfo>,
+    policies: Vec<PolicyInfo>,
+    started: std::time::Instant,
+}
+
+impl StatusSource for Runtime {
+    fn snapshot(&self) -> alpendns::metrics::Snapshot {
+        alpendns::metrics::Snapshot {
+            log: self.log.stats(),
+            cache: self.cache.stats(),
+            cache_entries: self.cache.len(),
+            policy: self.engine.stats(),
+            upstreams: self.pool.stats(),
+            uptime: self.started.elapsed(),
+        }
+    }
+
+    fn lists(&self) -> Vec<ListInfo> {
+        self.lists.clone()
+    }
+
+    fn policies(&self) -> Vec<PolicyInfo> {
+        self.policies.clone()
+    }
+
+    fn grant(&self, domain: &str, ttl: Duration) {
+        self.engine.temporary().grant(domain, ttl);
+    }
+
+    fn revoke(&self, domain: &str) {
+        self.engine.temporary().revoke(domain);
+    }
+
+    fn grants(&self) -> Vec<(String, Duration)> {
+        self.engine.temporary().active()
+    }
+}
+
+/// Liest den API-Token oder legt einen an.
+///
+/// Ohne diesen Schritt müsste vor dem ersten Start jemand von Hand eine Datei
+/// mit Zufallszeichen anlegen, nur um die UI überhaupt zu sehen. Die Datei
+/// bekommt Rechte 0600 — sie ist das Passwort.
+fn read_or_create_token(path: &std::path::Path) -> anyhow::Result<String> {
+    if let Ok(existing) = std::fs::read_to_string(path) {
+        let trimmed = existing.trim().to_owned();
+        if !trimmed.is_empty() {
+            return Ok(trimmed);
+        }
+    }
+
+    let token: String = (0..32)
+        .map(|_| {
+            let byte: u8 = rand::random_range(0..16);
+            char::from_digit(u32::from(byte), 16).unwrap_or('0')
+        })
+        .collect();
+
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("Verzeichnis für {} anlegen", path.display()))?;
+    }
+    std::fs::write(path, format!("{token}\n"))
+        .with_context(|| format!("Token nach {} schreiben", path.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+            .with_context(|| format!("Rechte für {} setzen", path.display()))?;
+    }
+    tracing::info!(path = %path.display(), "neuen API-Token erzeugt");
+    Ok(token)
+}
 
 /// `alpendns policy test <domain> [--client <name>]`
 ///

@@ -213,7 +213,7 @@ typosquat = { action = "flag", threshold = 0.9, protect = [
 nrd = { action = "flag", max_age = "30d", source = "/var/lib/alpendns/nrd.txt" }
 
 # ---------------------------------------------------------------------------
-# [PHASE 6] API, UI, Metriken
+# API, UI, Metriken
 # ---------------------------------------------------------------------------
 
 [api]

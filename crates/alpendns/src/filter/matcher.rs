@@ -276,31 +276,41 @@ mod tests {
     }
 
     proptest::proptest! {
-        /// Die Invariante aus docs/TESTING.md §2: eine Wildcard trifft jede
-        /// Subdomain und niemals einen Namen, der nur zufällig so endet.
+        /// Die Invariante aus docs/TESTING.md §2, in ihrer genauen Form: eine
+        /// Wildcard trifft einen Namen **genau dann**, wenn er der Eintrag
+        /// selbst ist oder auf `.eintrag` endet.
+        ///
+        /// Die naheliegende Formulierung "`{eintrag}.{suffix}` trifft nie" wäre
+        /// falsch: bei Eintrag `r` und Suffix `r` ergibt das `r.r`, und das
+        /// *ist* eine Subdomain von `r`. Proptest hat genau diesen Fall gefunden.
         #[test]
-        fn wildcard_semantics_hold_for_generated_names(
+        fn wildcard_matching_is_exactly_label_suffix_matching(
             labels in proptest::collection::vec("[a-z]{1,10}", 1..5),
-            prefix in "[a-z]{1,10}",
+            other in proptest::collection::vec("[a-z]{1,10}", 1..5),
         ) {
             let blocked = labels.join(".");
             let matcher = matcher_from(&[(&format!("{blocked}\n"), Format::Wildcard)]);
+            let suffix = other.join(".");
 
-            proptest::prop_assert!(matcher.lookup(&blocked).is_some());
-            proptest::prop_assert!(
-                matcher.lookup(&format!("{prefix}.{blocked}")).is_some(),
-                "Subdomain traf nicht"
-            );
-            // Angehängt statt mit Punkt getrennt: eine andere Domain.
-            proptest::prop_assert!(
-                matcher.lookup(&format!("{prefix}{blocked}")).is_none(),
-                "{prefix}{blocked} traf fälschlich"
-            );
-            // Die geblockte Domain als Präfix einer anderen.
-            proptest::prop_assert!(
-                matcher.lookup(&format!("{blocked}.{prefix}")).is_none(),
-                "{blocked}.{prefix} traf fälschlich"
-            );
+            let candidates = [
+                blocked.clone(),
+                format!("{suffix}.{blocked}"),
+                format!("{suffix}{blocked}"),
+                format!("{blocked}.{suffix}"),
+                format!("{blocked}{suffix}"),
+                suffix.clone(),
+            ];
+            for candidate in candidates {
+                let expected = candidate == blocked
+                    || candidate.ends_with(&format!(".{blocked}"));
+                proptest::prop_assert_eq!(
+                    matcher.lookup(&candidate).is_some(),
+                    expected,
+                    "{} sollte {}treffen",
+                    candidate,
+                    if expected { "" } else { "nicht " }
+                );
+            }
         }
     }
 }

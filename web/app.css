@@ -1,0 +1,167 @@
+/* AlpenDNS — Web-UI.
+ *
+ * Regeln aus CLAUDE.md B.6: ein Akzentton, sonst neutrale Graustufen; Hierarchie
+ * über Größe und Gewicht, nicht über Farbe; Systemschrift; Zahlen tabular;
+ * hell und dunkel gleichwertig. Keine externen Ressourcen — die Seite liegt im
+ * Binary und funktioniert ohne Internet. */
+
+:root {
+  color-scheme: light dark;
+
+  --bg: #fbfbfa;
+  --surface: #ffffff;
+  --line: #e4e3e0;
+  --text: #1c1c1a;
+  --muted: #6d6c68;
+  --faint: #97968f;
+  /* Der eine Akzentton. Er markiert genau eines: dass etwas geblockt wurde. */
+  --accent: #a1442c;
+
+  --gap: 1.5rem;
+  --radius: 6px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161614;
+    --surface: #1e1e1b;
+    --line: #32312d;
+    --text: #eceae4;
+    --muted: #a3a199;
+    --faint: #75736c;
+    --accent: #e0876b;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: var(--gap);
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
+  /* Damit Zahlen in Tabellen nicht springen. */
+  font-variant-numeric: tabular-nums;
+}
+
+main { max-width: 68rem; margin: 0 auto; }
+
+header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--line);
+}
+
+h1 { font-size: 1.1rem; font-weight: 600; margin: 0; letter-spacing: 0.01em; }
+h2 {
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin: 0 0 0.9rem;
+}
+
+.meta { display: flex; gap: 1.1rem; color: var(--faint); font-size: 0.85rem; }
+
+section { margin-top: 2.5rem; }
+
+/* Kennzahlen: Hierarchie über Größe, nicht über Farbe oder Rahmen. */
+.figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 1.25rem;
+  margin-bottom: 1.75rem;
+}
+.figure { display: flex; flex-direction: column; gap: 0.15rem; }
+.value { font-size: 1.9rem; font-weight: 500; line-height: 1.1; }
+.label { font-size: 0.82rem; color: var(--muted); }
+
+table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+caption { text-align: left; }
+th {
+  text-align: left;
+  font-weight: 500;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--faint);
+  padding: 0 0.75rem 0.5rem 0;
+  border-bottom: 1px solid var(--line);
+}
+td {
+  padding: 0.45rem 0.75rem 0.45rem 0;
+  border-bottom: 1px solid var(--line);
+  vertical-align: baseline;
+}
+tr:last-child td { border-bottom: none; }
+.num, td.num { text-align: right; }
+
+.name { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.88rem; }
+
+/* Der Akzent markiert genau eine Sache. */
+.is-blocked .name { color: var(--accent); }
+.rcode { color: var(--muted); font-size: 0.85rem; }
+.is-blocked .rcode { color: var(--accent); }
+
+.why {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1.1rem 1.25rem;
+}
+.why .subject { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--accent); }
+.why ol { margin: 0.7rem 0 0; padding-left: 1.3rem; color: var(--muted); }
+.why li { margin-bottom: 0.2rem; }
+.why li:last-child { margin-bottom: 0; }
+.why .when { color: var(--faint); font-size: 0.85rem; }
+
+.empty, .notice { color: var(--muted); margin: 0; font-size: 0.9rem; }
+.notice {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0.7rem 0.9rem;
+  margin-bottom: 1rem;
+}
+.error { color: var(--accent); }
+
+.login {
+  max-width: 22rem;
+  margin: 15vh auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.login p { color: var(--muted); font-size: 0.9rem; margin: 0 0 0.5rem; }
+.login label { font-size: 0.82rem; color: var(--muted); }
+input, button {
+  font: inherit;
+  padding: 0.5rem 0.7rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+}
+input:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+button { cursor: pointer; font-weight: 500; }
+button:hover { border-color: var(--muted); }
+
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.88em;
+  color: var(--muted);
+}
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px;
+  padding: 0; margin: -1px; overflow: hidden;
+  clip-path: inset(50%); white-space: nowrap;
+}

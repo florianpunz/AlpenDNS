@@ -7,6 +7,7 @@ use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
 use crate::dns;
+use crate::logging::QueryLog;
 use crate::resolve::ResolveBackend;
 
 /// Größte Anfrage, die wir über UDP entgegennehmen. Alles darüber ist entweder
@@ -16,6 +17,7 @@ const MAX_UDP_REQUEST: usize = 4096;
 pub(crate) async fn serve<B: ResolveBackend>(
     socket: Arc<UdpSocket>,
     backend: Arc<B>,
+    log: Arc<QueryLog>,
     udp_payload_size: usize,
     shutdown: CancellationToken,
     tracker: TaskTracker,
@@ -41,9 +43,10 @@ pub(crate) async fn serve<B: ResolveBackend>(
         // zurück, von der die Anfrage kam.
         let socket = Arc::clone(&socket);
         let backend = Arc::clone(&backend);
+        let log = Arc::clone(&log);
         tracker.spawn(async move {
             let Some(response) =
-                crate::server::handle_request(backend.as_ref(), &packet, peer).await
+                crate::server::handle_request(backend.as_ref(), &packet, peer, log.as_ref()).await
             else {
                 return;
             };

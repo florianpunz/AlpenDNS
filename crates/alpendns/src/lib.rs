@@ -5,12 +5,15 @@
 //! entsprechen den Crates aus CLAUDE.md B.3: sobald eines groß genug ist, wird
 //! aus dem Modul ein eigenes Crate, ohne dass sich die Aufrufwege ändern.
 
+pub mod api;
 pub mod cache;
 pub mod caching;
 pub mod clock;
 pub mod config;
 pub mod dns;
 pub mod filter;
+pub mod logging;
+pub mod metrics;
 pub mod policy;
 pub mod privacy;
 pub mod resolve;

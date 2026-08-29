@@ -23,10 +23,11 @@ use std::time::{Duration, Instant};
 
 use alpendns::caching::CachingBackend;
 use alpendns::clock::{SystemClock, SystemWallClock};
-use alpendns::config::{BlockingConfig, CacheConfig, Config};
+use alpendns::config::{BlockingConfig, CacheConfig, Config, LoggingConfig};
 use alpendns::filter::LoadedLists;
 use alpendns::filter::matcher::Builder as MatcherBuilder;
 use alpendns::filter::parser::{Format, parse};
+use alpendns::logging::QueryLog;
 use alpendns::policy::rules::RegexRules;
 use alpendns::policy::{Blueprint, Engine, PolicyBackend, PolicyBlueprint};
 use alpendns::privacy;
@@ -138,10 +139,14 @@ async fn start_with_lists(cache_config: CacheConfig, lists: LoadedLists) -> Harn
             SystemClock,
         ),
     );
-    let bound = Server::new(backend, config.server.edns.udp_payload_size)
-        .bind(&config.server)
-        .await
-        .expect("bind");
+    let bound = Server::new(
+        backend,
+        config.server.edns.udp_payload_size,
+        Arc::new(QueryLog::new(&LoggingConfig::default()).expect("QueryLog")),
+    )
+    .bind(&config.server)
+    .await
+    .expect("bind");
     let addr = *bound.udp_addrs().first().expect("ein UDP-Listener");
 
     let shutdown = CancellationToken::new();

@@ -4,7 +4,7 @@ Der Plan ist in Phasen geschnitten. Jede Phase hat ein **Ziel**, eine **Schrittl
 Verify-Format** (siehe CLAUDE.md, Teil A.4) und ein **Abnahmekriterium**. Eine Phase gilt
 als fertig, wenn das Abnahmekriterium erfüllt ist — nicht, wenn der Code kompiliert.
 
-**Aktuelle Phase: 6.**
+**Aktuelle Phase: 7.**
 
 Die Reihenfolge ist so gewählt, dass **nach Phase 4 ein Server steht, den du produktiv
 im eigenen Netz benutzen kannst**. Alles danach macht ihn besser, nicht erst benutzbar.
@@ -237,9 +237,9 @@ Dieselbe Domain ohne `--client` läuft durch — die Regel gehört nur der einen
   Der Trace wird über einen Mutex geteilt statt exklusiv durchgereicht, weil bei
   `fanout > 1` mehrere Upstream-Aufgaben gleichzeitig eintragen; Begründung in
   [ADR-0009](adr/0009-decision-trace-mit-mutex.md).
-* **Schritt 5 zur Hälfte:** befristete Freigaben gibt es samt Ablauf und
-  Subdomain-Abdeckung, aber noch nicht "über die API" — die kommt in Phase 6,
-  Schritt 1. Bis dahin sind sie nur von innen erreichbar.
+* **Schritt 5 nachgeholt** mit der API aus Phase 6. Gegen den laufenden Server:
+  `doubleclick.net` liefert NXDOMAIN, nach `POST /api/allow` NOERROR, nach Ablauf
+  wieder NXDOMAIN.
 * **Zum Backtracking (Schritt 6):** die Regex-Engine arbeitet mit endlichen
   Automaten. `(a+)+$` gegen 10 000 Zeichen läuft in unter einer Millisekunde statt
   exponentiell. Das ist eine Eigenschaft der Engine, keine Vorsichtsmaßnahme.
@@ -263,6 +263,39 @@ Dieselbe Domain ohne `--client` läuft durch — die Regel gehört nur der einen
 
 **Abnahme:** Ein Außenstehender öffnet die UI und versteht in 30 Sekunden, was der Server
 gerade tut. Die Seite funktioniert ohne Internetzugang.
+
+**Umgesetzt am 2026-08-29; die Abnahme der UI steht aus.**
+
+Gegen den laufenden Server geprüft:
+
+```
+/api/status ohne Token          → HTTP 401
+/api/status mit Token           → {"logging_mode":"ring","queries":2,"blocked":1, …}
+/api/recent                     → Namen samt vollständiger Begründungskette
+POST /api/allow                 → geblockte Domain wird durchgelassen
+GET  /                          → HTTP 200, die UI
+/metrics ohne Token             → alpendns_queries_total 3, keine Namen
+```
+
+* **Der wichtigste Test** ist `no_query_name_leaves_the_process_in_the_quiet_modes`:
+  er fährt eine Anfrage durch und greppt alles, was der Prozess ausgeben kann —
+  Zähler, Top-Domains, Ringpuffer, Datei — nach dem Query-Namen. In `none` und
+  `aggregate` darf er nirgends stehen. Das ist der automatisierte Nachweis für
+  das zentrale Versprechen des Projekts und läuft ab jetzt bei jedem `cargo test`.
+* **k-Anonymität:** die Schwelle prüft auf der *unteren* Schätzgrenze des
+  Count-Min-Sketch. Ein Sketch überschätzt; direkt gegen `k` zu prüfen ließe eine
+  einmal gefragte Domain durch, sobald genug andere auf dieselben Zähler fallen.
+  Der Fehler wächst mit dem Verkehr — die Struktur versagt damit zur sicheren
+  Seite, sie zeigt dann *weniger*.
+* **Entscheidungen zur Oberfläche** (zwei Listener, Token in der SSE-URL, UI ohne
+  Build-Schritt, Prometheus von Hand):
+  [ADR-0010](adr/0010-api-ui-und-metriken.md).
+
+**Offen: Schritt 8.** "Screenshot-Review gegen die Vorgaben in CLAUDE.md B.6" ist
+ein Blick eines Menschen auf eine gerenderte Seite. Automatisiert geprüft ist, was
+sich prüfen lässt: keine Verweise nach außen, die drei Fragen als Überschriften
+vorhanden, ein Akzentton, tabellarische Ziffern, kein `innerHTML`. Ob die Seite
+*ruhig* aussieht, kann kein Test sagen.
 
 **Fallstricke:** Das ist die Phase, in der ein Agent am ehesten in generisches
 Dashboard-Design abrutscht. CLAUDE.md B.6 ist dafür da; bei jeder UI-Aufgabe explizit

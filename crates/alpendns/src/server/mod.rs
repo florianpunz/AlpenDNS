@@ -17,8 +17,9 @@ use tokio_util::task::TaskTracker;
 
 use crate::config::ServerConfig;
 use crate::dns;
+use crate::logging::{QueryEvent, QueryLog};
 use crate::resolve::ResolveBackend;
-use crate::trace::Ctx;
+use crate::trace::{Ctx, Step};
 
 /// Gemeinsamer Zustand aller Listener.
 #[derive(Debug)]
@@ -26,13 +27,16 @@ pub struct Server<B> {
     backend: Arc<B>,
     /// Ab dieser Antwortgröße wird über UDP gekürzt und TC gesetzt.
     udp_payload_size: usize,
+    /// Die einzige Stelle, an der Query-Namen den Prozess überleben dürfen.
+    log: Arc<QueryLog>,
 }
 
 impl<B: ResolveBackend> Server<B> {
-    pub fn new(backend: B, udp_payload_size: u16) -> Self {
+    pub fn new(backend: B, udp_payload_size: u16, log: Arc<QueryLog>) -> Self {
         Self {
             backend: Arc::new(backend),
             udp_payload_size: usize::from(udp_payload_size),
+            log,
         }
     }
 
@@ -93,6 +97,7 @@ impl<B: ResolveBackend> Bound<B> {
             tracker.spawn(udp::serve(
                 socket,
                 Arc::clone(&self.server.backend),
+                Arc::clone(&self.server.log),
                 self.server.udp_payload_size,
                 shutdown.clone(),
                 tracker.clone(),
@@ -102,6 +107,7 @@ impl<B: ResolveBackend> Bound<B> {
             tracker.spawn(tcp::serve(
                 listener,
                 Arc::clone(&self.server.backend),
+                Arc::clone(&self.server.log),
                 shutdown.clone(),
                 tracker.clone(),
             ));
@@ -124,6 +130,7 @@ pub(crate) async fn handle_request<B: ResolveBackend>(
     backend: &B,
     raw: &[u8],
     peer: SocketAddr,
+    log: &QueryLog,
 ) -> Option<Message> {
     let request = match Message::from_vec(raw) {
         Ok(request) => request,
@@ -141,14 +148,46 @@ pub(crate) async fn handle_request<B: ResolveBackend>(
     }
 
     let ctx = Ctx::new(peer);
-    match backend.resolve(&request, &ctx).await {
+    let response = match backend.resolve(&request, &ctx).await {
         Ok(mut response) => {
             response.metadata.recursion_available = true;
-            Some(response)
+            response
         }
         Err(error) => {
             tracing::warn!(%error, "Auflösung fehlgeschlagen");
-            Some(dns::error_response(&request, ResponseCode::ServFail))
+            dns::error_response(&request, ResponseCode::ServFail)
         }
+    };
+
+    // Der einzige Ort, an dem der Trace die Pipeline verlässt. Was davon
+    // gespeichert wird, entscheidet der konfigurierte Modus (ADR-0004).
+    log.record(&build_event(&request, &response, &ctx));
+    Some(response)
+}
+
+/// Setzt aus Anfrage, Antwort und Trace zusammen, was die Logging-Schicht sieht.
+fn build_event(request: &Message, response: &Message, ctx: &Ctx) -> QueryEvent {
+    let steps = ctx.steps();
+    let client = steps
+        .iter()
+        .find_map(|step| match step {
+            Step::ClientMatched { client, .. } => Some(Arc::clone(client)),
+            _ => None,
+        })
+        .unwrap_or_else(|| Arc::from("unbekannt"));
+    let query = request.queries.first();
+
+    QueryEvent {
+        name: query.map_or_else(String::new, |q| {
+            q.name().to_ascii().trim_end_matches('.').to_owned()
+        }),
+        query_type: query.map_or_else(String::new, |q| q.query_type().to_string()),
+        client,
+        blocked: steps
+            .iter()
+            .any(|step| matches!(step, Step::Synthesized { .. })),
+        rcode: response.metadata.response_code,
+        why: steps.iter().map(ToString::to_string).collect(),
+        elapsed: ctx.elapsed(),
     }
 }

@@ -65,6 +65,13 @@ jiff = "0.2"
 # Backtracking — katastrophale Laufzeiten sind damit ausgeschlossen, nicht nur
 # unwahrscheinlich.
 regex = "1"
+# HTTP-API und Web-UI. Die Roadmap nennt axum ausdrücklich.
+axum = "0.8"
+# Für die API-Antworten und das Query-Log im Modus `full`.
+serde_json = "1"
+# Erzeugt den Strom für Server-Sent Events. Von Hand wäre das ein
+# Stream-Impl mit Zustandsmaschine für eine Schleife.
+async-stream = "0.3"
 # Blocklisten herunterladen. default-features aus: kein native-tls (OpenSSL),
 # kein System-Proxy — der Prozess soll genau die konfigurierten Ziele
 # kontaktieren und sonst nichts (B.1 Regel 4). rustls-tls-webpki-roots zieht

@@ -8,6 +8,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
+use crate::logging::QueryLog;
 use crate::resolve::ResolveBackend;
 
 /// Wie lange eine offene Verbindung ohne neue Anfrage warten darf, bevor sie
@@ -18,6 +19,7 @@ const IDLE_TIMEOUT: Duration = Duration::from_secs(10);
 pub(crate) async fn serve<B: ResolveBackend>(
     listener: TcpListener,
     backend: Arc<B>,
+    log: Arc<QueryLog>,
     shutdown: CancellationToken,
     tracker: TaskTracker,
 ) {
@@ -34,9 +36,12 @@ pub(crate) async fn serve<B: ResolveBackend>(
         };
 
         let backend = Arc::clone(&backend);
+        let log = Arc::clone(&log);
         let shutdown = shutdown.clone();
         tracker.spawn(async move {
-            if let Err(error) = handle_connection(stream, peer, backend.as_ref(), &shutdown).await {
+            if let Err(error) =
+                handle_connection(stream, peer, backend.as_ref(), log.as_ref(), &shutdown).await
+            {
                 tracing::debug!(%error, "TCP-Verbindung beendet");
             }
         });
@@ -48,6 +53,7 @@ async fn handle_connection<B: ResolveBackend>(
     mut stream: TcpStream,
     peer: std::net::SocketAddr,
     backend: &B,
+    log: &QueryLog,
     shutdown: &CancellationToken,
 ) -> std::io::Result<()> {
     loop {
@@ -68,7 +74,8 @@ async fn handle_connection<B: ResolveBackend>(
         let mut packet = vec![0_u8; usize::from(u16::from_be_bytes(len_buf))];
         stream.read_exact(&mut packet).await?;
 
-        let Some(response) = crate::server::handle_request(backend, &packet, peer).await else {
+        let Some(response) = crate::server::handle_request(backend, &packet, peer, log).await
+        else {
             continue;
         };
         let bytes = match response.to_vec() {

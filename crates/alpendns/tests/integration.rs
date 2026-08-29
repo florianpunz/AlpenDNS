@@ -15,7 +15,8 @@ use std::time::Duration;
 
 use alpendns::caching::CachingBackend;
 use alpendns::clock::TestClock;
-use alpendns::config::{CacheConfig, Config};
+use alpendns::config::{CacheConfig, Config, LoggingConfig};
+use alpendns::logging::QueryLog;
 use alpendns::privacy;
 use alpendns::server::Server;
 use alpendns::upstream::ForwardBackend;
@@ -133,10 +134,14 @@ name = "test"
         &cache_config,
         Arc::clone(&clock),
     );
-    let bound = Server::new(backend, config.server.edns.udp_payload_size)
-        .bind(&config.server)
-        .await
-        .expect("bind");
+    let bound = Server::new(
+        backend,
+        config.server.edns.udp_payload_size,
+        Arc::new(QueryLog::new(&LoggingConfig::default()).expect("QueryLog")),
+    )
+    .bind(&config.server)
+    .await
+    .expect("bind");
     let udp = *bound.udp_addrs().first().expect("ein UDP-Listener");
     let tcp = *bound.tcp_addrs().first().expect("ein TCP-Listener");
 
