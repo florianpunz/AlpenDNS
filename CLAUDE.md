@@ -84,12 +84,9 @@ diesem Projekt. Das heißt konkret: erkläre nicht-offensichtliche Entscheidunge
 Commit oder in der Antwort, statt sie kommentarlos einzubauen. Ein Einzeiler
 "warum so und nicht anders" ist mehr wert als drei Absätze Doku.
 
-**Stand:** Es existiert nur `crates/alpendns` mit einem Stub-`main.rs` und ohne
-Dependencies. Die Gerüst-Dateien aus Phase 0 liegen alle im Repo (`clippy.toml`,
-`deny.toml`, `.github/workflows/ci.yml`). **Offen ist die Abnahme:** die vier
-DoD-Kommandos sind nie gelaufen, weil auf der Entwicklungsmaschine kein Rust-Toolchain
-installiert ist. Phase 0 gilt erst als fertig, wenn sie lokal und in CI grün sind —
-`docs/ROADMAP.md` steht deshalb weiter auf Phase 0.
+**Stand:** Phase 0 ist lokal abgenommen — alle vier DoD-Kommandos laufen durch
+(Rust 1.98.0, cargo-deny 0.20.2). Offen bleibt nur der CI-Lauf, dafür fehlt ein
+GitHub-Remote. Aktuelle Arbeit: Phase 1, siehe `docs/ROADMAP.md`.
 
 **Doku-Karte:** `docs/ROADMAP.md` = aktuelle Phase und Abnahmekriterien ·
 `docs/ARCHITECTURE.md` = Zielbild · `docs/TESTING.md` = Teststrategie ·
