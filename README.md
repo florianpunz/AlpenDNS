@@ -2,11 +2,13 @@
 
 Ein privacy-fokussierter DNS-Server für Linux, in Rust.
 
-> **Status: Phase 2 — Server mit Cache.** UDP und TCP, Weiterleitung an *einen*
-> Upstream, Validierung der Antwort gegen die Frage, TC-Flag, Graceful Shutdown.
-> Dazu ein Cache mit TTL-Klemmung, LRU-Verdrängung, serve-stale, Prefetch und
-> Query-Deduplizierung. Noch kein Filter, keine Policy — und der Upstream läuft
-> noch unverschlüsselt, das ändert Phase 3.
+> **Status: Phase 3 — verschlüsselte Upstreams.** UDP und TCP für Clients,
+> Weiterleitung über **DoT, DoH oder DoQ** an einen Pool mehrerer Resolver mit
+> Auswahlstrategie und Ausfallerkennung. Dazu ein Cache mit TTL-Klemmung,
+> LRU-Verdrängung, serve-stale, Prefetch und Query-Deduplizierung, sowie
+> ECS-Stripping, EDNS-Padding, DNS Cookies und 0x20. Klartext geht nur noch in
+> ausdrücklich konfigurierte Zonen des eigenen Netzes.
+> Noch kein Filter und keine Policy — das ist Phase 4 und 5.
 > Siehe [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ```bash

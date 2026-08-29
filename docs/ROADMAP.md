@@ -4,7 +4,7 @@ Der Plan ist in Phasen geschnitten. Jede Phase hat ein **Ziel**, eine **Schrittl
 Verify-Format** (siehe CLAUDE.md, Teil A.4) und ein **Abnahmekriterium**. Eine Phase gilt
 als fertig, wenn das Abnahmekriterium erfüllt ist — nicht, wenn der Code kompiliert.
 
-**Aktuelle Phase: 3.**
+**Aktuelle Phase: 4.**
 
 Die Reihenfolge ist so gewählt, dass **nach Phase 4 ein Server steht, den du produktiv
 im eigenen Netz benutzen kannst**. Alles danach macht ihn besser, nicht erst benutzbar.
@@ -122,6 +122,30 @@ Korpus eine deutlich höhere Rate als in Phase 1.
 
 **Abnahme:** `tcpdump port 53` auf dem Uplink zeigt keinen einzigen DNS-Klartext-Paket
 mehr. Fällt ein Upstream aus, merkt es kein Client.
+
+**Abgenommen am 2026-08-29.** Damit ist die letzte offene Abweichung von B.1 Regel 7
+geschlossen: `udp://` in einem `upstream_pool` ist jetzt ein Startfehler, nicht mehr
+der Normalfall.
+
+* **Kein Klartext nach außen:** `tcpdump` braucht root und stand nicht zur Verfügung.
+  Stattdessen über `ss` geprüft, welche Verbindungen der laufende Prozess hat:
+  `9.9.9.9:853` (DoT) und `194.242.2.4:443` (DoH), keine einzige auf Port 53. Dazu
+  ein Integrationstest, der einen Klartext-Resolver als Falle aufstellt und prüft,
+  dass er nie kontaktiert wird.
+* **Ausfall bleibt unbemerkt:** Unit-Tests im Pool decken das ab — toter Upstream
+  wird nach drei Fehlversuchen übersprungen, erholt sich nach der Sperre wieder, und
+  wenn alle als tot gelten, wird trotzdem gefragt (B.1 Regel 6).
+* **Fallstrick, der teuer war:** `hickory-net` schreibt die Query-ID auf einer
+  gemultiplexten Verbindung um und gibt sie in der Antwort nicht zurück. Die Fakes
+  prüften nur Antwortinhalt und RCODE und waren deshalb grün, während `dig` gegen
+  den echten Prozess "ID mismatch" meldete und in den Timeout lief. Der Test
+  `every_transport_returns_the_clients_query_id_and_question` hält das jetzt fest.
+  Lehre: ein Fake, der nur prüft, was man erwartet, prüft zu wenig.
+* **Offen gelassen:** `split_by_zone` bestimmt die registrierbare Domain über die
+  letzten beiden Labels. Für `example.co.uk` ist das zu grob — die Folge ist eine
+  ungleiche Verteilung, keine Privacy-Lücke. Die saubere Lösung braucht die Public
+  Suffix List und ist als Phase 7, Schritt 1 eingeplant, wo die Verteilung ohnehin
+  gemessen wird.
 
 **Fallstricke:** 0x20 vertragen nicht alle Upstreams — pro Pool abschaltbar machen und im
 Fehlerfall automatisch deaktivieren, statt Anfragen scheitern zu lassen.

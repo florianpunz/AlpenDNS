@@ -36,6 +36,18 @@ pub fn check_response(request: &Message, response: &Message) -> Result<(), Misma
     if response.metadata.id != request.metadata.id {
         return Err(Mismatch::Id);
     }
+    check_question(request, response)
+}
+
+/// Wie [`check_response`], aber ohne die Query-ID.
+///
+/// Für Transporte, die über eine gemultiplexte Verbindung laufen (DoT, DoH, DoQ):
+/// dort ordnet der Transport Antwort und Anfrage selbst zu, und die Verbindung
+/// ist authentifiziert und verschlüsselt — eine untergeschobene Antwort von
+/// außerhalb gibt es dort nicht. Die Frage wird trotzdem geprüft, denn ein
+/// Upstream, der etwas anderes beantwortet als gefragt, ist auch ohne Angreifer
+/// ein Fehler.
+pub fn check_question(request: &Message, response: &Message) -> Result<(), Mismatch> {
     if response.metadata.message_type != MessageType::Response {
         return Err(Mismatch::NotAResponse);
     }

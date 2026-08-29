@@ -84,24 +84,25 @@ diesem Projekt. Das heißt konkret: erkläre nicht-offensichtliche Entscheidunge
 Commit oder in der Antwort, statt sie kommentarlos einzubauen. Ein Einzeiler
 "warum so und nicht anders" ist mehr wert als drei Absätze Doku.
 
-**Stand:** Phase 1 und 2 sind umgesetzt: UDP/TCP-Listener, Weiterleitung an einen
-Upstream, Antwortvalidierung, TC-Flag, Config mit `deny_unknown_fields`, Graceful
-Shutdown, Fuzz-Target — dazu ein Cache mit TTL-Klemmung, LRU, serve-stale, Prefetch
-und Query-Deduplizierung. Der gesamte testbare Code liegt in der Library
-(`src/lib.rs` und die Module daneben), `main.rs` macht nur Start, Signale und
-Shutdown — das ist die Voraussetzung dafür, dass Module später ohne Umbau zu eigenen
-Crates werden. Der Cache hängt als `CachingBackend` vor dem `ForwardBackend` und
-implementiert selbst `ResolveBackend`; Phase 3 ersetzt darunter das innere Backend
-durch den Upstream-Pool, ohne Server oder Cache anzufassen.
-Der Upstream spricht noch Klartext-UDP; das ist der von der Roadmap vorgesehene
-Zwischenstand bis Phase 3 und eine bewusste Abweichung von B.1 Regel 7. Die zweite
-offene Abweichung betrifft B.1 Regel 1: `hickory-proto 0.26.1` panict beim Parsen
-eines kaputten TSIG-Records, wenn Overflow-Checks an sind — Bewertung und Auflagen
-in ADR-0006, bekannter Fall in `crates/alpendns/fuzz/known-crashes/`. Der CI-Lauf
-fehlt weiterhin, dafür gibt es kein GitHub-Remote.
+**Stand:** Phasen 1 bis 3 sind umgesetzt und abgenommen. Der gesamte testbare Code
+liegt in der Library (`src/lib.rs` und die Module daneben), `main.rs` macht nur
+Start, Signale und Shutdown — Voraussetzung dafür, dass Module später ohne Umbau zu
+eigenen Crates werden.
 
-Phase 2 ist abgenommen, Zahlen in `docs/BENCHMARKS.md`.
-Aktuelle Arbeit: Phase 3 (verschlüsselte Upstreams).
+Die Pipeline ist eine Kette von `ResolveBackend`-Implementierungen, von außen nach
+innen: `CachingBackend` → `ZoneRouter` → `Pool` → `Transport` (DoT/DoH/DoQ) bzw.
+`ForwardBackend` (Klartext, nur für `forward_zone`). Keine Schicht kennt die anderen;
+Phase 4 hängt den Filter davor, ohne eine davon anzufassen.
+
+Klartext-DNS nach außen ist erledigt (B.1 Regel 7): `udp://` in einem
+`upstream_pool` ist ein Startfehler. Eine Abweichung bleibt offen — B.1 Regel 1:
+`hickory-proto 0.26.1` panict beim Parsen eines kaputten TSIG-Records, wenn
+Overflow-Checks an sind. Bewertung und Auflagen in ADR-0006, bekannter Fall in
+`crates/alpendns/fuzz/known-crashes/`. Dazu eine dokumentierte Advisory-Ausnahme in
+`deny.toml` (RUSTSEC-2026-0009 in einer dev-dependency). Der CI-Lauf fehlt
+weiterhin, dafür gibt es kein GitHub-Remote.
+
+Zahlen in `docs/BENCHMARKS.md`. Aktuelle Arbeit: Phase 4 (Blocklisten).
 
 **Doku-Karte:** `docs/ROADMAP.md` = aktuelle Phase und Abnahmekriterien ·
 `docs/ARCHITECTURE.md` = Zielbild · `docs/TESTING.md` = Teststrategie ·

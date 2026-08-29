@@ -66,3 +66,30 @@ also das Sechzehnfache der Cache-Größe):
 
 Ohne funktionierende LRU-Verdrängung müsste der Speicher hier linear mitwachsen.
 Er tut es nicht.
+
+---
+
+## Phase 3 — nach 0x20, Cookies und ECS-Stripping · gemessen am 2026-08-29
+
+Derselbe Aufbau. Interessant war, was die Privacy-Mechanismen auf dem Klartext-Weg
+kosten: 0x20 würfelt für jede Anfrage die Schreibweise des Namens neu, Cookies
+hängen eine EDNS-Option an.
+
+| Korpus | Anfragen/s | vorher | Upstream-Anfragen |
+|---|---:|---:|---:|
+| jede Anfrage ein neuer Name | 110 106 | 103 317 | 32 000 |
+| immer derselbe Name | 347 726 | 341 761 | **1** |
+
+Faktor 3,2. Die Unterschiede liegen im Rauschen der Messung — die Privacy-Schicht
+kostet nichts Messbares.
+
+| | RSS |
+|---|---:|
+| nach 1 Runde | 13 860 KiB |
+| nach 5 Runden | 14 680 KiB |
+| Zuwachs | 820 KiB |
+
+**Nicht gemessen:** der verschlüsselte Weg. Ein DoT- oder DoQ-Handshake gegen einen
+Fake im selben Prozess misst vor allem die Krypto-Bibliothek, nicht AlpenDNS. Die
+Zahl, die zählt, ist ohnehin die Latenz zum echten Upstream — im Smoke-Test lagen
+Quad9 (DoT) bei 34 ms und Mullvad (DoH) bei 113 ms.

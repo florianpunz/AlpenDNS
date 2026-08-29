@@ -8,8 +8,12 @@ use std::time::Duration;
 use alpendns::caching::CachingBackend;
 use alpendns::clock::SystemClock;
 use alpendns::config::Config;
+use alpendns::privacy;
+use alpendns::router::ZoneRouter;
 use alpendns::server::Server;
 use alpendns::upstream::ForwardBackend;
+use alpendns::upstream::pool::{Pool, Upstream};
+use alpendns::upstream::transport::Transport;
 use anyhow::Context as _;
 use tokio_util::sync::CancellationToken;
 
@@ -91,14 +95,56 @@ fn run() -> anyhow::Result<()> {
         .init();
 
     let config = Config::load(&path)?;
-    let (upstream_name, upstream_addr) = {
-        let upstream = config
-            .single_upstream()
-            .context("Konfiguration ohne Upstream")?;
-        (upstream.name.clone(), upstream.addr.0)
-    };
     let server_config = config.server;
     let cache_config = config.cache;
+    let privacy = privacy::Settings::from(&config.privacy);
+    let timeout = server_config.query_timeout;
+
+    // Ein Pool; mehrere auszuwählen ist Sache der Policies in Phase 5.
+    let pool_config = config
+        .upstream_pool
+        .into_iter()
+        .next()
+        .context("Konfiguration ohne Upstream-Pool")?;
+    let tls = Arc::new(Transport::default_tls_config()?);
+    let upstream_names: Vec<String> = pool_config
+        .resolver
+        .iter()
+        .map(|resolver| format!("{} ({})", resolver.name, resolver.addr.scheme()))
+        .collect();
+    let upstreams: Vec<Upstream<Transport>> = pool_config
+        .resolver
+        .iter()
+        .map(|resolver| {
+            Upstream::new(
+                resolver.name.clone(),
+                Transport::new(
+                    resolver.addr.clone(),
+                    // Die Validierung stellt sicher, dass hier ein Name steht.
+                    resolver.tls_name.as_deref().unwrap_or_default(),
+                    timeout,
+                    privacy,
+                    Arc::clone(&tls),
+                ),
+            )
+        })
+        .collect();
+    let strategy = pool_config.strategy;
+    let zones: Vec<(hickory_proto::rr::Name, ForwardBackend)> = config
+        .forward_zone
+        .iter()
+        .map(|zone| {
+            (
+                zone.zone.0.clone(),
+                ForwardBackend::new(zone.upstream.socket_addr(), timeout, privacy),
+            )
+        })
+        .collect();
+    let zone_names: Vec<String> = config
+        .forward_zone
+        .iter()
+        .map(|zone| zone.zone.0.to_string())
+        .collect();
 
     // Die Runtime wird von Hand gebaut statt über #[tokio::main]: ein Fehler
     // beim Start soll eine Fehlermeldung geben, kein Panic (CLAUDE.md B.1).
@@ -108,10 +154,16 @@ fn run() -> anyhow::Result<()> {
         .context("tokio-Runtime konnte nicht gestartet werden")?;
 
     runtime.block_on(async move {
-        // Der Cache liegt als Schicht vor dem Forwarder: der Server merkt davon
-        // nichts, und Phase 3 tauscht darunter den Upstream-Pool ein.
+        // Von außen nach innen: Cache → Zonen-Weiche → Pool bzw. LAN-Server.
+        // Jede Schicht ist ein ResolveBackend, keine kennt die anderen.
+        let pool = Arc::new(Pool::new(
+            upstreams,
+            strategy,
+            pool_config.fanout,
+            SystemClock,
+        ));
         let backend = CachingBackend::new(
-            ForwardBackend::new(upstream_addr, server_config.query_timeout),
+            ZoneRouter::new(zones, Arc::clone(&pool)),
             &cache_config,
             SystemClock,
         );
@@ -127,21 +179,21 @@ fn run() -> anyhow::Result<()> {
         tracing::info!(
             udp = ?bound.udp_addrs(),
             tcp = ?bound.tcp_addrs(),
-            upstream = %upstream_name,
+            upstreams = ?upstream_names,
+            strategy = ?strategy,
+            forward_zones = ?zone_names,
             cache_entries = cache_config.max_entries,
             serve_stale = cache_config.serve_stale,
             "AlpenDNS gestartet"
         );
-        // Phase 1 spricht Klartext-DNS nach außen. Das widerspricht B.1 Regel 7
-        // und verschwindet mit Phase 3 — bis dahin soll es niemand übersehen.
-        tracing::warn!(
-            "Upstream läuft unverschlüsselt über UDP (Phase 1). \
-             Nicht für den Dauerbetrieb — verschlüsselte Transporte kommen in Phase 3."
-        );
 
         let shutdown = CancellationToken::new();
 
-        tokio::spawn(report_stats(Arc::clone(&cache), shutdown.clone()));
+        tokio::spawn(report_stats(
+            Arc::clone(&cache),
+            Arc::clone(&pool),
+            shutdown.clone(),
+        ));
 
         let signals = shutdown.clone();
         tokio::spawn(async move {
@@ -151,7 +203,7 @@ fn run() -> anyhow::Result<()> {
         });
 
         bound.run(shutdown).await;
-        log_stats(&cache, "Cache-Bilanz");
+        log_stats(&cache, &pool, "Cache-Bilanz");
         tracing::info!("beendet");
         Ok(())
     })
@@ -164,6 +216,7 @@ fn run() -> anyhow::Result<()> {
 /// Server im Leerlauf still bleibt.
 async fn report_stats<C: alpendns::clock::Clock>(
     cache: Arc<alpendns::cache::Cache<C>>,
+    pool: Arc<Pool<Transport, SystemClock>>,
     shutdown: CancellationToken,
 ) {
     let mut ticker = tokio::time::interval(STATS_INTERVAL);
@@ -177,13 +230,17 @@ async fn report_stats<C: alpendns::clock::Clock>(
         }
         let current = cache.stats();
         if current != last {
-            log_stats(&cache, "Cache");
+            log_stats(&cache, &pool, "Cache");
             last = current;
         }
     }
 }
 
-fn log_stats<C: alpendns::clock::Clock>(cache: &alpendns::cache::Cache<C>, message: &'static str) {
+fn log_stats<C: alpendns::clock::Clock>(
+    cache: &alpendns::cache::Cache<C>,
+    pool: &Pool<Transport, SystemClock>,
+    message: &'static str,
+) {
     let stats = cache.stats();
     tracing::info!(
         hits = stats.hits,
@@ -193,6 +250,16 @@ fn log_stats<C: alpendns::clock::Clock>(cache: &alpendns::cache::Cache<C>, messa
         hit_rate = format!("{:.1} %", stats.hit_rate() * 100.0),
         "{message}"
     );
+    for upstream in pool.stats() {
+        tracing::info!(
+            upstream = %upstream.name,
+            ok = upstream.successes,
+            failed = upstream.failures,
+            rtt = ?upstream.rtt,
+            down = upstream.down,
+            "Upstream"
+        );
+    }
 }
 
 /// Wartet auf SIGINT oder SIGTERM.

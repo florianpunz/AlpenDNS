@@ -5,10 +5,6 @@
 # akzeptiert der Server auch nicht: unbekannte Schlüssel sind ein Startfehler,
 # kein Warning.
 #
-# ACHTUNG: Der Upstream läuft hier unverschlüsselt über UDP. Das widerspricht der
-# harten Regel B.1.7 ("kein Klartext-DNS nach außen") und ist ausschließlich der
-# Zwischenstand bis Phase 3, die DoT/DoH/DoQ bringt. Nicht im Dauerbetrieb
-# benutzen.
 
 [server]
 # 5353 statt 53, damit der Server ohne besondere Rechte startet.
@@ -33,10 +29,45 @@ serve_stale_max = "1h"
 prefetch = true
 prefetch_threshold = 0.85
 
+[privacy]
+# EDNS Client Subnet niemals an Upstreams weitergeben.
+strip_ecs = true
+# EDNS-Padding auf verschlüsselten Transporten: sonst verrät die Länge der
+# Nachricht, wie lang der angefragte Name ist.
+padding = true
+# DNS Cookies (RFC 7873) gegen Off-Path-Spoofing, wie 0x20 nur im Klartext.
+cookies = true
+# 0x20: zufällige Groß-/Kleinschreibung im QNAME. Wirkt auf dem Klartext-Weg
+# (forward_zone) gegen Off-Path-Spoofing; auf TLS ist es überflüssig und wird
+# dort nicht angewendet. Spiegelt ein Server die Schreibweise nicht, wird es
+# für ihn automatisch abgeschaltet, statt Anfragen scheitern zu lassen.
+dns0x20 = true
+
 [[upstream_pool]]
 name = "default"
+# fastest | round_robin | split_by_zone
+#
+# split_by_zone verteilt Domains über einen beim Start zufällig gezogenen Seed:
+# derselbe Name geht immer zum selben Resolver, aber jeder sieht nur einen
+# Bruchteil — und nach einem Neustart einen anderen. Siehe docs/FEATURES.md P2.
+strategy = "split_by_zone"
+# Wie viele Resolver parallel gefragt werden. Mehr als einer kostet Privacy.
+fanout = 1
 
-# Phase 1 kann genau einen Resolver. Pools mit Auswahlstrategie: Phase 3.
+# Klartext (udp://) ist hier nicht erlaubt und wird beim Start abgelehnt.
+# tls_name ist Pflicht: ohne ihn wird das Zertifikat gegen nichts geprüft.
 [[upstream_pool.resolver]]
 name = "quad9"
-addr = "udp://9.9.9.9:53"
+addr = "dot://9.9.9.9:853"
+tls_name = "dns.quad9.net"
+
+[[upstream_pool.resolver]]
+name = "mullvad"
+addr = "doh://194.242.2.4/dns-query"
+tls_name = "dns.mullvad.net"
+
+# Zonen im eigenen Netz. Der einzige Ort, an dem Klartext erlaubt ist — und die
+# Anfrage verlässt dabei das eigene Netz nicht.
+# [[forward_zone]]
+# zone = "home.arpa"
+# upstream = "udp://10.0.0.1:53"

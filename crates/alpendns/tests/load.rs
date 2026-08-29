@@ -24,6 +24,7 @@ use std::time::{Duration, Instant};
 use alpendns::caching::CachingBackend;
 use alpendns::clock::SystemClock;
 use alpendns::config::{CacheConfig, Config};
+use alpendns::privacy;
 use alpendns::server::Server;
 use alpendns::upstream::ForwardBackend;
 use hickory_proto::op::{Message, MessageType, OpCode, Query};
@@ -97,7 +98,11 @@ async fn start(cache_config: CacheConfig) -> Harness {
     .expect("Testkonfiguration");
 
     let backend = CachingBackend::new(
-        ForwardBackend::new(upstream, Duration::from_secs(2)),
+        ForwardBackend::new(
+            upstream,
+            Duration::from_secs(2),
+            privacy::Settings::default(),
+        ),
         &cache_config,
         SystemClock,
     );

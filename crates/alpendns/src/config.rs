@@ -13,6 +13,7 @@ use std::net::SocketAddr;
 use std::path::Path;
 use std::time::Duration;
 
+use hickory_proto::rr::Name;
 use serde::Deserialize;
 
 /// Fehler beim Laden oder Validieren der Konfiguration.
@@ -46,6 +47,11 @@ pub struct Config {
     pub upstream_pool: Vec<UpstreamPool>,
     #[serde(default)]
     pub cache: CacheConfig,
+    /// Zonen, die an einen Server im eigenen Netz gehen statt ins Internet.
+    #[serde(default)]
+    pub forward_zone: Vec<ForwardZone>,
+    #[serde(default)]
+    pub privacy: PrivacyConfig,
 }
 
 /// Antwort-Cache.
@@ -104,13 +110,37 @@ pub struct EdnsConfig {
     pub udp_payload_size: u16,
 }
 
-/// Eine Menge gleichwertiger Upstream-Resolver.
+/// Eine Menge gleichwertiger Upstream-Resolver plus die Regel, wie ausgewählt wird.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct UpstreamPool {
     pub name: String,
     #[serde(default)]
+    pub strategy: Strategy,
+    /// Wie viele Resolver parallel gefragt werden. Mehr als einer kostet
+    /// Privacy (zwei Anbieter sehen dieselbe Anfrage) und spart Latenz.
+    #[serde(default = "default_fanout")]
+    pub fanout: usize,
+    #[serde(default)]
     pub resolver: Vec<ResolverConfig>,
+}
+
+/// Wie ein Resolver aus dem Pool ausgewählt wird.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum Strategy {
+    /// Niedrigste gemessene Antwortzeit (gleitender Durchschnitt).
+    /// Schnell — aber ein Resolver sieht am Ende fast alles.
+    Fastest,
+    /// Gleichmäßig reihum. Verteilt die Last, aber jeder Upstream lernt
+    /// mit der Zeit trotzdem alles.
+    RoundRobin,
+    /// Der Upstream wird über `hash(seed, registrierbare Domain)` bestimmt.
+    /// Derselbe Name geht immer zum selben Resolver — der Cache bleibt
+    /// wirksam — aber jeder sieht nur einen Bruchteil der Domains, und
+    /// welchen, ist nach jedem Neustart anders. Siehe FEATURES.md P2.
+    #[default]
+    SplitByZone,
 }
 
 /// Ein einzelner Upstream-Resolver.
@@ -119,18 +149,101 @@ pub struct UpstreamPool {
 pub struct ResolverConfig {
     pub name: String,
     pub addr: UpstreamAddr,
+    /// Name im Zertifikat des Servers. Pflicht für alle verschlüsselten
+    /// Transporte: ohne ihn wird nicht geprüft, mit wem man spricht.
+    #[serde(default)]
+    pub tls_name: Option<String>,
 }
 
-/// Adresse eines Upstreams, geparst aus `schema://host:port`.
+/// Eine Zone, die nicht ins Internet geht.
 ///
-/// Phase 1 kann ausschließlich `udp://`. Das verletzt B.1 Regel 7 ("kein
-/// Klartext-DNS nach außen") mit Absicht und nur so lange, bis Phase 3 die
-/// verschlüsselten Transporte bringt — die Roadmap schneidet das bewusst so.
-/// Jede andere Angabe wird deshalb mit einem Hinweis auf Phase 3 abgelehnt,
-/// statt stillschweigend auf Klartext zurückzufallen.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(try_from = "String")]
-pub struct UpstreamAddr(pub SocketAddr);
+/// Der einzige Ort, an dem Klartext-DNS nach außen erlaubt ist (B.1 Regel 7):
+/// der Nameserver im eigenen LAN spricht in aller Regel kein DoT.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ForwardZone {
+    pub zone: ZoneName,
+    pub upstream: UpstreamAddr,
+}
+
+/// Ein Zonenname aus der Konfiguration.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ZoneName(pub Name);
+
+impl TryFrom<String> for ZoneName {
+    type Error = String;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Name::from_str_relaxed(&value)
+            .map(|name| {
+                // Absolut machen: eine Zone aus der Konfiguration ist immer
+                // absolut gemeint, und `zone_of` vergleicht sonst einen
+                // relativen mit einem absoluten Namen.
+                let mut name = name.to_lowercase();
+                name.set_fqdn(true);
+                Self(name)
+            })
+            .map_err(|e| format!("'{value}' ist kein gültiger Zonenname: {e}"))
+    }
+}
+
+impl<'de> Deserialize<'de> for ZoneName {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let text = String::deserialize(deserializer)?;
+        Self::try_from(text).map_err(serde::de::Error::custom)
+    }
+}
+
+/// Transport und Adresse eines Upstreams, geparst aus `schema://host[:port][/pfad]`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UpstreamAddr {
+    /// Klartext über UDP. Nur in `forward_zone` erlaubt.
+    Udp(SocketAddr),
+    /// DNS over TLS (RFC 7858), Standardport 853.
+    Dot(SocketAddr),
+    /// DNS over HTTPS (RFC 8484), Standardport 443.
+    Doh { addr: SocketAddr, path: String },
+    /// DNS over QUIC (RFC 9250), Standardport 853.
+    Doq(SocketAddr),
+}
+
+impl UpstreamAddr {
+    /// Ob dieser Transport die Anfrage verschlüsselt überträgt.
+    pub const fn is_encrypted(&self) -> bool {
+        !matches!(self, Self::Udp(_))
+    }
+
+    pub const fn socket_addr(&self) -> SocketAddr {
+        match self {
+            Self::Udp(addr) | Self::Dot(addr) | Self::Doq(addr) => *addr,
+            Self::Doh { addr, .. } => *addr,
+        }
+    }
+
+    /// Kurzform für Logs und Fehlermeldungen. Enthält keine Query-Namen.
+    pub const fn scheme(&self) -> &'static str {
+        match self {
+            Self::Udp(_) => "udp",
+            Self::Dot(_) => "dot",
+            Self::Doh { .. } => "doh",
+            Self::Doq(_) => "doq",
+        }
+    }
+}
+
+/// Hängt einen Standardport an, wenn keiner angegeben ist.
+fn parse_host_port(host: &str, default_port: u16) -> Result<SocketAddr, String> {
+    if let Ok(addr) = host.parse::<SocketAddr>() {
+        return Ok(addr);
+    }
+    let ip: std::net::IpAddr = host.parse().map_err(|_| {
+        format!(
+            "'{host}' ist keine IP-Adresse — Namen sind hier nicht erlaubt, \
+                              weil ihre Auflösung wieder DNS bräuchte"
+        )
+    })?;
+    Ok(SocketAddr::new(ip, default_port))
+}
 
 impl TryFrom<String> for UpstreamAddr {
     type Error = String;
@@ -138,20 +251,70 @@ impl TryFrom<String> for UpstreamAddr {
     fn try_from(value: String) -> Result<Self, Self::Error> {
         let Some((scheme, rest)) = value.split_once("://") else {
             return Err(format!(
-                "'{value}' hat kein Schema — erwartet wird 'udp://adresse:port'"
+                "'{value}' hat kein Schema — erwartet wird etwa 'dot://9.9.9.9:853'"
             ));
         };
         match scheme {
-            "udp" => rest
-                .parse::<SocketAddr>()
-                .map(Self)
-                .map_err(|e| format!("'{rest}' ist keine gültige Adresse: {e}")),
-            "dot" | "doh" | "doq" | "tls" | "https" | "quic" => Err(format!(
-                "Transport '{scheme}' kommt erst in Phase 3; Phase 1 kann nur 'udp://'"
+            "udp" => parse_host_port(rest, 53).map(Self::Udp),
+            "dot" | "tls" => parse_host_port(rest, 853).map(Self::Dot),
+            "doq" | "quic" => parse_host_port(rest, 853).map(Self::Doq),
+            "doh" | "https" => {
+                let (host, path) = match rest.split_once('/') {
+                    Some((host, path)) => (host, format!("/{path}")),
+                    None => (rest, "/dns-query".to_owned()),
+                };
+                parse_host_port(host, 443).map(|addr| Self::Doh { addr, path })
+            }
+            other => Err(format!(
+                "unbekannter Transport '{other}' — erlaubt sind udp, dot, doh, doq"
             )),
-            other => Err(format!("unbekannter Transport '{other}'")),
         }
     }
+}
+
+impl<'de> Deserialize<'de> for UpstreamAddr {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let text = String::deserialize(deserializer)?;
+        Self::try_from(text).map_err(serde::de::Error::custom)
+    }
+}
+
+/// Privacy-Mechanismen auf dem Weg zum Upstream.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PrivacyConfig {
+    /// EDNS Client Subnet niemals weitergeben. Es verrät dem Upstream das
+    /// Subnetz des Clients und ist für einen Heimanschluss nutzlos.
+    #[serde(default = "default_true")]
+    pub strip_ecs: bool,
+    /// EDNS-Padding (RFC 7830/8467). Wirkt nur auf verschlüsselten Transporten,
+    /// wo sonst die Nachrichtenlänge den Namen verrät.
+    #[serde(default = "default_true")]
+    pub padding: bool,
+    /// DNS Cookies (RFC 7873) gegen Off-Path-Spoofing. Wie 0x20 nur auf dem
+    /// Klartext-Weg sinnvoll.
+    #[serde(default = "default_true")]
+    pub cookies: bool,
+    /// Zufällige Groß-/Kleinschreibung im QNAME (0x20). Erschwert Spoofing.
+    /// Nicht jeder Upstream verträgt es, deshalb pro Pool abschaltbar und im
+    /// Fehlerfall automatisch aus.
+    #[serde(default = "default_true")]
+    pub dns0x20: bool,
+}
+
+impl Default for PrivacyConfig {
+    fn default() -> Self {
+        Self {
+            strip_ecs: default_true(),
+            padding: default_true(),
+            cookies: default_true(),
+            dns0x20: default_true(),
+        }
+    }
+}
+
+const fn default_fanout() -> usize {
+    1
 }
 
 const fn default_query_timeout() -> Duration {
@@ -254,23 +417,85 @@ impl Config {
                 self.cache.prefetch_threshold
             )));
         }
-        let resolvers: usize = self.upstream_pool.iter().map(|p| p.resolver.len()).sum();
-        match resolvers {
-            0 => Err(ConfigError::Invalid(
-                "kein Upstream konfiguriert: es braucht genau einen [[upstream_pool.resolver]]"
+        if self
+            .upstream_pool
+            .iter()
+            .all(|pool| pool.resolver.is_empty())
+        {
+            return Err(ConfigError::Invalid(
+                "kein Upstream konfiguriert: es braucht mindestens einen \
+                 [[upstream_pool.resolver]]"
                     .to_owned(),
-            )),
-            1 => Ok(()),
-            n => Err(ConfigError::Invalid(format!(
-                "{n} Upstreams konfiguriert, Phase 1 kann genau einen; \
-                 Pools und Auswahlstrategien kommen in Phase 3"
-            ))),
+            ));
         }
+        if self.upstream_pool.len() > 1 {
+            return Err(ConfigError::Invalid(format!(
+                "{} Upstream-Pools konfiguriert. Welcher Pool für welchen Client gilt, \
+                 entscheiden Policies — die kommen in Phase 5. Bis dahin ist genau einer erlaubt.",
+                self.upstream_pool.len()
+            )));
+        }
+        for pool in &self.upstream_pool {
+            pool.validate()?;
+        }
+        for zone in &self.forward_zone {
+            if zone.upstream.is_encrypted() {
+                return Err(ConfigError::Invalid(format!(
+                    "forward_zone '{}': verschlüsselte Transporte sind hier noch nicht \
+                     umgesetzt. Eine forward_zone zeigt auf einen Nameserver im eigenen Netz; \
+                     dafür ist udp:// vorgesehen.",
+                    zone.zone.0
+                )));
+            }
+        }
+        Ok(())
     }
+}
 
-    /// Der eine Upstream dieser Phase.
-    pub fn single_upstream(&self) -> Option<&ResolverConfig> {
-        self.upstream_pool.iter().flat_map(|p| &p.resolver).next()
+impl UpstreamPool {
+    fn validate(&self) -> Result<(), ConfigError> {
+        let pool = &self.name;
+        if self.resolver.is_empty() {
+            return Err(ConfigError::Invalid(format!(
+                "Pool '{pool}' hat keinen Resolver"
+            )));
+        }
+        if self.fanout == 0 {
+            return Err(ConfigError::Invalid(format!(
+                "Pool '{pool}': fanout = 0 würde nie jemanden fragen"
+            )));
+        }
+        if self.fanout > self.resolver.len() {
+            return Err(ConfigError::Invalid(format!(
+                "Pool '{pool}': fanout = {} bei nur {} Resolvern",
+                self.fanout,
+                self.resolver.len()
+            )));
+        }
+        for resolver in &self.resolver {
+            let name = &resolver.name;
+            // B.1 Regel 7: kein Klartext-DNS nach außen. Die einzige Ausnahme
+            // sind forward_zone-Einträge ins eigene LAN, und die stehen nicht
+            // in einem Pool.
+            if !resolver.addr.is_encrypted() {
+                return Err(ConfigError::Invalid(format!(
+                    "Pool '{pool}', Resolver '{name}': Klartext-DNS ist als Upstream nicht \
+                     erlaubt. Benutze dot://, doh:// oder doq://. Für einen Nameserver im \
+                     eigenen Netz ist [[forward_zone]] der richtige Ort."
+                )));
+            }
+            if resolver
+                .tls_name
+                .as_ref()
+                .is_none_or(|n| n.trim().is_empty())
+            {
+                return Err(ConfigError::Invalid(format!(
+                    "Pool '{pool}', Resolver '{name}': tls_name fehlt. Ohne ihn wird das \
+                     Zertifikat gegen nichts geprüft und die Verschlüsselung ist wertlos."
+                )));
+            }
+        }
+        Ok(())
     }
 }
 
@@ -287,24 +512,32 @@ listen_tcp = ["127.0.0.1:5353"]
 name = "default"
 
 [[upstream_pool.resolver]]
-name = "fake"
-addr = "udp://127.0.0.1:5300"
+name = "quad9"
+addr = "dot://9.9.9.9:853"
+tls_name = "dns.quad9.net"
 "#;
 
     fn parse(text: &str) -> Result<Config, toml::de::Error> {
         toml::from_str(text)
     }
 
+    fn valid(text: &str) -> Config {
+        let config = parse(text).expect("muss parsen");
+        config.validate().expect("muss gültig sein");
+        config
+    }
+
     #[test]
     fn minimal_config_parses_with_defaults() {
-        let config = parse(MINIMAL).expect("minimale Konfiguration muss parsen");
-        config.validate().expect("und gültig sein");
+        let config = valid(MINIMAL);
         assert_eq!(config.server.query_timeout, Duration::from_secs(3));
         assert_eq!(config.server.edns.udp_payload_size, 1232);
-        assert_eq!(
-            config.single_upstream().map(|r| r.addr),
-            Some(UpstreamAddr("127.0.0.1:5300".parse().expect("gültig")))
-        );
+        assert_eq!(config.cache.max_entries, 100_000);
+        let pool = config.upstream_pool.first().expect("ein Pool");
+        assert_eq!(pool.strategy, Strategy::SplitByZone, "Default-Strategie");
+        assert_eq!(pool.fanout, 1);
+        assert!(config.privacy.strip_ecs);
+        assert!(config.privacy.dns0x20);
     }
 
     #[test]
@@ -334,27 +567,143 @@ addr = "udp://127.0.0.1:5300"
     }
 
     #[test]
-    fn encrypted_transports_are_rejected_with_a_hint_to_phase_3() {
-        let text = MINIMAL.replace("udp://127.0.0.1:5300", "dot://9.9.9.9:853");
-        let err = parse(&text).expect_err("dot:// kann Phase 1 nicht");
-        assert!(err.to_string().contains("Phase 3"), "{err}");
+    fn plaintext_upstream_in_a_pool_is_rejected() {
+        // B.1 Regel 7. Der Hinweis muss den richtigen Ort nennen.
+        let text = MINIMAL.replace("dot://9.9.9.9:853", "udp://9.9.9.9:53");
+        let err = valid_err(&text);
+        assert!(err.contains("Klartext"), "{err}");
+        assert!(
+            err.contains("forward_zone"),
+            "kein Hinweis auf die Ausnahme: {err}"
+        );
+    }
+
+    #[test]
+    fn encrypted_upstream_without_tls_name_is_rejected() {
+        let text = MINIMAL.replace("tls_name = \"dns.quad9.net\"\n", "");
+        let err = valid_err(&text);
+        assert!(err.contains("tls_name"), "{err}");
+    }
+
+    fn valid_err(text: &str) -> String {
+        parse(text)
+            .expect("parst syntaktisch")
+            .validate()
+            .expect_err("muss abgelehnt werden")
+            .to_string()
+    }
+
+    #[test]
+    fn plaintext_is_allowed_in_a_forward_zone() {
+        let text = format!(
+            "{MINIMAL}\n[[forward_zone]]\nzone = \"home.arpa\"\nupstream = \"udp://10.0.0.1:53\"\n"
+        );
+        let config = valid(&text);
+        let zone = config.forward_zone.first().expect("eine Zone");
+        assert_eq!(zone.zone.0.to_ascii(), "home.arpa.");
+        assert_eq!(
+            zone.upstream,
+            UpstreamAddr::Udp("10.0.0.1:53".parse().expect("gültig"))
+        );
+    }
+
+    #[test]
+    fn zone_names_are_lowercased() {
+        let text = format!(
+            "{MINIMAL}\n[[forward_zone]]\nzone = \"HOME.Arpa\"\nupstream = \"udp://10.0.0.1:53\"\n"
+        );
+        let config = valid(&text);
+        assert_eq!(
+            config
+                .forward_zone
+                .first()
+                .expect("eine Zone")
+                .zone
+                .0
+                .to_ascii(),
+            "home.arpa."
+        );
+    }
+
+    #[test]
+    fn default_ports_are_filled_in_per_transport() {
+        assert_eq!(
+            UpstreamAddr::try_from("dot://9.9.9.9".to_owned()),
+            Ok(UpstreamAddr::Dot("9.9.9.9:853".parse().expect("gültig")))
+        );
+        assert_eq!(
+            UpstreamAddr::try_from("doq://9.9.9.9".to_owned()),
+            Ok(UpstreamAddr::Doq("9.9.9.9:853".parse().expect("gültig")))
+        );
+        assert_eq!(
+            UpstreamAddr::try_from("udp://10.0.0.1".to_owned()),
+            Ok(UpstreamAddr::Udp("10.0.0.1:53".parse().expect("gültig")))
+        );
+    }
+
+    #[test]
+    fn doh_url_splits_into_address_and_path() {
+        assert_eq!(
+            UpstreamAddr::try_from("doh://194.242.2.4/dns-query".to_owned()),
+            Ok(UpstreamAddr::Doh {
+                addr: "194.242.2.4:443".parse().expect("gültig"),
+                path: "/dns-query".to_owned(),
+            })
+        );
+        assert_eq!(
+            UpstreamAddr::try_from("doh://194.242.2.4:8443".to_owned()),
+            Ok(UpstreamAddr::Doh {
+                addr: "194.242.2.4:8443".parse().expect("gültig"),
+                path: "/dns-query".to_owned(),
+            }),
+            "ohne Pfad wird /dns-query angenommen"
+        );
+    }
+
+    #[test]
+    fn hostnames_as_upstream_are_rejected() {
+        // Einen Namen aufzulösen, um den Resolver zu erreichen, ist ein
+        // Henne-Ei-Problem.
+        let err = UpstreamAddr::try_from("dot://dns.quad9.net:853".to_owned())
+            .expect_err("Name statt IP");
+        assert!(err.contains("IP-Adresse"), "{err}");
     }
 
     #[test]
     fn address_without_scheme_is_rejected() {
-        let text = MINIMAL.replace("udp://127.0.0.1:5300", "127.0.0.1:5300");
-        let err = parse(&text).expect_err("Adresse ohne Schema ist ungültig");
-        assert!(err.to_string().contains("Schema"), "{err}");
+        let err = UpstreamAddr::try_from("9.9.9.9:853".to_owned()).expect_err("kein Schema");
+        assert!(err.contains("Schema"), "{err}");
     }
 
     #[test]
-    fn more_than_one_upstream_is_rejected_in_phase_1() {
-        let text = format!(
-            "{MINIMAL}\n[[upstream_pool.resolver]]\nname = \"zweiter\"\naddr = \"udp://127.0.0.1:5301\"\n"
-        );
-        let config = parse(&text).expect("parst syntaktisch");
-        let err = config.validate().expect_err("zwei Upstreams sind Phase 3");
-        assert!(err.to_string().contains("Phase 3"), "{err}");
+    fn unknown_transport_is_rejected() {
+        let err = UpstreamAddr::try_from("gopher://9.9.9.9".to_owned()).expect_err("unbekannt");
+        assert!(err.contains("gopher"), "{err}");
+    }
+
+    #[test]
+    fn strategy_is_parsed_from_snake_case() {
+        for (text, expected) in [
+            ("fastest", Strategy::Fastest),
+            ("round_robin", Strategy::RoundRobin),
+            ("split_by_zone", Strategy::SplitByZone),
+        ] {
+            let config = valid(&MINIMAL.replace(
+                "name = \"default\"",
+                &format!("name = \"default\"\nstrategy = \"{text}\""),
+            ));
+            assert_eq!(
+                config.upstream_pool.first().expect("Pool").strategy,
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn fanout_beyond_the_number_of_resolvers_is_rejected() {
+        let text = MINIMAL.replace("name = \"default\"", "name = \"default\"\nfanout = 3");
+        let err = valid_err(&text);
+        assert!(err.contains("fanout"), "{err}");
     }
 
     #[test]
@@ -362,8 +711,18 @@ addr = "udp://127.0.0.1:5300"
         let text = MINIMAL
             .replace("listen_udp = [\"127.0.0.1:5353\"]", "listen_udp = []")
             .replace("listen_tcp = [\"127.0.0.1:5353\"]", "listen_tcp = []");
-        let config = parse(&text).expect("parst syntaktisch");
-        let err = config.validate().expect_err("ohne Listener kein Server");
-        assert!(err.to_string().contains("Listener"), "{err}");
+        let err = valid_err(&text);
+        assert!(err.contains("Listener"), "{err}");
+    }
+
+    #[test]
+    fn config_without_upstream_is_rejected() {
+        let text = MINIMAL
+            .split("[[upstream_pool.resolver]]")
+            .next()
+            .expect("Kopf")
+            .to_owned();
+        let err = valid_err(&text);
+        assert!(err.contains("Upstream"), "{err}");
     }
 }
