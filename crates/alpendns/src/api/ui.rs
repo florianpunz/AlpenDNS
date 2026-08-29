@@ -89,10 +89,35 @@ mod tests {
     }
 
     #[test]
-    fn the_stylesheet_keeps_to_one_accent_colour() {
-        // Ein Akzentton, alles andere neutrale Graustufen (CLAUDE.md B.6).
-        let accents = STYLE.matches("--accent:").count();
-        assert_eq!(accents, 2, "erwartet: je einer für hell und dunkel");
+    fn every_colour_carries_exactly_one_meaning() {
+        // Drei Farben mit fester Bedeutung, sonst neutrale Graustufen
+        // (CLAUDE.md B.6). Jede muss für hell und dunkel definiert sein —
+        // eine Farbe, die nur in einem Modus existiert, fehlt im anderen.
+        for token in ["--accent:", "--brand:", "--ok:"] {
+            assert_eq!(
+                STYLE.matches(token).count(),
+                2,
+                "{token} braucht je eine Festlegung für hell und dunkel"
+            );
+        }
+    }
+
+    #[test]
+    fn the_logo_is_inline_and_needs_no_file() {
+        // Eine Grafik als Datei wäre eine weitere Route und eine weitere
+        // Möglichkeit, dass die Seite ohne Netz halb geladen aussieht.
+        assert!(INDEX.contains("<svg"), "kein eingebettetes Logo");
+        assert!(!INDEX.contains("<img"), "die Seite lädt eine Bilddatei");
+    }
+
+    #[test]
+    fn the_hidden_attribute_is_not_overridden_by_a_display_rule() {
+        // `.login { display: flex }` hat das hidden-Attribut geschlagen, und
+        // das Anmeldefenster blieb nach dem Login stehen.
+        assert!(
+            STYLE.contains("[hidden] { display: none !important; }"),
+            "ohne diese Regel kann ein display: … das hidden-Attribut aushebeln"
+        );
     }
 
     #[test]

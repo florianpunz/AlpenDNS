@@ -274,7 +274,12 @@ Linear/Vercel-Dashboards, nicht an bunten Admin-Templates.
 
 * Keine Gradient-Hero-Sections, keine Emoji als Icons, keine animierten Zahlen-Counter,
   keine Glassmorphism-Karten, keine bunten Badges für alles.
-* Ein Akzentfarbton. Alles andere neutrale Graustufen. Hell und dunkel gleichwertig.
+* **Drei Farben, drei Bedeutungen** — und keine davon schmückt: Blau für die Marke
+  (Logo und die erste Hälfte des Schriftzugs), Grün für "der Server antwortet",
+  Terrakotta für "geblockt". Alles andere neutrale Graustufen. Hell und dunkel
+  gleichwertig. Eine vierte Farbe braucht eine vierte Bedeutung, sonst ist sie Deko.
+* Grafiken werden als SVG in die Seite eingebettet, nicht als Datei geladen —
+  eine Route weniger und keine Seite, die ohne Netz halb aussieht.
 * System-Schriftart. Zahlen tabular (`font-variant-numeric: tabular-nums`), damit Werte
   in Tabellen nicht springen.
 * Großzügige Weißräume, klare Hierarchie über Größe und Gewicht, nicht über Farbe.

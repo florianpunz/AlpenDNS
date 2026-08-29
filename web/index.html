@@ -13,8 +13,13 @@
 </noscript>
 
 <form id="login" class="login" hidden>
-  <h1>AlpenDNS</h1>
-  <p>Der API-Token steht in der Datei, die <code>api.token_file</code> nennt.</p>
+  <h1><svg class="logo" viewBox="0 0 40 26" role="img" aria-label="Alpen">
+  <path class="ridge-back" d="M1 25 L13 7 L20 17 L24 11 L39 25 Z"/>
+  <path class="ridge-front" d="M7 25 L20 2 L33 25 Z"/>
+  <path class="snow" d="M20 2 L25.5 11.7 L22.6 10 L20 12.2 L17.4 10 L14.5 11.7 Z"/>
+</svg><span class="wordmark"><span class="brand">Alpen</span>DNS</span></h1>
+  <p>Der API-Token befindet sich in der Datei
+  <code>/AlpenDNS/lists/api.token_file</code>.</p>
   <label for="token">Token</label>
   <input id="token" type="password" autocomplete="off" spellcheck="false">
   <button type="submit">Anmelden</button>
@@ -23,10 +28,16 @@
 
 <main id="app" hidden>
   <header>
-    <h1>AlpenDNS</h1>
+    <h1><svg class="logo" viewBox="0 0 40 26" role="img" aria-label="Alpen">
+  <path class="ridge-back" d="M1 25 L13 7 L20 17 L24 11 L39 25 Z"/>
+  <path class="ridge-front" d="M7 25 L20 2 L33 25 Z"/>
+  <path class="snow" d="M20 2 L25.5 11.7 L22.6 10 L20 12.2 L17.4 10 L14.5 11.7 Z"/>
+</svg><span class="wordmark"><span class="brand">Alpen</span>DNS</span></h1>
     <div class="meta">
       <span id="version"></span>
-      <span id="uptime"></span>
+      <span class="live-dot" title="Der Server antwortet">
+        <span class="dot" aria-hidden="true"></span><span id="uptime"></span>
+      </span>
       <span id="mode" title="Logging-Modus"></span>
     </div>
   </header>
