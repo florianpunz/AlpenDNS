@@ -2,8 +2,16 @@
 
 Ein privacy-fokussierter DNS-Server für Linux, in Rust.
 
-> **Status: Phase 0 — Gerüst.** Es gibt noch keinen lauffähigen Resolver.
-> Was hier liegt, ist der Plan und das Repository-Gerüst. Siehe [docs/ROADMAP.md](docs/ROADMAP.md).
+> **Status: Phase 1 — der Server antwortet.** UDP und TCP auf einem konfigurierbaren
+> Port, Weiterleitung an *einen* Upstream, Validierung der Antwort gegen die Frage,
+> TC-Flag bei zu großen Antworten, Graceful Shutdown. Noch kein Cache, kein Filter,
+> keine Policy — und der Upstream läuft noch unverschlüsselt, das ändert Phase 3.
+> Siehe [docs/ROADMAP.md](docs/ROADMAP.md).
+
+```bash
+cargo run -- -c config/alpendns.phase1.toml
+dig @127.0.0.1 -p 5353 example.com
+```
 
 ## Warum noch ein DNS-Server?
 

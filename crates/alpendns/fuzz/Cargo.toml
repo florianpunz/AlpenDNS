@@ -1,0 +1,24 @@
+[package]
+name = "alpendns-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+hickory-proto = "0.26"
+alpendns = { path = ".." }
+
+[[bin]]
+name = "parse_request"
+path = "fuzz_targets/parse_request.rs"
+test = false
+doc = false
+bench = false
+
+# Eigener Workspace: das Fuzz-Crate braucht nightly. Läge es im Haupt-Workspace,
+# würde `cargo clippy --all-targets` auf stable daran scheitern.
+[workspace]

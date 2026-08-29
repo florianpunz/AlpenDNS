@@ -1,0 +1,28 @@
+# AlpenDNS — lauffähige Minimalkonfiguration für Phase 1.
+#
+# Die vollständige Ziel-Konfiguration steht in alpendns.example.toml. Diese Datei
+# enthält nur die Schlüssel, die Phase 1 wirklich umsetzt — mehr akzeptiert der
+# Server auch nicht: unbekannte Schlüssel sind ein Startfehler, kein Warning.
+#
+# ACHTUNG: Der Upstream läuft hier unverschlüsselt über UDP. Das widerspricht der
+# harten Regel B.1.7 ("kein Klartext-DNS nach außen") und ist ausschließlich der
+# Zwischenstand bis Phase 3, die DoT/DoH/DoQ bringt. Nicht im Dauerbetrieb
+# benutzen.
+
+[server]
+# 5353 statt 53, damit der Server ohne besondere Rechte startet.
+listen_udp = ["127.0.0.1:5353"]
+listen_tcp = ["127.0.0.1:5353"]
+query_timeout = "3s"
+
+[server.edns]
+# Ab dieser Antwortgröße wird über UDP das TC-Flag gesetzt (DNS Flag Day 2020).
+udp_payload_size = 1232
+
+[[upstream_pool]]
+name = "default"
+
+# Phase 1 kann genau einen Resolver. Pools mit Auswahlstrategie: Phase 3.
+[[upstream_pool.resolver]]
+name = "quad9"
+addr = "udp://9.9.9.9:53"

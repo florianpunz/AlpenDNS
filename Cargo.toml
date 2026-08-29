@@ -22,6 +22,28 @@ indexing_slicing = "deny"
 integer_division = "warn"
 todo = "warn"
 
+# Versionen werden einmal hier deklariert. Wenn der Code später in eigene Crates
+# wandert (alpendns-server, alpendns-cache, …), erben die sie über `workspace = true`
+# und es gibt keine divergierenden Versionen im Baum.
+[workspace.dependencies]
+# ADR-0002: DNS-Wire-Format kommt aus hickory-proto, wir parsen nicht selbst.
+hickory-proto = "0.26"
+tokio = { version = "1.53", features = ["rt-multi-thread", "net", "macros", "signal", "time", "io-util", "sync"] }
+# CancellationToken + TaskTracker für Graceful Shutdown (Phase 1, Schritt 8).
+# Selbstgebaut ist das genau die Sorte Nebenläufigkeitscode, die man falsch macht.
+tokio-util = { version = "0.7", features = ["rt"] }
+serde = { version = "1.0", features = ["derive"] }
+toml = "1.1"
+# Config schreibt Zeitangaben als "3s"/"24h" (siehe config/alpendns.example.toml).
+humantime-serde = "1.1"
+# Zufällige Query-IDs zum Upstream. Die ID des Clients ist von außen wählbar und
+# darf nicht nach draußen durchgereicht werden.
+rand = "0.10"
+thiserror = "2.0"
+anyhow = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
 [profile.release]
 lto = "thin"
 codegen-units = 1

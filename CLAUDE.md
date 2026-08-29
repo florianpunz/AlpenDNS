@@ -84,9 +84,14 @@ diesem Projekt. Das heißt konkret: erkläre nicht-offensichtliche Entscheidunge
 Commit oder in der Antwort, statt sie kommentarlos einzubauen. Ein Einzeiler
 "warum so und nicht anders" ist mehr wert als drei Absätze Doku.
 
-**Stand:** Phase 0 ist lokal abgenommen — alle vier DoD-Kommandos laufen durch
-(Rust 1.98.0, cargo-deny 0.20.2). Offen bleibt nur der CI-Lauf, dafür fehlt ein
-GitHub-Remote. Aktuelle Arbeit: Phase 1, siehe `docs/ROADMAP.md`.
+**Stand:** Phase 1 ist umgesetzt: UDP/TCP-Listener, Weiterleitung an einen Upstream,
+Antwortvalidierung, TC-Flag, Config mit `deny_unknown_fields`, Graceful Shutdown,
+Fuzz-Target. Der gesamte testbare Code liegt in der Library (`src/lib.rs` und die
+Module daneben), `main.rs` macht nur Start, Signale und Shutdown — das ist die
+Voraussetzung dafür, dass Module später ohne Umbau zu eigenen Crates werden.
+Der Upstream spricht noch Klartext-UDP; das ist der von der Roadmap vorgesehene
+Zwischenstand bis Phase 3 und die einzige offene Abweichung von B.1. Der CI-Lauf
+fehlt weiterhin, dafür gibt es kein GitHub-Remote.
 
 **Doku-Karte:** `docs/ROADMAP.md` = aktuelle Phase und Abnahmekriterien ·
 `docs/ARCHITECTURE.md` = Zielbild · `docs/TESTING.md` = Teststrategie ·
@@ -107,7 +112,10 @@ Projekt "korrekt" heißt.
    `indexing_slicing = "deny"`). `expect_used` steht in `Cargo.toml` nur auf `warn`, wird
    aber in CI durch `RUSTFLAGS: "-D warnings"` fatal — lokal rutscht ein `expect()` also
    durch, in CI nicht. Erlaubt sind `unwrap()`/`expect()` ausschließlich in
-   `#[cfg(test)]`-Code; `clippy.toml` nimmt Testcode entsprechend aus.
+   `#[cfg(test)]`-Code; `clippy.toml` nimmt solchen Code aus. Integrationstests
+   unter `tests/` sind ein eigenes Crate und fallen *nicht* darunter — sie
+   brauchen `#![allow(clippy::expect_used, clippy::indexing_slicing)]` am
+   Dateikopf.
 2. **`unsafe` ist verboten** (`unsafe_code = "forbid"` im Workspace). Wenn du glaubst, du
    brauchst es: das ist ein Fall für "stop und nachfragen".
 3. **Keine Query-Namen im Log ohne ausdrückliche Konfiguration.** Default ist

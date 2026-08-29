@@ -23,3 +23,10 @@
 /web/dist/
 
 .DS_Store
+
+# cargo-fuzz
+/crates/*/fuzz/target/
+/crates/*/fuzz/artifacts/
+# Von libFuzzer erzeugt; kuratierte Eingaben liegen in fuzz/seeds/
+/crates/*/fuzz/corpus/
+/crates/*/fuzz/coverage/
