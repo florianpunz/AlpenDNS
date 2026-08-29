@@ -1,9 +1,10 @@
 /* AlpenDNS — Web-UI.
  *
- * Regeln aus CLAUDE.md B.6: ein Akzentton, sonst neutrale Graustufen; Hierarchie
- * über Größe und Gewicht, nicht über Farbe; Systemschrift; Zahlen tabular;
- * hell und dunkel gleichwertig. Keine externen Ressourcen — die Seite liegt im
- * Binary und funktioniert ohne Internet. */
+ * Regeln aus CLAUDE.md B.6: drei Farben mit je genau einer Bedeutung — Blau für
+ * die Marke, Grün für "läuft", Terrakotta für "geblockt" —, sonst neutrale
+ * Graustufen. Hierarchie über Größe und Gewicht, nicht über Farbe.
+ * Systemschrift, Zahlen tabular, hell und dunkel gleichwertig. Keine externen
+ * Ressourcen: die Seite liegt im Binary und funktioniert ohne Internet. */
 
 :root {
   color-scheme: light dark;
@@ -14,8 +15,12 @@
   --text: #1c1c1a;
   --muted: #6d6c68;
   --faint: #97968f;
-  /* Der eine Akzentton. Er markiert genau eines: dass etwas geblockt wurde. */
-  --accent: #a1442c;
+  /* Drei Farben, drei Bedeutungen. Keine davon schmückt. */
+  --accent: #a1442c;  /* geblockt */
+  --brand: #1d63d1;   /* die Marke */
+  --brand-dim: #9cb8e6;
+  --ok: #17864a;      /* der Server antwortet */
+  --snow: #fbfbfa;
 
   --gap: 1.5rem;
   --radius: 6px;
@@ -30,10 +35,18 @@
     --muted: #a3a199;
     --faint: #75736c;
     --accent: #e0876b;
+    --brand: #5c9dff;
+    --brand-dim: #2f4d7a;
+    --ok: #4cc07d;
+    --snow: #161614;
   }
 }
 
 * { box-sizing: border-box; }
+
+/* Das hidden-Attribut muss auch dann greifen, wenn ein Element weiter unten ein
+ * display bekommt — sonst bleibt etwa das Anmeldefenster nach dem Login stehen. */
+[hidden] { display: none !important; }
 
 body {
   margin: 0;
@@ -59,7 +72,35 @@ header {
   border-bottom: 1px solid var(--line);
 }
 
-h1 { font-size: 1.1rem; font-weight: 600; margin: 0; letter-spacing: 0.01em; }
+h1 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 0;
+  letter-spacing: 0.01em;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+.wordmark { line-height: 1; }
+/* Die erste Hälfte des Schriftzugs trägt die Markenfarbe. */
+.brand { color: var(--brand); }
+
+.logo { width: 28px; height: 18px; flex: none; display: block; }
+.logo .ridge-back { fill: var(--brand-dim); }
+.logo .ridge-front { fill: var(--brand); }
+.logo .snow { fill: var(--snow); }
+
+/* Der grüne Punkt sagt genau eines: der Server antwortet gerade. */
+.live-dot { display: inline-flex; align-items: center; gap: 0.4rem; }
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ok);
+  flex: none;
+}
+/* Antwortet er nicht mehr, wechselt der Punkt die Bedeutung, nicht die Größe. */
+.live-dot.is-stale .dot { background: var(--faint); }
 h2 {
   font-size: 0.8rem;
   font-weight: 600;
@@ -140,6 +181,7 @@ tr:last-child td { border-bottom: none; }
   flex-direction: column;
   gap: 0.5rem;
 }
+.login h1 { margin-bottom: 0.4rem; }
 .login p { color: var(--muted); font-size: 0.9rem; margin: 0 0 0.5rem; }
 .login label { font-size: 0.82rem; color: var(--muted); }
 input, button {

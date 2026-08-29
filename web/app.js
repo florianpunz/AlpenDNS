@@ -44,9 +44,21 @@ function formatUptime(seconds) {
 const percent = (value) => `${(value * 100).toFixed(1)} %`;
 const thousands = (value) => value.toLocaleString("de-AT");
 
+/** Zeigt am Punkt neben der Laufzeit, ob der Server gerade antwortet. */
+function setReachable(reachable) {
+  const dot = document.querySelector(".live-dot");
+  if (dot) dot.classList.toggle("is-stale", !reachable);
+  if (dot) {
+    dot.title = reachable
+      ? "Der Server antwortet"
+      : "Keine Antwort — die Zahlen sind der letzte bekannte Stand";
+  }
+}
+
 /** Frage 1: Läuft er? */
 async function refreshStatus() {
   const status = await api("/api/status");
+  setReachable(true);
 
   $("version").textContent = `Version ${status.version}`;
   $("uptime").textContent = formatUptime(status.uptime_seconds);
@@ -155,22 +167,31 @@ async function loadRecent() {
   for (const entry of recent.slice().reverse()) addRow(entry);
 }
 
-async function start() {
-  await refreshStatus();
+/** Blendet das Anmeldefenster aus und die Zahlen ein. */
+function showApp() {
   $("login").hidden = true;
   $("app").hidden = false;
+}
+
+async function start() {
+  await refreshStatus();
+  showApp();
   await loadRecent().catch(() => {});
   connectStream();
-  setInterval(() => refreshStatus().catch(() => {}), 5000);
+  setInterval(
+    () => refreshStatus().catch(() => setReachable(false)),
+    5000,
+  );
 }
 
 $("login").addEventListener("submit", async (submitEvent) => {
   submitEvent.preventDefault();
   token = $("token").value.trim();
   try {
-    await refreshStatus();
-    localStorage.setItem(TOKEN_KEY, token);
+    // start() prüft den Token, indem es den Status holt; erst danach wird
+    // gespeichert und umgeschaltet.
     await start();
+    localStorage.setItem(TOKEN_KEY, token);
   } catch {
     const error = $("login-error");
     error.textContent = "Der Token wurde nicht akzeptiert.";
