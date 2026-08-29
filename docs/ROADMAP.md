@@ -83,25 +83,22 @@ und über denselben Socket.
 **Abnahme:** Cache-Trefferquote ist als Metrik sichtbar. `dnsperf` zeigt bei wiederholtem
 Korpus eine deutlich höhere Rate als in Phase 1.
 
-**Erledigt am 2026-08-29.** Mit zwei Einschränkungen, beide bewusst:
+**Abgenommen am 2026-08-29.**
 
-* Die Trefferquote wird gezählt (`Cache::stats()`) und beim Herunterfahren geloggt. Ein
-  *Endpunkt* dafür ist Phase 6, Schritt 2 — vorher gibt es keine Metrik-Infrastruktur,
-  auf die man sie legen könnte.
-* `dnsperf` ist auf der Entwicklungsmaschine nicht installiert. Gemessen wurde stattdessen
-  mit einem eigenen Lastgenerator gegen einen Fake-Upstream im selben Prozess,
-  16 Clients × 2000 Anfragen:
-
-  | Korpus | Anfragen/s | Upstream-Anfragen |
-  |---|---:|---:|
-  | jede Anfrage ein neuer Name | 118 778 | 32 000 |
-  | immer derselbe Name | 344 813 | **1** |
-
-  Faktor 2,9 beim Durchsatz. Die aussagekräftigere Zahl ist die rechte Spalte: der
-  Upstream sieht 32 000 statt einer Anfrage. Der Durchsatzfaktor ist hier *unter*schätzt,
-  weil der Fake-Upstream ohne Netzwerklatenz antwortet — gegen einen echten Resolver
-  fällt der Unterschied deutlich größer aus. Ein reproduzierbarer Benchmark im Repo
-  kommt mit `docs/BENCHMARKS.md` in Phase 4, Schritt 11.
+* **Trefferquote sichtbar:** `Cache::stats()` zählt Treffer, stale-Treffer und Misses.
+  Der Server schreibt die Bilanz alle fünf Minuten ins Log — aber nur, wenn sich seit
+  der letzten Zeile etwas getan hat, damit ein Server im Leerlauf still bleibt — und
+  zusätzlich beim Herunterfahren. Nur Summen, keine Namen. Ein *abfragbarer Endpunkt*
+  dafür ist Phase 6, Schritt 2, und wurde bewusst nicht vorgezogen (CLAUDE.md B.8).
+* **Durchsatz:** `dnsperf` ist auf der Entwicklungsmaschine nicht installiert. An seine
+  Stelle tritt ein Lastgenerator im Repo (`crates/alpendns/tests/load.rs`, läuft nur
+  mit `--ignored`), damit die Zahlen reproduzierbar sind statt einmalig. Ergebnisse und
+  Messaufbau stehen in [BENCHMARKS.md](BENCHMARKS.md): 32 000 Anfragen erreichen den
+  Upstream bei lauter neuen Namen, genau **eine** bei wiederholtem Korpus; Durchsatz
+  Faktor 3,3.
+* **Nachtrag zu Schritt 4:** "RSS bleibt stabil" war zunächst nicht geprüft, nur die
+  Zahl der Einträge. Jetzt gemessen: 160 000 neue Namen bei `max_entries = 10 000`
+  lassen den Speicher um 764 KiB wachsen, nicht linear mit.
 
 **Fallstricke:** Zeit muss injizierbar sein (`Clock`-Trait), sonst sind alle TTL-Tests
 `sleep`-basiert und langsam. Nicht `SystemTime::now()` direkt im Cache aufrufen.
