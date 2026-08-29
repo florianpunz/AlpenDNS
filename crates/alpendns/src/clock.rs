@@ -30,6 +30,59 @@ impl<C: Clock> Clock for Arc<C> {
     }
 }
 
+/// Liefert die aktuelle Ortszeit mit Datum und Wochentag.
+///
+/// Getrennt von [`Clock`], weil beide verschiedene Dinge sind: `Clock` liefert
+/// monotone Zeit für Fristen (TTL, Timeouts) und darf nie rückwärts laufen;
+/// hier geht es um Kalenderzeit für Zeitpläne, die sehr wohl springt — bei
+/// Sommerzeitwechseln und wenn jemand die Systemuhr stellt.
+pub trait WallClock: Send + Sync + 'static {
+    fn now(&self) -> jiff::Zoned;
+}
+
+/// Die Ortszeit des Systems.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SystemWallClock;
+
+impl WallClock for SystemWallClock {
+    fn now(&self) -> jiff::Zoned {
+        jiff::Zoned::now()
+    }
+}
+
+impl<C: WallClock> WallClock for Arc<C> {
+    fn now(&self) -> jiff::Zoned {
+        (**self).now()
+    }
+}
+
+/// Kalenderuhr für Tests: steht auf einem gesetzten Zeitpunkt.
+#[derive(Debug)]
+pub struct FixedWallClock(std::sync::Mutex<jiff::Zoned>);
+
+impl FixedWallClock {
+    pub fn new(at: jiff::Zoned) -> Self {
+        Self(std::sync::Mutex::new(at))
+    }
+
+    /// Stellt die Uhr auf einen anderen Zeitpunkt.
+    pub fn set(&self, at: jiff::Zoned) {
+        *self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = at;
+    }
+}
+
+impl WallClock for FixedWallClock {
+    fn now(&self) -> jiff::Zoned {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+}
+
 /// Uhr, die stillsteht, bis sie von Hand vorgestellt wird.
 ///
 /// Öffentlich, weil Integrationstests ein eigenes Crate sind und nicht auf

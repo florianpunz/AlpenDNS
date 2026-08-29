@@ -15,6 +15,7 @@ use std::time::Duration;
 use alpendns::config::UpstreamAddr;
 use alpendns::privacy;
 use alpendns::resolve::ResolveBackend as _;
+use alpendns::trace::Ctx;
 use alpendns::upstream::transport::Transport;
 use hickory_proto::op::{Message, MessageType, OpCode, Query, ResponseCode};
 use hickory_proto::rr::rdata::A;
@@ -80,6 +81,11 @@ impl TestPki {
             client: Arc::new(client),
         }
     }
+}
+
+/// Ein Kontext für Tests, die sich nicht für den Trace interessieren.
+fn ctx() -> Ctx {
+    Ctx::new(std::net::SocketAddr::from(([127, 0, 0, 1], 5555)))
 }
 
 fn question(name: &str) -> Message {
@@ -172,7 +178,7 @@ async fn dot_query_is_answered_over_tls() {
     let transport = transport_for(UpstreamAddr::Dot(addr), &pki);
 
     let response = transport
-        .resolve(&question("example.com."))
+        .resolve(&question("example.com."), &ctx())
         .await
         .expect("DoT-Antwort");
 
@@ -190,7 +196,7 @@ async fn dot_reuses_the_connection_for_further_queries() {
 
     for i in 0..5 {
         transport
-            .resolve(&question(&format!("host{i}.example.")))
+            .resolve(&question(&format!("host{i}.example.")), &ctx())
             .await
             .expect("DoT-Antwort");
     }
@@ -229,7 +235,7 @@ async fn dot_request_is_padded_to_a_full_block() {
 
     let transport = transport_for(UpstreamAddr::Dot(addr), &pki);
     transport
-        .resolve(&question("a.de."))
+        .resolve(&question("a.de."), &ctx())
         .await
         .expect("DoT-Antwort");
 
@@ -256,7 +262,7 @@ async fn a_wrong_server_name_is_refused() {
     );
 
     let error = transport
-        .resolve(&question("example.com."))
+        .resolve(&question("example.com."), &ctx())
         .await
         .expect_err("falscher Name muss abgelehnt werden");
     assert_eq!(
@@ -281,7 +287,7 @@ async fn a_dead_upstream_reports_an_error_instead_of_hanging() {
 
     let result = tokio::time::timeout(
         Duration::from_secs(5),
-        transport.resolve(&question("example.com.")),
+        transport.resolve(&question("example.com."), &ctx()),
     )
     .await
     .expect("darf nicht hängen");
@@ -353,7 +359,7 @@ async fn doh_query_is_answered_over_http2() {
     );
 
     let response = transport
-        .resolve(&question("example.com."))
+        .resolve(&question("example.com."), &ctx())
         .await
         .expect("DoH-Antwort");
 
@@ -376,7 +382,7 @@ async fn doh_reuses_the_connection() {
 
     for i in 0..4 {
         transport
-            .resolve(&question(&format!("h{i}.example.")))
+            .resolve(&question(&format!("h{i}.example.")), &ctx())
             .await
             .expect("DoH-Antwort");
     }
@@ -437,7 +443,7 @@ async fn doq_query_is_answered_over_quic() {
     let transport = transport_for(UpstreamAddr::Doq(addr), &pki);
 
     let response = transport
-        .resolve(&question("example.com."))
+        .resolve(&question("example.com."), &ctx())
         .await
         .expect("DoQ-Antwort");
 
@@ -454,7 +460,7 @@ async fn doq_reuses_the_connection_across_streams() {
 
     for i in 0..3 {
         transport
-            .resolve(&question(&format!("q{i}.example.")))
+            .resolve(&question(&format!("q{i}.example.")), &ctx())
             .await
             .expect("DoQ-Antwort");
     }
@@ -480,7 +486,7 @@ async fn nothing_is_sent_in_cleartext_on_port_53() {
     let (addr, _) = dot_fake(&pki).await;
     let transport = transport_for(UpstreamAddr::Dot(addr), &pki);
     transport
-        .resolve(&question("example.com."))
+        .resolve(&question("example.com."), &ctx())
         .await
         .expect("DoT-Antwort");
 
@@ -522,7 +528,7 @@ async fn every_transport_returns_the_clients_query_id_and_question() {
 
     for (label, transport) in cases {
         let request = question("example.com.");
-        let response = transport.resolve(&request).await.expect("Antwort");
+        let response = transport.resolve(&request, &ctx()).await.expect("Antwort");
         assert_eq!(
             response.metadata.id, request.metadata.id,
             "{label}: fremde Query-ID in der Antwort"

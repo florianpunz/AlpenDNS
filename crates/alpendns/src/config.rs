@@ -58,6 +58,70 @@ pub struct Config {
     pub blocklist: Vec<ListConfig>,
     #[serde(default)]
     pub allowlist: Vec<ListConfig>,
+    #[serde(default)]
+    pub client: Vec<ClientEntry>,
+    #[serde(default)]
+    pub policy: Vec<PolicyEntry>,
+}
+
+/// Ein Gerät oder eine Gruppe von Geräten.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClientEntry {
+    pub name: String,
+    #[serde(rename = "match")]
+    pub matches: ClientMatch,
+    pub policy: String,
+}
+
+/// Woran ein Client erkannt wird.
+///
+/// In Phase 5 nur die Adresse. `doh_token` und mTLS stehen in
+/// ARCHITECTURE.md §6 und brauchen verschlüsselte Listener, die es noch nicht
+/// gibt — sie hier schon entgegenzunehmen würde eine Wirkung versprechen, die
+/// nicht eintritt.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClientMatch {
+    /// Einzeladressen oder Netze in CIDR-Schreibweise.
+    #[serde(default)]
+    pub ip: Vec<String>,
+}
+
+/// Was für einen Client gilt.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PolicyEntry {
+    pub name: String,
+    #[serde(default)]
+    pub blocklists: Vec<String>,
+    #[serde(default)]
+    pub allowlists: Vec<String>,
+    /// Zusätzliche Muster, die als Block gelten.
+    #[serde(default)]
+    pub regex: Vec<String>,
+    #[serde(default)]
+    pub schedule: Vec<ScheduleEntry>,
+}
+
+/// Ein Zeitfenster innerhalb einer Policy.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScheduleEntry {
+    pub name: String,
+    /// `mon` bis `sun`.
+    pub days: Vec<String>,
+    /// `HH:MM` in Ortszeit.
+    pub from: String,
+    pub to: String,
+    pub action: ScheduleAction,
+}
+
+/// Was ein Zeitfenster anordnet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScheduleAction {
+    BlockAllExceptAllowlist,
 }
 
 /// Wie geblockt wird.
@@ -111,6 +175,70 @@ impl ListConfig {
             _ => Ok(()),
         }
     }
+}
+
+impl ScheduleEntry {
+    fn validate(&self, policy: &str) -> Result<(), ConfigError> {
+        let name = &self.name;
+        if self.days.is_empty() {
+            return Err(ConfigError::Invalid(format!(
+                "Policy '{policy}', Zeitplan '{name}': keine Tage angegeben"
+            )));
+        }
+        for day in &self.days {
+            parse_weekday(day).ok_or_else(|| {
+                ConfigError::Invalid(format!(
+                    "Policy '{policy}', Zeitplan '{name}': '{day}' ist kein Wochentag \
+                     (erwartet: mon, tue, wed, thu, fri, sat, sun)"
+                ))
+            })?;
+        }
+        for (label, value) in [("from", &self.from), ("to", &self.to)] {
+            parse_clock_time(value).ok_or_else(|| {
+                ConfigError::Invalid(format!(
+                    "Policy '{policy}', Zeitplan '{name}': {label} = '{value}' ist keine \
+                     Uhrzeit im Format HH:MM"
+                ))
+            })?;
+        }
+        if self.from == self.to {
+            return Err(ConfigError::Invalid(format!(
+                "Policy '{policy}', Zeitplan '{name}': from und to sind gleich — das Fenster \
+                 wäre entweder immer oder nie offen"
+            )));
+        }
+        Ok(())
+    }
+}
+
+/// Eine Adresse oder ein Netz. Eine nackte Adresse wird zum Netz mit voller Länge.
+pub fn parse_net(text: &str) -> Result<ipnet::IpNet, String> {
+    if let Ok(net) = text.parse::<ipnet::IpNet>() {
+        return Ok(net);
+    }
+    text.parse::<std::net::IpAddr>()
+        .map(ipnet::IpNet::from)
+        .map_err(|_| format!("'{text}' ist weder eine Adresse noch ein Netz"))
+}
+
+pub fn parse_weekday(text: &str) -> Option<jiff::civil::Weekday> {
+    use jiff::civil::Weekday;
+    match text.trim().to_ascii_lowercase().as_str() {
+        "mon" | "monday" => Some(Weekday::Monday),
+        "tue" | "tuesday" => Some(Weekday::Tuesday),
+        "wed" | "wednesday" => Some(Weekday::Wednesday),
+        "thu" | "thursday" => Some(Weekday::Thursday),
+        "fri" | "friday" => Some(Weekday::Friday),
+        "sat" | "saturday" => Some(Weekday::Saturday),
+        "sun" | "sunday" => Some(Weekday::Sunday),
+        _ => None,
+    }
+}
+
+/// `HH:MM` in Ortszeit.
+pub fn parse_clock_time(text: &str) -> Option<jiff::civil::Time> {
+    let (hour, minute) = text.trim().split_once(':')?;
+    jiff::civil::Time::new(hour.parse().ok()?, minute.parse().ok()?, 0, 0).ok()
 }
 
 fn default_sinkhole_v4() -> std::net::Ipv4Addr {
@@ -529,6 +657,56 @@ impl Config {
         }
         for list in &self.allowlist {
             list.validate("allowlist")?;
+        }
+        let mut list_names: std::collections::HashSet<&str> = std::collections::HashSet::new();
+        for list in self.blocklist.iter().chain(self.allowlist.iter()) {
+            if !list_names.insert(list.name.as_str()) {
+                return Err(ConfigError::Invalid(format!(
+                    "die Liste '{}' ist zweimal konfiguriert; Policies verweisen über den \
+                     Namen, er muss eindeutig sein",
+                    list.name
+                )));
+            }
+        }
+        let policy_names: std::collections::HashSet<&str> =
+            self.policy.iter().map(|p| p.name.as_str()).collect();
+        for client in &self.client {
+            if client.matches.ip.is_empty() {
+                return Err(ConfigError::Invalid(format!(
+                    "Client '{}': kein match.ip angegeben — er wäre nie erkennbar",
+                    client.name
+                )));
+            }
+            for address in &client.matches.ip {
+                parse_net(address)
+                    .map_err(|e| ConfigError::Invalid(format!("Client '{}': {e}", client.name)))?;
+            }
+            if !policy_names.contains(client.policy.as_str()) {
+                return Err(ConfigError::Invalid(format!(
+                    "Client '{}' verweist auf die Policy '{}', die es nicht gibt",
+                    client.name, client.policy
+                )));
+            }
+        }
+        if !self.client.is_empty() && !policy_names.contains("default") {
+            return Err(ConfigError::Invalid(
+                "es gibt Clients, aber keine Policy namens 'default' — für alles, was \
+                 keinem Client-Eintrag entspricht, gäbe es dann keine Regel"
+                    .to_owned(),
+            ));
+        }
+        for policy in &self.policy {
+            for list in policy.blocklists.iter().chain(policy.allowlists.iter()) {
+                if !list_names.contains(list.as_str()) {
+                    return Err(ConfigError::Invalid(format!(
+                        "Policy '{}' verweist auf die Liste '{list}', die es nicht gibt",
+                        policy.name
+                    )));
+                }
+            }
+            for entry in &policy.schedule {
+                entry.validate(&policy.name)?;
+            }
         }
         for zone in &self.forward_zone {
             if zone.upstream.is_encrypted() {

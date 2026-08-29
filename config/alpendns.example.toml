@@ -160,7 +160,7 @@ path = "/etc/alpendns/allow.txt"
 format = "domains"
 
 # ---------------------------------------------------------------------------
-# [PHASE 5] Clients und Policies
+# Clients und Policies
 # ---------------------------------------------------------------------------
 
 [[client]]

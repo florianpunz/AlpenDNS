@@ -6,10 +6,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use alpendns::caching::CachingBackend;
-use alpendns::clock::SystemClock;
+use alpendns::clock::{SystemClock, SystemWallClock};
 use alpendns::config::{Config, ListConfig};
+use alpendns::filter::Lists;
 use alpendns::filter::source::{ListSpec, Loader, Source};
-use alpendns::filter::{Filter, FilterBackend, Lists};
+use alpendns::policy::{Blueprint, Engine, PolicyBackend};
 use alpendns::privacy;
 use alpendns::router::ZoneRouter;
 use alpendns::server::Server;
@@ -29,7 +30,12 @@ const STATS_INTERVAL: Duration = Duration::from_secs(300);
 const USAGE: &str = "alpendns — privacy-fokussierter DNS-Server
 
 Aufruf:
-  alpendns -c <datei>    Server mit dieser Konfiguration starten
+  alpendns -c <datei>
+      Server mit dieser Konfiguration starten
+
+  alpendns -c <datei> policy test <domain> [--client <name>]
+      Zeigt, wie diese Domain für diesen Client entschieden würde, samt
+      vollständiger Begründung. Ohne --client gilt die Default-Policy.
 
 Optionen:
   -c, --config <datei>   Pfad zur Konfigurationsdatei (Pflicht)
@@ -39,12 +45,20 @@ Optionen:
 
 enum Args {
     Run(PathBuf),
+    PolicyTest {
+        config: PathBuf,
+        domain: String,
+        client: Option<String>,
+    },
     Print(String),
 }
 
 fn parse_args() -> anyhow::Result<Args> {
     let mut config = None;
+    let mut rest: Vec<String> = Vec::new();
+    let mut client = None;
     let mut args = std::env::args().skip(1);
+
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "-h" | "--help" => return Ok(Args::Print(USAGE.to_owned())),
@@ -60,12 +74,31 @@ fn parse_args() -> anyhow::Result<Args> {
                         .context("-c/--config erwartet einen Pfad als Argument")?,
                 ));
             }
-            other => anyhow::bail!("unbekanntes Argument '{other}'\n\n{USAGE}"),
+            "--client" => {
+                client = Some(
+                    args.next()
+                        .context("--client erwartet einen Client-Namen")?,
+                );
+            }
+            other if other.starts_with('-') => {
+                anyhow::bail!("unbekannte Option '{other}'\n\n{USAGE}")
+            }
+            other => rest.push(other.to_owned()),
         }
     }
-    config
-        .map(Args::Run)
-        .context(format!("keine Konfiguration angegeben\n\n{USAGE}"))
+
+    let config = config.context(format!("keine Konfiguration angegeben\n\n{USAGE}"))?;
+    match rest.as_slice() {
+        [] => Ok(Args::Run(config)),
+        [command, action, domain] if command == "policy" && action == "test" => {
+            Ok(Args::PolicyTest {
+                config,
+                domain: domain.clone(),
+                client,
+            })
+        }
+        _ => anyhow::bail!("unbekanntes Unterkommando\n\n{USAGE}"),
+    }
 }
 
 fn main() -> ExitCode {
@@ -86,6 +119,11 @@ fn run() -> anyhow::Result<()> {
             print!("{text}");
             return Ok(());
         }
+        Args::PolicyTest {
+            config,
+            domain,
+            client,
+        } => return policy_test(&config, &domain, client.as_deref()),
         Args::Run(path) => path,
     };
 
@@ -97,6 +135,11 @@ fn run() -> anyhow::Result<()> {
         .init();
 
     let config = Config::load(&path)?;
+    // Vor dem Zerlegen der Konfiguration: der Blueprint liest quer über
+    // Clients, Policies und Listennamen.
+    let blueprint = Arc::new(Blueprint::from_config(&config)?);
+    let client_count = config.client.len();
+    let policy_count = config.policy.len();
     let server_config = config.server;
     let cache_config = config.cache;
     let privacy = privacy::Settings::from(&config.privacy);
@@ -148,9 +191,9 @@ fn run() -> anyhow::Result<()> {
         .map(|zone| zone.zone.0.to_string())
         .collect();
 
+    // Der Blueprint muss vor dem Zerlegen der Konfiguration gebaut werden.
     let blocking_config = config.blocking;
-    let block_specs = to_specs(&config.blocklist);
-    let allow_specs = to_specs(&config.allowlist);
+    let specs = to_specs(&config.blocklist, &config.allowlist);
     // Kürzestes Intervall aller Listen; Details in filter::run_updater.
     let refresh = config
         .blocklist
@@ -162,8 +205,7 @@ fn run() -> anyhow::Result<()> {
         .unwrap_or(Duration::from_secs(24 * 60 * 60));
     let lists = Arc::new(Lists::new(
         Loader::new(blocking_config.cache_dir.clone())?,
-        block_specs,
-        allow_specs,
+        specs,
     ));
 
     // Die Runtime wird von Hand gebaut statt über #[tokio::main]: ein Fehler
@@ -184,11 +226,18 @@ fn run() -> anyhow::Result<()> {
         ));
         // Erststart ist strikt: lieber gar kein DNS als ungefiltertes DNS
         // (B.1 Regel 6). Spätere Ausfälle behandelt run_updater nachsichtig.
-        let initial = lists
+        let loaded = lists
             .load(true)
             .await
             .context("Blocklisten konnten beim Start nicht geladen werden")?;
-        let filter = Arc::new(Filter::new(initial, &blocking_config));
+        let entries = loaded.total_entries();
+        let engine = Arc::new(Engine::new(
+            blueprint.build(&loaded)?,
+            entries,
+            &blocking_config,
+            SystemClock,
+            SystemWallClock,
+        ));
 
         // Von außen nach innen: Filter → Cache → Zonen-Weiche → Pool.
         // Gefiltert wird vor dem Cache, damit dieser die ungefilterte Antwort
@@ -202,7 +251,7 @@ fn run() -> anyhow::Result<()> {
         // beim Herunterfahren soll die Trefferquote im Log stehen. Ein
         // Metrik-Endpunkt dafür kommt in Phase 6.
         let cache = Arc::clone(caching.cache());
-        let backend = FilterBackend::new(Arc::clone(&filter), caching);
+        let backend = PolicyBackend::new(Arc::clone(&engine), caching);
         let bound = Server::new(backend, server_config.edns.udp_payload_size)
             .bind(&server_config)
             .await
@@ -216,8 +265,9 @@ fn run() -> anyhow::Result<()> {
             forward_zones = ?zone_names,
             cache_entries = cache_config.max_entries,
             serve_stale = cache_config.serve_stale,
-            block_entries = filter.stats().block_entries,
-            allow_entries = filter.stats().allow_entries,
+            list_entries = entries,
+            clients = client_count,
+            policies = policy_count,
             blocking = ?blocking_config.mode,
             "AlpenDNS gestartet"
         );
@@ -227,11 +277,12 @@ fn run() -> anyhow::Result<()> {
         tokio::spawn(report_stats(
             Arc::clone(&cache),
             Arc::clone(&pool),
-            Arc::clone(&filter),
+            Arc::clone(&engine),
             shutdown.clone(),
         ));
-        tokio::spawn(alpendns::filter::run_updater(
-            Arc::clone(&filter),
+        tokio::spawn(alpendns::policy::run_updater(
+            Arc::clone(&engine),
+            Arc::clone(&blueprint),
             Arc::clone(&lists),
             refresh,
             shutdown.clone(),
@@ -245,7 +296,7 @@ fn run() -> anyhow::Result<()> {
         });
 
         bound.run(shutdown).await;
-        log_stats(&cache, &pool, &filter, "Cache-Bilanz");
+        log_stats(&cache, &pool, &engine, "Cache-Bilanz");
         tracing::info!("beendet");
         Ok(())
     })
@@ -260,9 +311,10 @@ fn run() -> anyhow::Result<()> {
 ///
 /// Abgeschaltete Listen fallen hier heraus; die Validierung hat schon
 /// sichergestellt, dass genau eine Quelle angegeben ist.
-fn to_specs(lists: &[ListConfig]) -> Vec<ListSpec> {
-    lists
+fn to_specs(blocklists: &[ListConfig], allowlists: &[ListConfig]) -> Vec<ListSpec> {
+    blocklists
         .iter()
+        .chain(allowlists.iter())
         .filter(|list| list.enabled)
         .filter_map(|list| {
             let source = match (&list.url, &list.path) {
@@ -282,7 +334,7 @@ fn to_specs(lists: &[ListConfig]) -> Vec<ListSpec> {
 async fn report_stats<C: alpendns::clock::Clock>(
     cache: Arc<alpendns::cache::Cache<C>>,
     pool: Arc<Pool<Transport, SystemClock>>,
-    filter: Arc<Filter>,
+    engine: Arc<PolicyEngine>,
     shutdown: CancellationToken,
 ) {
     let mut ticker = tokio::time::interval(STATS_INTERVAL);
@@ -296,7 +348,7 @@ async fn report_stats<C: alpendns::clock::Clock>(
         }
         let current = cache.stats();
         if current != last {
-            log_stats(&cache, &pool, &filter, "Cache");
+            log_stats(&cache, &pool, &engine, "Cache");
             last = current;
         }
     }
@@ -305,7 +357,7 @@ async fn report_stats<C: alpendns::clock::Clock>(
 fn log_stats<C: alpendns::clock::Clock>(
     cache: &alpendns::cache::Cache<C>,
     pool: &Pool<Transport, SystemClock>,
-    filter: &Filter,
+    engine: &PolicyEngine,
     message: &'static str,
 ) {
     let stats = cache.stats();
@@ -317,13 +369,13 @@ fn log_stats<C: alpendns::clock::Clock>(
         hit_rate = format!("{:.1} %", stats.hit_rate() * 100.0),
         "{message}"
     );
-    let filtered = filter.stats();
+    let filtered = engine.stats();
     tracing::info!(
         blocked = filtered.blocked,
         allowed = filtered.allowed,
         passed = filtered.passed,
-        entries = filtered.block_entries,
-        "Filter"
+        entries = filtered.entries,
+        "Policy"
     );
     for upstream in pool.stats() {
         tracing::info!(
@@ -335,6 +387,91 @@ fn log_stats<C: alpendns::clock::Clock>(
             "Upstream"
         );
     }
+}
+
+/// Kurzform für den Engine-Typ, wie ihn das Binary benutzt.
+type PolicyEngine = Engine<SystemClock, SystemWallClock>;
+
+/// `alpendns policy test <domain> [--client <name>]`
+///
+/// Beantwortet die Frage "warum wurde das geblockt?" ohne Blick ins Log — und
+/// ohne dass der Server laufen muss.
+fn policy_test(path: &std::path::Path, domain: &str, client: Option<&str>) -> anyhow::Result<()> {
+    let config = Config::load(path)?;
+    let blueprint = Blueprint::from_config(&config)?;
+
+    // Der Client wird über seinen Namen gesucht; ausgewertet wird dann mit
+    // seiner ersten konfigurierten Adresse — denn danach wird auch im Betrieb
+    // entschieden.
+    let peer = match client {
+        None => std::net::IpAddr::from([127, 0, 0, 1]),
+        Some(name) => {
+            let entry = config
+                .client
+                .iter()
+                .find(|entry| entry.name == name)
+                .with_context(|| {
+                    let known: Vec<&str> = config.client.iter().map(|c| c.name.as_str()).collect();
+                    format!(
+                        "kein Client namens '{name}'; konfiguriert sind: {}",
+                        if known.is_empty() {
+                            "keine".to_owned()
+                        } else {
+                            known.join(", ")
+                        }
+                    )
+                })?;
+            let address = entry
+                .matches
+                .ip
+                .first()
+                .context("dieser Client hat keine Adresse")?;
+            alpendns::config::parse_net(address)
+                .map_err(anyhow::Error::msg)?
+                .addr()
+        }
+    };
+
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .context("tokio-Runtime konnte nicht gestartet werden")?;
+    let loaded = runtime.block_on(async {
+        let lists = Lists::new(
+            Loader::new(config.blocking.cache_dir.clone())?,
+            to_specs(&config.blocklist, &config.allowlist),
+        );
+        // Nachsichtig: die Simulation soll auch ohne Netz etwas sagen können,
+        // dann eben auf Basis der zwischengespeicherten Listen.
+        lists.load(false).await
+    })?;
+
+    let entries = loaded.total_entries();
+    let engine = Engine::new(
+        blueprint.build(&loaded)?,
+        entries,
+        &config.blocking,
+        SystemClock,
+        SystemWallClock,
+    );
+
+    let name = hickory_proto::rr::Name::from_str_relaxed(domain)
+        .map_err(|e| anyhow::anyhow!("'{domain}' ist kein gültiger Domainname: {e}"))?;
+    let ctx = alpendns::trace::Ctx::new(std::net::SocketAddr::new(peer, 0));
+    let decision = engine.evaluate(&name, peer, &ctx);
+
+    println!("Domain:   {domain}");
+    println!("Client:   {} ({peer})", client.unwrap_or("(default)"));
+    println!(
+        "Verdikt:  {}",
+        match decision {
+            alpendns::policy::Decision::Block => "GEBLOCKT",
+            alpendns::policy::Decision::Allow => "durchgelassen",
+        }
+    );
+    println!("\nBegründung:");
+    println!("{}", ctx.explain());
+    Ok(())
 }
 
 /// Wartet auf SIGINT oder SIGTERM.

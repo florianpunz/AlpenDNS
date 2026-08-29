@@ -42,7 +42,8 @@ pub(crate) async fn serve<B: ResolveBackend>(
         let socket = Arc::clone(&socket);
         let backend = Arc::clone(&backend);
         tracker.spawn(async move {
-            let Some(response) = crate::server::handle_request(backend.as_ref(), &packet).await
+            let Some(response) =
+                crate::server::handle_request(backend.as_ref(), &packet, peer).await
             else {
                 return;
             };

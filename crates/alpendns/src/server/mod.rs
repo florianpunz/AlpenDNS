@@ -18,6 +18,7 @@ use tokio_util::task::TaskTracker;
 use crate::config::ServerConfig;
 use crate::dns;
 use crate::resolve::ResolveBackend;
+use crate::trace::Ctx;
 
 /// Gemeinsamer Zustand aller Listener.
 #[derive(Debug)]
@@ -119,7 +120,11 @@ impl<B: ResolveBackend> Bound<B> {
 /// Geloggt wird hier bewusst ohne Query-Namen (CLAUDE.md B.1, Regel 3). Die
 /// Log-Schicht, die Namen abhängig vom konfigurierten Modus behandeln darf,
 /// kommt in Phase 6.
-pub(crate) async fn handle_request<B: ResolveBackend>(backend: &B, raw: &[u8]) -> Option<Message> {
+pub(crate) async fn handle_request<B: ResolveBackend>(
+    backend: &B,
+    raw: &[u8],
+    peer: SocketAddr,
+) -> Option<Message> {
     let request = match Message::from_vec(raw) {
         Ok(request) => request,
         Err(_) => {
@@ -135,7 +140,8 @@ pub(crate) async fn handle_request<B: ResolveBackend>(backend: &B, raw: &[u8]) -
         return Some(dns::error_response(&request, ResponseCode::NotImp));
     }
 
-    match backend.resolve(&request).await {
+    let ctx = Ctx::new(peer);
+    match backend.resolve(&request, &ctx).await {
         Ok(mut response) => {
             response.metadata.recursion_available = true;
             Some(response)

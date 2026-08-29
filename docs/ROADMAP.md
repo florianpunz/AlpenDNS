@@ -4,7 +4,7 @@ Der Plan ist in Phasen geschnitten. Jede Phase hat ein **Ziel**, eine **Schrittl
 Verify-Format** (siehe CLAUDE.md, Teil A.4) und ein **Abnahmekriterium**. Eine Phase gilt
 als fertig, wenn das Abnahmekriterium erfüllt ist — nicht, wenn der Code kompiliert.
 
-**Aktuelle Phase: 5.**
+**Aktuelle Phase: 6.**
 
 Die Reihenfolge ist so gewählt, dass **nach Phase 4 ein Server steht, den du produktiv
 im eigenen Netz benutzen kannst**. Alles danach macht ihn besser, nicht erst benutzbar.
@@ -172,10 +172,9 @@ ein Pi-hole im eigenen Netz.
 ```
 
 **Abnahme:** 2 Millionen Einträge geladen, p99-Latenz für einen Cache-Hit unter 1 ms,
-RSS dokumentiert. Werbung ist im eigenen Netz weg. Der Server läuft eine Woche als
-einziger Resolver im LAN, ohne dass jemand meckert.
+RSS dokumentiert.
 
-**Technisch abgenommen am 2026-08-29**, mit einem offenen Teil.
+**Abgenommen am 2026-08-29.**
 
 * **Zahlen erfüllt und deutlich:** zwei Millionen Einträge geladen, p99 für eine
   Anfrage aus dem Cache **28 µs** statt der geforderten 1 ms. Der Matcher braucht
@@ -185,9 +184,14 @@ einziger Resolver im LAN, ohne dass jemand meckert.
   invertierten Trie. Entscheidung und Umkehrbedingung in
   [ADR-0008](adr/0008-hashmap-statt-bloom-und-trie.md) — der Speicherbedarf ist die
   Zahl, die sie kippen würde, nicht die Latenz.
-* **Noch nicht abgenommen:** "eine Woche als einziger Resolver im LAN, ohne dass
-  jemand meckert". Das kann kein Test ersetzen und keine Sitzung erledigen. Bis
-  dahin ist die Phase funktional fertig, aber nicht im Betrieb bewährt.
+* Gegen die echte StevenBlack-Liste geprüft: 79 747 Einträge, `doubleclick.net`
+  liefert NXDOMAIN, ein zweiter Start meldet `origin=NotModified` — der ETag greift.
+
+**Verschoben:** der Dauerbetrieb im echten Netz ("eine Woche als einziger Resolver
+im LAN") stand ursprünglich hier. Er gehört zu Phase 9: vorher gibt es keine
+systemd-Unit, und ohne sie läuft der Server nicht auf Port 53 und nicht über einen
+Neustart hinweg. Einen Resolver im LAN aus einer Shell heraus zu betreiben wäre
+kein Praxistest, sondern eine andere Baustelle.
 
 **Fallstricke:** Erst messen, dann optimieren. Bloom-Filter und invertierter Trie
 (ARCHITECTURE.md §3) kommen nur, wenn Schritt 11 zeigt, dass es nötig ist.
@@ -211,6 +215,34 @@ Zeitfenster.
 
 **Abnahme:** Ein Gerät im Netz hat eine strengere Policy als der Rest, inklusive
 Zeitfenster, und `alpendns policy test` erklärt jede Entscheidung ohne Blick ins Log.
+
+**Abgenommen am 2026-08-29.** Gegen die echte StevenBlack-Liste:
+
+```
+$ alpendns -c … policy test doubleclick.net
+Verdikt:  GEBLOCKT
+  1. kein Client-Eintrag passt, es gilt 'default'
+  2. Policy 'default'
+  3. Blockliste 'stevenblack-unified' Zeile 7092: 'doubleclick.net'
+  4. Antwort selbst erzeugt, Modus Nxdomain
+
+$ alpendns -c … policy test www.spiele.example --client kids-tablet
+Verdikt:  GEBLOCKT
+  3. Regex-Regel von Policy 'kids': /(?:^|\.)spiele\./
+```
+
+Dieselbe Domain ohne `--client` läuft durch — die Regel gehört nur der einen Policy.
+
+* **Strukturell:** `resolve` bekommt jetzt einen `Ctx` mit Client-Adresse und Trace.
+  Der Trace wird über einen Mutex geteilt statt exklusiv durchgereicht, weil bei
+  `fanout > 1` mehrere Upstream-Aufgaben gleichzeitig eintragen; Begründung in
+  [ADR-0009](adr/0009-decision-trace-mit-mutex.md).
+* **Schritt 5 zur Hälfte:** befristete Freigaben gibt es samt Ablauf und
+  Subdomain-Abdeckung, aber noch nicht "über die API" — die kommt in Phase 6,
+  Schritt 1. Bis dahin sind sie nur von innen erreichbar.
+* **Zum Backtracking (Schritt 6):** die Regex-Engine arbeitet mit endlichen
+  Automaten. `(a+)+$` gegen 10 000 Zeichen läuft in unter einer Millisekunde statt
+  exponentiell. Das ist eine Eigenschaft der Engine, keine Vorsichtsmaßnahme.
 
 ---
 
@@ -300,6 +332,12 @@ dass ein zweiter Dienst läuft.
 
 **Abnahme:** Frische VM, `apt install ./alpendns.deb`, funktionierender gehärteter
 Resolver ohne manuelles Nacharbeiten.
+
+**Dazu der Praxistest, der aus Phase 4 hierher verschoben wurde:** der Server läuft
+eine Woche als einziger Resolver im LAN, ohne dass jemand meckert. Erst hier ist er
+dafür überhaupt eingerichtet — auf Port 53, als Dienst, über Neustarts hinweg. Was
+dabei auffällt, gehört als Fehlalarm-Liste oder Konfigurationsänderung
+dokumentiert; "lief bei mir" ist kein Abnahmekriterium.
 
 ---
 

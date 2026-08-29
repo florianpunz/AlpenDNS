@@ -54,6 +54,17 @@ rand = "0.10"
 lru = "0.18"
 # Atomarer Tausch der Blocklisten ohne Lock im Anfragepfad (ARCHITECTURE.md §3).
 arc-swap = "1.7"
+# Client-Identifikation über Subnetze. Liegt ohnehin schon im Baum (hickory).
+ipnet = "2.12"
+# Ortszeit mit korrekter Sommerzeit für Zeitpläne. Bewusst *nicht* `time`:
+# das steckt derzeit nur als dev-dependency im Baum, und genau darauf beruht die
+# Advisory-Ausnahme für RUSTSEC-2026-0009 in deny.toml. Als Produktionsabhängigkeit
+# wäre diese Begründung hinfällig.
+jiff = "0.2"
+# Regex-Regeln pro Policy. Die Engine ist endlich-automatenbasiert und kennt kein
+# Backtracking — katastrophale Laufzeiten sind damit ausgeschlossen, nicht nur
+# unwahrscheinlich.
+regex = "1"
 # Blocklisten herunterladen. default-features aus: kein native-tls (OpenSSL),
 # kein System-Proxy — der Prozess soll genau die konfigurierten Ziele
 # kontaktieren und sonst nichts (B.1 Regel 4). rustls-tls-webpki-roots zieht

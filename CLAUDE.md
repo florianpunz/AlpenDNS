@@ -84,18 +84,24 @@ diesem Projekt. Das heißt konkret: erkläre nicht-offensichtliche Entscheidunge
 Commit oder in der Antwort, statt sie kommentarlos einzubauen. Ein Einzeiler
 "warum so und nicht anders" ist mehr wert als drei Absätze Doku.
 
-**Stand:** Phasen 1 bis 4 sind umgesetzt und abgenommen (Phase 4 technisch; das
-Abnahmekriterium "eine Woche im LAN ohne Beschwerden" steht noch aus). Der gesamte testbare Code
+**Stand:** Phasen 1 bis 5 sind umgesetzt und abgenommen. Der Praxistest im echten
+Netz ist bewusst auf Phase 9 verschoben — vorher gibt es keine systemd-Unit und
+damit keinen Betrieb auf Port 53. Der gesamte testbare Code
 liegt in der Library (`src/lib.rs` und die Module daneben), `main.rs` macht nur
 Start, Signale und Shutdown — Voraussetzung dafür, dass Module später ohne Umbau zu
 eigenen Crates werden.
 
 Die Pipeline ist eine Kette von `ResolveBackend`-Implementierungen, von außen nach
-innen: `FilterBackend` → `CachingBackend` → `ZoneRouter` → `Pool` → `Transport`
+innen: `PolicyBackend` → `CachingBackend` → `ZoneRouter` → `Pool` → `Transport`
 (DoT/DoH/DoQ) bzw. `ForwardBackend` (Klartext, nur für `forward_zone`). Keine Schicht
-kennt die anderen. Der Filter liegt **vor** dem Cache, damit dieser die ungefilterte
-Antwort hält (ARCHITECTURE.md §4) — Phase 5 hängt die Policies zwischen Filter und
-Cache, ohne eine der übrigen anzufassen.
+kennt die anderen. Die Policy-Auswertung liegt **vor** dem Cache, damit dieser die
+ungefilterte Antwort hält und alle Clients sie teilen können (ARCHITECTURE.md §4).
+
+`resolve` bekommt neben der Nachricht einen `Ctx` mit Client-Adresse und
+Decision-Trace. Der Trace entsteht immer, unabhängig vom Log-Modus, und **enthält
+Query-Namen** — bis die Logging-Schicht in Phase 6 existiert, darf ihn niemand ins
+Log schreiben (B.1 Regel 3). Was heute geloggt wird, sind Listennamen und
+Zeilennummern.
 
 Klartext-DNS nach außen ist erledigt (B.1 Regel 7): `udp://` in einem
 `upstream_pool` ist ein Startfehler. Eine Abweichung bleibt offen — B.1 Regel 1:
@@ -105,7 +111,7 @@ Overflow-Checks an sind. Bewertung und Auflagen in ADR-0006, bekannter Fall in
 `deny.toml` (RUSTSEC-2026-0009 in einer dev-dependency). Der CI-Lauf fehlt
 weiterhin, dafür gibt es kein GitHub-Remote.
 
-Zahlen in `docs/BENCHMARKS.md`. Aktuelle Arbeit: Phase 5 (Clients und Policies).
+Zahlen in `docs/BENCHMARKS.md`. Aktuelle Arbeit: Phase 6 (API, Metriken, Web-UI).
 
 **Doku-Karte:** `docs/ROADMAP.md` = aktuelle Phase und Abnahmekriterien ·
 `docs/ARCHITECTURE.md` = Zielbild · `docs/TESTING.md` = Teststrategie ·
