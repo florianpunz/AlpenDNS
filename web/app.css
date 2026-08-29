@@ -1,209 +1,413 @@
 /* AlpenDNS — Web-UI.
  *
- * Regeln aus CLAUDE.md B.6: drei Farben mit je genau einer Bedeutung — Blau für
- * die Marke, Grün für "läuft", Terrakotta für "geblockt" —, sonst neutrale
- * Graustufen. Hierarchie über Größe und Gewicht, nicht über Farbe.
- * Systemschrift, Zahlen tabular, hell und dunkel gleichwertig. Keine externen
- * Ressourcen: die Seite liegt im Binary und funktioniert ohne Internet. */
+ * Bindend: CLAUDE.md B.6. Keine Gradients, keine Glassmorphism-Karten, keine
+ * Emoji-Icons, keine animierten Zähler, keine bunten Badges, keine externen
+ * Schriften, kein CDN. Drei statische Dateien, kein Framework, kein Build.
+ *
+ * Die Leitidee, aus der alles andere folgt: das hier ist kein Kachel-Dashboard,
+ * sondern ein Live-Protokoll mit einer Statuszeile darüber. Deshalb füllt die
+ * Seite genau einen Bildschirm und scrollt nicht — es scrollt das Protokoll.
+ * Die drei Fragen aus B.6 stehen dadurch immer gleichzeitig da.
+ *
+ * Fünf Entscheidungen, jede mit Grund:
+ *
+ * 1. TYPOGRAFISCHE SKALA mit echten Sprüngen (11 · 13 · 15 · 24 · bis 34 px)
+ *    statt "alles 14px". Der Sprung zwischen --t-figure und --t-lead ist der
+ *    eigentliche Inhalt der Hierarchie: die Begründung einer Blockade ist
+ *    wichtiger als jede Summe und ist deshalb das Größte auf der Seite.
+ *    Zahlen tabular und rechtsbündig, damit Spalten beim Nachladen nicht
+ *    zucken und Größenordnungen untereinander vergleichbar bleiben.
+ *
+ * 2. SPACING-SYSTEM aus sechs Stufen als Variablen. Ad-hoc-Pixelwerte im
+ *    Regelwerk sind der Weg, auf dem eine Oberfläche über Monate unruhig wird:
+ *    jede einzelne Abweichung ist begründbar, die Summe ist Willkür.
+ *
+ * 3. TRENNUNG ÜBER HAARLINIEN UND WEISSRAUM, nicht über Boxen. Es gibt keine
+ *    Karte auf dieser Seite und damit auch keine Karte in einer Karte. Ein
+ *    Rahmen um eine Zahl sagt nichts, was Abstand nicht besser sagt.
+ *
+ * 4. EIN AKZENTTON, und zwar Terrakotta — nicht das Blau, das jedes Framework
+ *    mitliefert. Er markiert ausschließlich Geblocktes: Namen im Protokoll,
+ *    den RCODE, den Strich am Zeilenanfang und den Namen in der Begründung.
+ *    Nirgends sonst. Wo Farbe alles markiert, markiert sie nichts.
+ *
+ * 5. DOMAINNAMEN IN MONOSPACE aus dem System-Stack. Ein Name ist Material,
+ *    kein Fließtext; die Unterscheidung nimmt dem Auge die Arbeit ab, im
+ *    Protokoll zwischen Prosa und Daten zu sortieren. Und Namen gleicher Länge
+ *    stehen untereinander.
+ */
 
 :root {
   color-scheme: light dark;
 
-  --bg: #fbfbfa;
-  --surface: #ffffff;
-  --line: #e4e3e0;
-  --text: #1c1c1a;
-  --muted: #6d6c68;
-  --faint: #97968f;
-  /* Drei Farben, drei Bedeutungen. Keine davon schmückt. */
-  --accent: #a1442c;  /* geblockt */
-  --brand: #1d63d1;   /* die Marke */
-  --brand-dim: #9cb8e6;
-  --ok: #17864a;      /* der Server antwortet */
-  --snow: #fbfbfa;
+  /* Neutrale Graustufen, leicht warm — kalte Grautöne lassen eine Oberfläche
+     nach Standardvorlage aussehen. */
+  --bg: #fcfcfb;
+  --raised: #ffffff;
+  --line: #e6e4df;
+  --line-strong: #d5d2cb;
+  --text: #191917;
+  --muted: #6a6862;
+  --faint: #9a978e;
 
-  --gap: 1.5rem;
-  --radius: 6px;
+  /* Der eine Akzent. Nur Geblocktes. */
+  --accent: #a8412a;
+
+  /* 1 — Typografie */
+  --t-micro: 0.6875rem;
+  --t-small: 0.8125rem;
+  --t-body: 0.9375rem;
+  --t-figure: 1.5rem;
+  --t-lead: clamp(1.35rem, 2.6vw, 2.125rem);
+
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+          "Liberation Mono", monospace;
+
+  /* 2 — Abstände */
+  --s-1: 0.25rem;
+  --s-2: 0.5rem;
+  --s-3: 0.75rem;
+  --s-4: 1rem;
+  --s-6: 1.5rem;
+  --s-8: 2rem;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #161614;
-    --surface: #1e1e1b;
-    --line: #32312d;
-    --text: #eceae4;
-    --muted: #a3a199;
-    --faint: #75736c;
-    --accent: #e0876b;
-    --brand: #5c9dff;
-    --brand-dim: #2f4d7a;
-    --ok: #4cc07d;
-    --snow: #161614;
+    --bg: #141412;
+    --raised: #1c1c19;
+    --line: #2e2d29;
+    --line-strong: #3c3b36;
+    --text: #eceae5;
+    --muted: #a3a098;
+    --faint: #6e6b64;
+    --accent: #e08a68;
   }
 }
 
 * { box-sizing: border-box; }
 
 /* Das hidden-Attribut muss auch dann greifen, wenn ein Element weiter unten ein
- * display bekommt — sonst bleibt etwa das Anmeldefenster nach dem Login stehen. */
+   display bekommt — sonst bleibt etwa das Anmeldefenster nach dem Login stehen. */
 [hidden] { display: none !important; }
+
+html, body { height: 100%; }
 
 body {
   margin: 0;
-  padding: var(--gap);
   background: var(--bg);
   color: var(--text);
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  font-size: 15px;
-  line-height: 1.55;
-  /* Damit Zahlen in Tabellen nicht springen. */
+  font-size: var(--t-body);
+  line-height: 1.5;
   font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
 }
 
-main { max-width: 68rem; margin: 0 auto; }
+/* Die Seite füllt einen Bildschirm und scrollt nicht; das Protokoll scrollt. */
+.shell {
+  height: 100dvh;
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+}
 
-header {
+h1, h2 { margin: 0; }
+
+/* Abschnittsüberschriften sind Beschriftungen, keine Schlagzeilen. */
+h2 {
+  font-size: var(--t-micro);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--faint);
+}
+
+/* ── Marke ─────────────────────────────────────────────────────────────── */
+
+.mark {
   display: flex;
-  align-items: baseline;
+  align-items: center;
+  gap: var(--s-3);
+  font-size: var(--t-body);
+  font-weight: 400;
+  letter-spacing: 0.01em;
+}
+/* Die zwei Hälften des Namens trennt das Gewicht, nicht die Farbe — Farbe ist
+   in dieser Oberfläche für Geblocktes reserviert. */
+.wordmark b { font-weight: 650; }
+.wordmark { color: var(--text); }
+
+.logo { width: 30px; height: 18px; flex: none; display: block; }
+.logo .ridge-back { fill: var(--line-strong); }
+.logo .ridge-front { fill: var(--muted); }
+.logo .snow { fill: var(--bg); }
+
+/* ── Kopfzeile ─────────────────────────────────────────────────────────── */
+
+.masthead {
+  display: flex;
+  align-items: center;
   justify-content: space-between;
+  gap: var(--s-6);
   flex-wrap: wrap;
-  gap: 0.75rem;
-  padding-bottom: 1rem;
+  padding: var(--s-4) var(--s-8);
   border-bottom: 1px solid var(--line);
 }
 
-h1 {
-  font-size: 1.1rem;
-  font-weight: 600;
-  margin: 0;
-  letter-spacing: 0.01em;
-  display: flex;
-  align-items: center;
-  gap: 0.55rem;
+.facts { display: flex; gap: var(--s-8); margin: 0; }
+.fact { display: flex; flex-direction: column; gap: 1px; }
+.facts dt {
+  font-size: var(--t-micro);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--faint);
 }
-.wordmark { line-height: 1; }
-/* Die erste Hälfte des Schriftzugs trägt die Markenfarbe. */
-.brand { color: var(--brand); }
+.facts dd { margin: 0; font-size: var(--t-small); color: var(--muted); }
 
-.logo { width: 28px; height: 18px; flex: none; display: block; }
-.logo .ridge-back { fill: var(--brand-dim); }
-.logo .ridge-front { fill: var(--brand); }
-.logo .snow { fill: var(--snow); }
-
-/* Der grüne Punkt sagt genau eines: der Server antwortet gerade. */
-.live-dot { display: inline-flex; align-items: center; gap: 0.4rem; }
+/* Der Punkt sagt genau eines: der Status ist gerade abrufbar. Gefüllt heißt ja,
+   hohl heißt nein — die Bedeutung liegt in der Form, nicht in einer Farbe. */
+.reach { display: inline-flex; align-items: center; gap: var(--s-2); }
 .dot {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--ok);
   flex: none;
+  background: var(--muted);
+  box-shadow: inset 0 0 0 1px var(--muted);
 }
-/* Antwortet er nicht mehr, wechselt der Punkt die Bedeutung, nicht die Größe. */
-.live-dot.is-stale .dot { background: var(--faint); }
-h2 {
-  font-size: 0.8rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--muted);
-  margin: 0 0 0.9rem;
-}
+.reach.is-stale .dot { background: transparent; box-shadow: inset 0 0 0 1px var(--faint); }
 
-.meta { display: flex; gap: 1.1rem; color: var(--faint); font-size: 0.85rem; }
+/* ── Summen: der Rahmen ────────────────────────────────────────────────── */
 
-section { margin-top: 2.5rem; }
-
-/* Kennzahlen: Hierarchie über Größe, nicht über Farbe oder Rahmen. */
 .figures {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
-  gap: 1.25rem;
-  margin-bottom: 1.75rem;
-}
-.figure { display: flex; flex-direction: column; gap: 0.15rem; }
-.value { font-size: 1.9rem; font-weight: 500; line-height: 1.1; }
-.label { font-size: 0.82rem; color: var(--muted); }
-
-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
-caption { text-align: left; }
-th {
-  text-align: left;
-  font-weight: 500;
-  font-size: 0.78rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--faint);
-  padding: 0 0.75rem 0.5rem 0;
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-8);
+  flex-wrap: wrap;
+  padding: var(--s-4) var(--s-8);
   border-bottom: 1px solid var(--line);
 }
-td {
-  padding: 0.45rem 0.75rem 0.45rem 0;
-  border-bottom: 1px solid var(--line);
-  vertical-align: baseline;
+.figure { display: flex; align-items: baseline; gap: var(--s-2); }
+.value {
+  font-size: var(--t-figure);
+  font-weight: 450;
+  line-height: 1.1;
+  letter-spacing: -0.015em;
 }
-tr:last-child td { border-bottom: none; }
-.num, td.num { text-align: right; }
+.label { font-size: var(--t-small); color: var(--muted); }
 
-.name { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.88rem; }
+.upstreams {
+  margin: 0 0 0 auto;
+  font-size: var(--t-small);
+  color: var(--muted);
+}
+.upstreams .sep { color: var(--faint); padding: 0 var(--s-2); }
+.upstreams .down { color: var(--text); font-weight: 550; }
 
-/* Der Akzent markiert genau eine Sache. */
-.is-blocked .name { color: var(--accent); }
-.rcode { color: var(--muted); font-size: 0.85rem; }
-.is-blocked .rcode { color: var(--accent); }
+/* ── Begründung: das Größte auf der Seite ──────────────────────────────── */
 
 .why {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 1.1rem 1.25rem;
+  padding: var(--s-6) var(--s-8);
+  border-bottom: 1px solid var(--line-strong);
+  background: var(--raised);
 }
-.why .subject { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--accent); }
-.why ol { margin: 0.7rem 0 0; padding-left: 1.3rem; color: var(--muted); }
-.why li { margin-bottom: 0.2rem; }
-.why li:last-child { margin-bottom: 0; }
-.why .when { color: var(--faint); font-size: 0.85rem; }
+.why h2 { margin-bottom: var(--s-3); }
 
-.empty, .notice { color: var(--muted); margin: 0; font-size: 0.9rem; }
-.notice {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 0.7rem 0.9rem;
-  margin-bottom: 1rem;
+.why .subject {
+  display: block;
+  font-family: var(--mono);
+  font-size: var(--t-lead);
+  font-weight: 500;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  color: var(--accent);
+  overflow-wrap: anywhere;
 }
-.error { color: var(--accent); }
-
-.login {
-  max-width: 22rem;
-  margin: 15vh auto;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-.login h1 { margin-bottom: 0.4rem; }
-.login p { color: var(--muted); font-size: 0.9rem; margin: 0 0 0.5rem; }
-.login label { font-size: 0.82rem; color: var(--muted); }
-input, button {
-  font: inherit;
-  padding: 0.5rem 0.7rem;
-  border-radius: var(--radius);
-  border: 1px solid var(--line);
-  background: var(--surface);
-  color: var(--text);
-}
-input:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-button { cursor: pointer; font-weight: 500; }
-button:hover { border-color: var(--muted); }
-
-code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.88em;
+.why .context {
+  margin: var(--s-2) 0 0;
+  font-size: var(--t-small);
   color: var(--muted);
 }
+
+/* Die Kette ist eine Aufzählung, keine Tabelle: die Reihenfolge ist die Aussage. */
+.chain { margin: var(--s-4) 0 0; padding: 0; list-style: none; }
+.chain li {
+  position: relative;
+  padding: 0 0 0 var(--s-6);
+  font-size: var(--t-small);
+  color: var(--muted);
+  line-height: 1.7;
+}
+.chain li::before {
+  content: counter(step);
+  counter-increment: step;
+  position: absolute;
+  left: 0;
+  font-size: var(--t-micro);
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+.chain { counter-reset: step; }
+/* Der letzte Schritt trägt die Entscheidung und darf sie zeigen. */
+.chain li:last-child { color: var(--text); }
+
+.idle { margin: 0; color: var(--faint); font-size: var(--t-small); }
+
+/* ── Protokoll: der Inhalt ─────────────────────────────────────────────── */
+
+.stream {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+}
+.stream-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-4);
+  padding: var(--s-4) var(--s-8) var(--s-2);
+}
+
+.panes {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 15rem;
+  min-height: 0;
+}
+
+.log {
+  min-height: 0;
+  /* Immer eine Bahn für den Rollbalken freihalten: sonst springt das Layout,
+     sobald die erste Zeile über den Rand hinausläuft. */
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
+  padding: 0 var(--s-4) var(--s-6) var(--s-8);
+}
+
+.log-table { width: 100%; border-collapse: collapse; }
+.log-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg);
+  text-align: left;
+  font-size: var(--t-micro);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--faint);
+  padding: 0 var(--s-4) var(--s-2) 0;
+  border-bottom: 1px solid var(--line);
+}
+.log-table td {
+  padding: var(--s-1) var(--s-4) var(--s-1) 0;
+  border-bottom: 1px solid var(--line);
+  font-size: var(--t-small);
+  /* Feste Zeilenhöhe: neue Zeilen schieben, aber nichts rechnet sich neu. */
+  line-height: 1.7;
+  white-space: nowrap;
+}
+.c-time, .c-ms { width: 1%; }
+.c-ms, td.c-ms { text-align: right; }
+.c-client { color: var(--muted); }
+.c-name { width: 99%; }
+td.c-name {
+  font-family: var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 0;
+}
+td.c-time, td.c-rcode { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* Der Akzent, und nur hier: eine geblockte Zeile. Der Strich links trägt die
+   Aussage auch dann, wenn jemand Rot nicht von Grau unterscheiden kann. */
+.is-blocked td.c-name { color: var(--accent); }
+.is-blocked td.c-rcode { color: var(--accent); }
+.is-blocked td.c-time { box-shadow: inset 2px 0 0 var(--accent); padding-left: var(--s-2); }
+
+.unnamed { color: var(--faint); font-family: system-ui, sans-serif; }
+
+/* ── Häufigste Namen ───────────────────────────────────────────────────── */
+
+.side {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 var(--s-8) var(--s-6) var(--s-6);
+  border-left: 1px solid var(--line);
+}
+.side h2 { padding-bottom: var(--s-2); border-bottom: 1px solid var(--line); }
+.top { margin: var(--s-2) 0 0; padding: 0; list-style: none; }
+.top li {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--s-3);
+  font-size: var(--t-small);
+  line-height: 1.9;
+}
+.top .n {
+  font-family: var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.top li.is-blocked .n { color: var(--accent); }
+.top .c { color: var(--faint); font-variant-numeric: tabular-nums; }
+
+/* ── Hinweise, Anmeldung ───────────────────────────────────────────────── */
+
+.note { margin: 0; font-size: var(--t-small); color: var(--muted); }
+.error { color: var(--accent); font-size: var(--t-small); }
+
+.login {
+  max-width: 24rem;
+  margin: 18vh auto;
+  padding: 0 var(--s-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.login .mark { margin-bottom: var(--s-3); }
+.login .note { margin-bottom: var(--s-4); }
+.login label {
+  font-size: var(--t-micro);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--faint);
+}
+
+input, button {
+  font: inherit;
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--raised);
+  color: var(--text);
+}
+button { cursor: pointer; font-weight: 500; }
+/* Die einzige Übergangsregel der Seite. */
+input, button { transition: border-color 100ms ease; }
+input:hover, button:hover { border-color: var(--muted); }
+input:focus-visible, button:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 1px;
+}
+
+code { font-family: var(--mono); font-size: 0.9em; color: var(--muted); }
 
 .sr-only {
   position: absolute; width: 1px; height: 1px;
   padding: 0; margin: -1px; overflow: hidden;
   clip-path: inset(50%); white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
+
+/* Schmale Fenster: die Nebenspalte weicht, das Protokoll bleibt. */
+@media (max-width: 60rem) {
+  .masthead, .figures, .why, .stream-head { padding-left: var(--s-4); padding-right: var(--s-4); }
+  .log { padding-left: var(--s-4); padding-right: var(--s-2); }
+  .panes { grid-template-columns: minmax(0, 1fr); }
+  .side { display: none; }
+  .facts { gap: var(--s-6); }
+  .c-client { display: none; }
 }
