@@ -1,6 +1,6 @@
 # ADR-0005: Phase 1 wird trotz eines Fuzz-Crashes in `hickory-proto` abgenommen
 
-**Status:** angenommen · **Datum:** 2026-08-29
+**Status:** abgelöst durch [ADR-0006](0006-tsig-panic-in-hickory-behoben.md) · **Datum:** 2026-08-29
 
 ## Kontext
 

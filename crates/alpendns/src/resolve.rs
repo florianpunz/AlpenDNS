@@ -23,6 +23,8 @@ pub enum ResolveError {
     Malformed(String),
     #[error("Antwort des Upstreams passt nicht zur Frage: {0:?}")]
     Mismatch(crate::dns::Mismatch),
+    #[error("die zusammengefasste Anfrage an den Upstream ist fehlgeschlagen")]
+    Coalesced,
 }
 
 /// Löst eine Anfrage auf — in v1 durch Weiterleiten an einen Upstream.

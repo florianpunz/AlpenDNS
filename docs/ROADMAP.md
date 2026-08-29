@@ -4,7 +4,7 @@ Der Plan ist in Phasen geschnitten. Jede Phase hat ein **Ziel**, eine **Schrittl
 Verify-Format** (siehe CLAUDE.md, Teil A.4) und ein **Abnahmekriterium**. Eine Phase gilt
 als fertig, wenn das Abnahmekriterium erfüllt ist — nicht, wenn der Code kompiliert.
 
-**Aktuelle Phase: 2.**
+**Aktuelle Phase: 3.**
 
 Die Reihenfolge ist so gewählt, dass **nach Phase 4 ein Server steht, den du produktiv
 im eigenen Netz benutzen kannst**. Alles danach macht ihn besser, nicht erst benutzbar.
@@ -82,6 +82,26 @@ und über denselben Socket.
 
 **Abnahme:** Cache-Trefferquote ist als Metrik sichtbar. `dnsperf` zeigt bei wiederholtem
 Korpus eine deutlich höhere Rate als in Phase 1.
+
+**Erledigt am 2026-08-29.** Mit zwei Einschränkungen, beide bewusst:
+
+* Die Trefferquote wird gezählt (`Cache::stats()`) und beim Herunterfahren geloggt. Ein
+  *Endpunkt* dafür ist Phase 6, Schritt 2 — vorher gibt es keine Metrik-Infrastruktur,
+  auf die man sie legen könnte.
+* `dnsperf` ist auf der Entwicklungsmaschine nicht installiert. Gemessen wurde stattdessen
+  mit einem eigenen Lastgenerator gegen einen Fake-Upstream im selben Prozess,
+  16 Clients × 2000 Anfragen:
+
+  | Korpus | Anfragen/s | Upstream-Anfragen |
+  |---|---:|---:|
+  | jede Anfrage ein neuer Name | 118 778 | 32 000 |
+  | immer derselbe Name | 344 813 | **1** |
+
+  Faktor 2,9 beim Durchsatz. Die aussagekräftigere Zahl ist die rechte Spalte: der
+  Upstream sieht 32 000 statt einer Anfrage. Der Durchsatzfaktor ist hier *unter*schätzt,
+  weil der Fake-Upstream ohne Netzwerklatenz antwortet — gegen einen echten Resolver
+  fällt der Unterschied deutlich größer aus. Ein reproduzierbarer Benchmark im Repo
+  kommt mit `docs/BENCHMARKS.md` in Phase 4, Schritt 11.
 
 **Fallstricke:** Zeit muss injizierbar sein (`Clock`-Trait), sonst sind alle TTL-Tests
 `sleep`-basiert und langsam. Nicht `SystemTime::now()` direkt im Cache aufrufen.

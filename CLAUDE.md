@@ -84,19 +84,23 @@ diesem Projekt. Das heißt konkret: erkläre nicht-offensichtliche Entscheidunge
 Commit oder in der Antwort, statt sie kommentarlos einzubauen. Ein Einzeiler
 "warum so und nicht anders" ist mehr wert als drei Absätze Doku.
 
-**Stand:** Phase 1 ist umgesetzt: UDP/TCP-Listener, Weiterleitung an einen Upstream,
-Antwortvalidierung, TC-Flag, Config mit `deny_unknown_fields`, Graceful Shutdown,
-Fuzz-Target. Der gesamte testbare Code liegt in der Library (`src/lib.rs` und die
-Module daneben), `main.rs` macht nur Start, Signale und Shutdown — das ist die
-Voraussetzung dafür, dass Module später ohne Umbau zu eigenen Crates werden.
+**Stand:** Phase 1 und 2 sind umgesetzt: UDP/TCP-Listener, Weiterleitung an einen
+Upstream, Antwortvalidierung, TC-Flag, Config mit `deny_unknown_fields`, Graceful
+Shutdown, Fuzz-Target — dazu ein Cache mit TTL-Klemmung, LRU, serve-stale, Prefetch
+und Query-Deduplizierung. Der gesamte testbare Code liegt in der Library
+(`src/lib.rs` und die Module daneben), `main.rs` macht nur Start, Signale und
+Shutdown — das ist die Voraussetzung dafür, dass Module später ohne Umbau zu eigenen
+Crates werden. Der Cache hängt als `CachingBackend` vor dem `ForwardBackend` und
+implementiert selbst `ResolveBackend`; Phase 3 ersetzt darunter das innere Backend
+durch den Upstream-Pool, ohne Server oder Cache anzufassen.
 Der Upstream spricht noch Klartext-UDP; das ist der von der Roadmap vorgesehene
 Zwischenstand bis Phase 3 und eine bewusste Abweichung von B.1 Regel 7. Die zweite
 offene Abweichung betrifft B.1 Regel 1: `hickory-proto 0.26.1` panict beim Parsen
 eines kaputten TSIG-Records, wenn Overflow-Checks an sind — Bewertung und Auflagen
-in ADR-0005, bekannter Fall in `crates/alpendns/fuzz/known-crashes/`. Der CI-Lauf
+in ADR-0006, bekannter Fall in `crates/alpendns/fuzz/known-crashes/`. Der CI-Lauf
 fehlt weiterhin, dafür gibt es kein GitHub-Remote.
 
-Aktuelle Arbeit: Phase 2 (Cache).
+Aktuelle Arbeit: Phase 3 (verschlüsselte Upstreams).
 
 **Doku-Karte:** `docs/ROADMAP.md` = aktuelle Phase und Abnahmekriterien ·
 `docs/ARCHITECTURE.md` = Zielbild · `docs/TESTING.md` = Teststrategie ·

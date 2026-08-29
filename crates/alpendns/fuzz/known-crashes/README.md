@@ -19,7 +19,11 @@ Abschnitts verschwinden. Der von libFuzzer selbst erzeugte Corpus unter
 ## `parse_request/tsig-rdata-length-underflow`
 
 Gefunden am 2026-08-29 im ersten Fuzz-Lauf der Phase 1.
-Bewertung und Entscheidung: [ADR-0005](../../../../docs/adr/0005-tsig-panic-in-hickory-proto.md).
+Bewertung und Entscheidung: [ADR-0006](../../../../docs/adr/0006-tsig-panic-in-hickory-behoben.md).
+
+**In `hickory-dns` main (0.27.0-alpha.1) tritt der Fehler nicht mehr auf** — geprüft
+am 2026-08-29. Es gibt nur noch keinen stabilen Release damit. Diese Datei verschwindet
+mit dem Update auf 0.27.
 
 **Was passiert:** `Message::from_vec` panict beim Parsen eines TSIG-Records,
 dessen RDLENGTH kleiner ist als die festen Felder davor. In
@@ -39,4 +43,4 @@ innerhalb von `Message::from_vec` — genau dem Aufruf, den wir laut
 [ADR-0002](../../../../docs/adr/0002-hickory-proto-statt-eigenem-parser.md)
 bewusst nicht selbst ersetzen.
 
-Meldetext für upstream: [`UPSTREAM-ISSUE.md`](UPSTREAM-ISSUE.md).
+Gemeldet wird nichts — die Begründung steht in ADR-0006.
