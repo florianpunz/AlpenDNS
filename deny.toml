@@ -8,8 +8,22 @@ all-features = true
 
 [advisories]
 # Kein Dependency mit offenem RUSTSEC-Advisory. Ausnahmen kommen hier rein,
-# jeweils mit Ablaufdatum im Kommentar und einer Begründung.
-ignore = []
+# jeweils mit einer Begründung und der Bedingung, wann sie wegfällt.
+ignore = [
+    { id = "RUSTSEC-2026-0009", reason = """
+time 0.3.45: Stack Exhaustion beim Parsen von RFC-2822-Daten aus fremder Eingabe.
+
+Nicht im ausgelieferten Binary: `cargo tree -e normal -i time` findet nichts.
+time kommt ausschließlich über rcgen herein, und rcgen ist eine
+dev-dependency für die Testzertifikate der DoT/DoH/DoQ-Fakes. Der
+verwundbare Pfad wird dabei nicht einmal betreten — rcgen benutzt time, um
+Gültigkeitsdaten zu *schreiben*, nicht um fremde Zeichenketten zu lesen.
+
+Der Fix steht in time 0.3.47, verlangt aber Rust 1.88. Der Workspace steht
+auf rust-version = 1.85, und diese Zahl hat für die Debian-Paketierung in
+Phase 9 Bedeutung. Die Ausnahme fällt weg, sobald die MSRV ohnehin steigt.
+""" },
+]
 yanked = "deny"
 
 [licenses]
@@ -35,8 +49,13 @@ allow = [
 ]
 confidence-threshold = 0.9
 # Einzelne Crates mit sonst nicht erlaubter Lizenz kommen hier rein, nicht in `allow`.
-# Erwartbarer Kandidat ab Phase 3: aws-lc-rs (rustls-Backend) führt "OpenSSL" mit.
-exceptions = []
+exceptions = [
+    # webpki-roots ist keine Software, sondern Mozillas Liste vertrauenswürdiger
+    # Wurzelzertifikate. CDLA-Permissive-2.0 ist eine Datenlizenz ohne Copyleft
+    # und ohne Auflagen für abgeleitete Werke; sie kollidiert nicht mit AGPL.
+    # Als Ausnahme für genau dieses Crate, nicht als generelle Erlaubnis.
+    { allow = ["CDLA-Permissive-2.0"], name = "webpki-roots" },
+]
 
 [bans]
 # Mehrfache Versionen derselben Crate sind im Rust-Ökosystem normal und meist nicht

@@ -22,7 +22,9 @@ udp_payload_size = 1232
 # RFC 7830 / 8467: Padding für verschlüsselte Transporte.
 padding = true
 
-# [PHASE 3] Verschlüsselte Listener für eigene Clients (Laptop unterwegs, Handy).
+# [PHASE 3+] Verschlüsselte Listener für eigene *Clients* (Laptop unterwegs,
+# Handy). Nicht zu verwechseln mit den verschlüsselten Upstreams weiter unten:
+# die gibt es, diese Listener noch nicht.
 [server.doh]
 enabled = false
 listen = "0.0.0.0:443"
@@ -43,7 +45,7 @@ listen = "0.0.0.0:853"
 # Upstreams
 # ---------------------------------------------------------------------------
 
-# [PHASE 2/3] Upstream-Pools. Ein Pool ist eine Menge gleichwertiger Resolver
+# Upstream-Pools. Ein Pool ist eine Menge gleichwertiger Resolver
 # plus eine Auswahlstrategie.
 [[upstream_pool]]
 name = "default"
@@ -71,7 +73,8 @@ name = "dnsforge"
 addr = "doh://176.9.93.198/dns-query"
 tls_name = "dnsforge.de"
 
-# [PHASE 5] Conditional Forwarding: interne Zonen gehen nie ins Internet.
+# Conditional Forwarding: interne Zonen gehen nie ins Internet. Der einzige Ort,
+# an dem Klartext-DNS erlaubt ist — und er verlässt das eigene Netz nicht.
 [[forward_zone]]
 zone = "home.arpa"
 upstream = "udp://10.0.0.1:53"

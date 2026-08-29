@@ -16,6 +16,7 @@ use std::time::Duration;
 use alpendns::caching::CachingBackend;
 use alpendns::clock::TestClock;
 use alpendns::config::{CacheConfig, Config};
+use alpendns::privacy;
 use alpendns::server::Server;
 use alpendns::upstream::ForwardBackend;
 use hickory_proto::op::{Message, MessageType, OpCode, Query, ResponseCode};
@@ -128,7 +129,7 @@ name = "test"
 
     let clock = Arc::new(TestClock::new());
     let backend = CachingBackend::new(
-        ForwardBackend::new(upstream, timeout),
+        ForwardBackend::new(upstream, timeout, privacy::Settings::default()),
         &cache_config,
         Arc::clone(&clock),
     );

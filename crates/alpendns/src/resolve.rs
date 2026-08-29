@@ -25,6 +25,12 @@ pub enum ResolveError {
     Mismatch(crate::dns::Mismatch),
     #[error("die zusammengefasste Anfrage an den Upstream ist fehlgeschlagen")]
     Coalesced,
+    #[error("Verbindung zum Upstream nicht möglich: {0}")]
+    Connect(String),
+    #[error("Upstream-Fehler: {0}")]
+    Upstream(String),
+    #[error("kein Upstream im Pool konnte antworten")]
+    NoUpstreamLeft,
 }
 
 /// Löst eine Anfrage auf — in v1 durch Weiterleiten an einen Upstream.
@@ -40,4 +46,15 @@ pub trait ResolveBackend: Send + Sync + 'static {
         &self,
         request: &Message,
     ) -> impl Future<Output = Result<Message, ResolveError>> + Send;
+}
+
+/// Damit ein Backend geteilt werden kann, ohne dass der Besitzer es aufgibt —
+/// `main` behält so einen Griff auf den Pool, um dessen Statistik zu loggen.
+impl<B: ResolveBackend> ResolveBackend for std::sync::Arc<B> {
+    fn resolve(
+        &self,
+        request: &Message,
+    ) -> impl Future<Output = Result<Message, ResolveError>> + Send {
+        (**self).resolve(request)
+    }
 }
