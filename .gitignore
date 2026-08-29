@@ -23,6 +23,13 @@
 /web/node_modules/
 /web/dist/
 
+# Editor-Artefakte. Ein `git add -A` sammelt sonst die Swap-Datei einer gerade
+# geöffneten Konfiguration ein — genau das ist passiert.
+*.swp
+*.swo
+*~
+.*.swp
+
 .DS_Store
 
 # cargo-fuzz
