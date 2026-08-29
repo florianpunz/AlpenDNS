@@ -153,7 +153,7 @@ format = "wildcard"
 refresh = "24h"
 enabled = true
 
-# [PHASE 4] Lokale Listen haben immer Vorrang vor entfernten.
+# Lokale Listen haben immer Vorrang vor entfernten.
 [[allowlist]]
 name = "local-allow"
 path = "/etc/alpendns/allow.txt"

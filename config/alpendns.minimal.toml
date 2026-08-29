@@ -71,3 +71,36 @@ tls_name = "dns.mullvad.net"
 # [[forward_zone]]
 # zone = "home.arpa"
 # upstream = "udp://10.0.0.1:53"
+
+# ---------------------------------------------------------------------------
+# Blocken
+# ---------------------------------------------------------------------------
+
+[blocking]
+# nxdomain | zero_ip | refused | sinkhole
+#
+# nxdomain ist der ruhigste Default: der Client gibt sofort auf, statt in einen
+# Timeout zu laufen (zero_ip) oder den nächsten Resolver zu fragen (refused).
+mode = "nxdomain"
+sinkhole_ipv4 = "127.0.0.1"
+sinkhole_ipv6 = "::1"
+# Heruntergeladene Listen landen hier, damit ein Neustart ohne Internet
+# gefiltert startet. Im Betrieb ist /var/cache/alpendns/lists der Default;
+# hier relativ, damit es ohne root läuft.
+cache_dir = "./lists"
+
+# ACHTUNG: Ohne erreichbare Liste bricht der *erste* Start ab — lieber kein DNS
+# als ungefiltertes DNS. Ein späterer Ausfall ist dagegen unkritisch, dann gilt
+# die zwischengespeicherte Fassung weiter.
+[[blocklist]]
+name = "stevenblack-unified"
+url = "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts"
+format = "hosts"
+refresh = "24h"
+enabled = true
+
+# Lokale Ausnahmen. Die Allowlist schlägt jede Blockliste.
+# [[allowlist]]
+# name = "lokal"
+# path = "./allow.txt"
+# format = "wildcard"

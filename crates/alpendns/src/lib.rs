@@ -10,6 +10,7 @@ pub mod caching;
 pub mod clock;
 pub mod config;
 pub mod dns;
+pub mod filter;
 pub mod privacy;
 pub mod resolve;
 pub mod router;
