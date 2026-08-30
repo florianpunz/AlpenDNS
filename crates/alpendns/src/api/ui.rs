@@ -134,6 +134,7 @@ mod tests {
                         ".sw-blocked",   // dieselbe Bedeutung in der Legende
                         ".sw-cache",
                         ".is-persisting", // schreibt auf Platte
+                        ".is-bogus",      // DNSSEC verworfen, also nicht aufgelöst
                     ]
                     .iter()
                     .any(|allowed| selector.contains(allowed)),
@@ -301,7 +302,12 @@ mod tests {
     /// ein Name genannt wird und ob etwas auf der Platte landet.
     #[test]
     fn the_privacy_strip_states_mode_threshold_and_storage() {
-        for id in ["id=\"p-mode\"", "id=\"p-k\"", "id=\"p-store\""] {
+        for id in [
+            "id=\"p-mode\"",
+            "id=\"p-k\"",
+            "id=\"p-dnssec\"",
+            "id=\"p-store\"",
+        ] {
             assert!(INDEX.contains(id), "im Privacy-Streifen fehlt {id}");
         }
         assert!(
@@ -316,6 +322,23 @@ mod tests {
         );
         assert!(SCRIPT.contains("Daten nur im RAM"));
         assert!(SCRIPT.contains("schreibt auf Platte"));
+        // Ob selbst validiert wird, ist wie der Log-Modus eine Daueraussage —
+        // und sie muss ebenfalls aus dem laufenden Prozess kommen.
+        assert!(
+            SCRIPT.contains("status.dnssec.enabled"),
+            "der DNSSEC-Zustand kommt nicht vom Server"
+        );
+    }
+
+    /// Verworfene Antworten stehen sichtbar da, nicht in einem Untermenü.
+    ///
+    /// Eine Antwort, die die Signaturprüfung nicht besteht, wird nicht
+    /// ausgeliefert — für den Client sieht das aus wie "geht nicht". Wenn diese
+    /// Zahl nirgends steht, sucht man den Fehler beim Netz.
+    #[test]
+    fn a_dropped_answer_is_visible_in_the_ui() {
+        assert!(INDEX.contains("id=\"pc-bogus\""), "kein Zähler dafür");
+        assert!(SCRIPT.contains("status.dnssec.bogus"));
     }
 
     /// Der Live-Strom ist als flüchtig gekennzeichnet.
@@ -415,6 +438,63 @@ mod tests {
         assert!(
             STYLE.contains(".log-table tr.askable:focus-visible"),
             "die Zeile ist mit der Tastatur nicht erreichbar"
+        );
+    }
+
+    /// Der Strom diktiert nicht das Tempo der Seite.
+    ///
+    /// Der teure Teil war nie das Erzeugen einer Zeile, sondern das Wechselspiel
+    /// aus Einhängen und Messen: jedes `offsetHeight` direkt nach einem
+    /// `prepend` zwingt den Browser, das Layout sofort neu zu rechnen. Einmal je
+    /// Anfrage ist das bei einem Lasttest der ganze Hauptthread.
+    #[test]
+    fn incoming_events_are_drawn_once_per_frame() {
+        assert!(
+            SCRIPT.contains("requestAnimationFrame(flushRows)"),
+            "die Ereignisse werden nicht gesammelt gezeichnet"
+        );
+        assert!(
+            !SCRIPT.contains("offsetHeight"),
+            "eine Höhe wird je Zeile gemessen und erzwingt Layout"
+        );
+        // Zeilen entstehen in einem Fragment und werden einmal eingehängt.
+        assert!(SCRIPT.contains("createDocumentFragment"));
+        // Und die Begründung wird je Bild höchstens einmal ausgetauscht.
+        assert!(
+            SCRIPT.contains("if (newestBlocked) showReason(newestBlocked);"),
+            "unter Last flackert die Begründung"
+        );
+    }
+
+    /// Die Tabelle hört einmal zu, nicht je Zeile zweimal.
+    #[test]
+    fn the_log_uses_one_listener_instead_of_two_per_row() {
+        assert!(
+            SCRIPT.contains("log.addEventListener(\"click\", onRowActivate)"),
+            "keine Delegation an der Tabelle"
+        );
+        assert!(
+            SCRIPT.contains("closest(\"tr.askable\")"),
+            "die Zeile wird nicht über closest() gefunden"
+        );
+        assert!(
+            !SCRIPT.contains("tr.addEventListener"),
+            "jede Zeile bringt eigene Zuhörer mit"
+        );
+    }
+
+    /// Im Hintergrund kostet die Seite nichts.
+    ///
+    /// "Nebenbei offen haben" heißt: kein Zeichnen, keine Abfragen, solange
+    /// niemand hinsieht. Gezählt wird trotzdem weiter, sonst zeigte die
+    /// Sparkline beim Zurückkommen eine Lücke, die es nicht gab.
+    #[test]
+    fn a_hidden_page_stops_drawing_and_polling() {
+        assert!(SCRIPT.contains("if (document.hidden) return;"));
+        assert!(SCRIPT.contains("visibilitychange"));
+        assert!(
+            SCRIPT.contains("spark[spark.length - 1] += 1 + (event.skipped ?? 0);"),
+            "der Puls verliert die ausgelassenen Anfragen"
         );
     }
 

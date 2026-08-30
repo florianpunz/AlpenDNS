@@ -27,12 +27,16 @@ todo = "warn"
 # und es gibt keine divergierenden Versionen im Baum.
 [workspace.dependencies]
 # ADR-0002: DNS-Wire-Format kommt aus hickory-proto, wir parsen nicht selbst.
-hickory-proto = "0.26"
+# dnssec-ring: eigene Validierung statt dem AD-Bit des Upstreams zu glauben
+# (Phase 7, Schritt 3). Zieht `time` in den Produktionsbaum — Bewertung und
+# Auflagen in docs/adr/0016-dnssec-validierung-im-forwarder.md und in der
+# Ausnahme zu RUSTSEC-2026-0009 in deny.toml.
+hickory-proto = { version = "0.26", features = ["dnssec-ring"] }
 # Transporte für DoT/DoH/DoQ. Seit 0.26 ein eigenes Crate, getrennt vom
 # Resolver — wir wollen die Verbindung, nicht dessen Cache und Policy.
 # Nur die -ring-Varianten: aws-lc-rs führt die OpenSSL-Lizenz mit, die nicht in
 # der Allowlist von deny.toml steht.
-hickory-net = { version = "0.26", features = ["tls-ring", "https-ring", "quic-ring", "webpki-roots"] }
+hickory-net = { version = "0.26", features = ["tls-ring", "https-ring", "quic-ring", "webpki-roots", "dnssec-ring"] }
 # ClientConfig-Typ für die TLS-Konfiguration. default-features aus, weil rustls
 # sonst aws-lc-rs als Krypto-Backend zieht.
 rustls = { version = "0.23", default-features = false, features = ["std", "ring", "tls12"] }
@@ -56,6 +60,11 @@ lru = "0.18"
 arc-swap = "1.7"
 # Client-Identifikation über Subnetze. Liegt ohnehin schon im Baum (hickory).
 ipnet = "2.12"
+# Public Suffix List für split_by_zone: ohne sie ist die registrierbare Domain
+# von `shop.example.co.uk` das wirkungslose `co.uk`, und alle .co.uk-Namen
+# landen beim selben Upstream. Die Liste ist einkompiliert — kein Netzabruf,
+# keine Laufzeitdatei, keine zweite Sorte Zustand (B.1 Regel 4).
+psl = "2.1"
 # Ortszeit mit korrekter Sommerzeit für Zeitpläne. Bewusst *nicht* `time`:
 # das steckt derzeit nur als dev-dependency im Baum, und genau darauf beruht die
 # Advisory-Ausnahme für RUSTSEC-2026-0009 in deny.toml. Als Produktionsabhängigkeit
@@ -85,6 +94,15 @@ reqwest = { version = "0.13", default-features = false, features = [
     "http2",
     "gzip",
 ] }
+# Oblivious DoH (RFC 9230, Phase 7 Schritt 4). Cloudflares Referenz-
+# implementierung: Wire-Format der ODoH-Nachrichten, Config-Parsing und das
+# HPKE darunter. Selbst geschriebenes Krypto-Framing wäre genau die Stelle, an
+# der ein Fehler den ganzen Schutz still aufhebt (ADR-0017). Baut keine eigenen
+# Verbindungen auf — das HTTP darüber machen wir mit reqwest.
+odoh-rs = "1.0"
+# Nur wegen der RNG-Traits: odoh-rs führt `hpke::rand_core::RngCore` in seiner
+# Signatur, und ohne diese Zeile lässt sich unser Zufall nicht übergeben.
+hpke = { version = "0.13", default-features = false }
 thiserror = "2.0"
 anyhow = "1.0"
 tracing = "0.1"
@@ -95,6 +113,10 @@ proptest = "1.11"
 # eigenes Zertifikat gäbe es keinen Weg, die verschlüsselten Transporte zu
 # prüfen, ohne echte Resolver zu kontaktieren.
 rcgen = "0.14"
+# Nur für Tests: OffsetDateTime, um die Gültigkeitsspanne einer selbst
+# erzeugten RRSIG zu setzen (tests/dnssec.rs). Seit hickorys dnssec-Feature
+# liegt time ohnehin im Produktionsbaum, siehe deny.toml.
+time = { version = "0.3", default-features = false, features = ["std"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring"] }
 quinn = { version = "0.11", default-features = false, features = ["runtime-tokio", "rustls-ring"] }
 h2 = "0.4"

@@ -14,6 +14,7 @@ use std::time::Duration;
 
 use futures_util::StreamExt as _;
 use hickory_net::DnsHandle as _;
+use hickory_net::dnssec::DnssecDnsHandle;
 use hickory_net::h2::HttpsClientStream;
 use hickory_net::quic::QuicClientStream;
 use hickory_net::runtime::RuntimeProvider as _;
@@ -26,12 +27,26 @@ use tokio::sync::Mutex;
 
 use crate::config::UpstreamAddr;
 use crate::dns;
+use crate::dnssec;
 use crate::privacy;
 use crate::resolve::ResolveError;
 
 /// Wie viele Anfragen gleichzeitig auf einer Verbindung unterwegs sein dürfen.
 /// Darüber wartet der Multiplexer, statt weitere Streams zu öffnen.
 const MAX_ACTIVE_REQUESTS: usize = 256;
+
+/// Eine offene Verbindung, gegebenenfalls mit vorgeschalteter Validierung.
+///
+/// Der validierende Griff steht neben der Verbindung und wird nicht je Anfrage
+/// neu gebaut: er führt einen Cache über bereits geprüfte DNSKEY- und
+/// DS-Sätze, und den jedes Mal wegzuwerfen hieße, für jede Anfrage die halbe
+/// Kette neu zu holen.
+#[derive(Clone)]
+struct Connection {
+    exchange: DnsExchange<TokioRuntimeProvider>,
+    /// Nur gesetzt, wenn `privacy.dnssec` an ist.
+    validating: Option<DnssecDnsHandle<DnsExchange<TokioRuntimeProvider>>>,
+}
 
 /// Ein verschlüsselter Weg zu genau einem Upstream.
 pub struct Transport {
@@ -42,7 +57,7 @@ pub struct Transport {
     tls: Arc<rustls::ClientConfig>,
     provider: TokioRuntimeProvider,
     /// Die offene Verbindung. `None` heißt: noch nicht oder nicht mehr verbunden.
-    connection: Mutex<Option<DnsExchange<TokioRuntimeProvider>>>,
+    connection: Mutex<Option<Connection>>,
 }
 
 // Von Hand, weil weder der Runtime-Provider noch die TLS-Konfiguration von
@@ -93,7 +108,21 @@ impl Transport {
 
     /// Stellt eine Anfrage und gibt die geprüfte Antwort zurück.
     pub async fn send(&self, request: &Message) -> Result<Message, ResolveError> {
-        let exchange = self.exchange().await?;
+        self.send_checked(request).await.map(|(message, _)| message)
+    }
+
+    /// Wie [`Self::send`], gibt zusätzlich das DNSSEC-Urteil zurück.
+    ///
+    /// Getrennt, weil nur der Pool das Urteil in den Trace schreiben kann — er
+    /// weiß, welcher Resolver geantwortet hat, der Transport nicht.
+    pub async fn send_checked(
+        &self,
+        request: &Message,
+    ) -> Result<(Message, Option<dnssec::Verdict>), ResolveError> {
+        let connection = self.exchange().await?;
+
+        // CD im Kopf des Clients heißt: der prüft selbst, wir sollen nicht.
+        let validate = self.privacy.dnssec && !dnssec::checking_disabled(request);
 
         let mut outbound = request.clone();
         if self.privacy.strip_ecs {
@@ -116,13 +145,36 @@ impl Transport {
         // ankommt; hickory soll sie nicht überschreiben.
         options.use_edns = outbound.edns.is_some();
 
-        let mut stream = exchange.send(DnsRequest::new(outbound.clone(), options));
+        // Beide Wege liefern denselben Strom; nur der validierende schiebt vor
+        // der Antwort noch DNSKEY- und DS-Abfragen über dieselbe Verbindung.
+        let request_out = DnsRequest::new(outbound.clone(), options);
+        let mut stream: std::pin::Pin<
+            Box<
+                dyn futures_util::Stream<
+                        Item = Result<hickory_proto::op::DnsResponse, hickory_net::NetError>,
+                    > + Send,
+            >,
+        > = match (validate, connection.validating.as_ref()) {
+            (true, Some(handle)) => Box::pin(handle.send(request_out)),
+            _ => Box::pin(connection.exchange.send(request_out)),
+        };
+        // Ein Fehler aus dem validierenden Griff kann in Wahrheit ein Urteil
+        // sein — hickory liefert ein negatives Ergebnis mit nicht aufgehendem
+        // NSEC-Beweis als Fehler samt Antwort (crate::dnssec::from_error).
+        // Dann ist die Verbindung heil und der Upstream nicht schuld.
+        let mut settled = None;
         let mut response = match stream.next().await {
             Some(Ok(response)) => response.into_message(),
-            Some(Err(error)) => {
-                self.invalidate().await;
-                return Err(ResolveError::Upstream(error.to_string()));
-            }
+            Some(Err(error)) => match dnssec::from_error(&error) {
+                Some((verdict, recovered)) => {
+                    settled = Some(verdict);
+                    recovered
+                }
+                None => {
+                    self.invalidate().await;
+                    return Err(ResolveError::Upstream(error.to_string()));
+                }
+            },
             None => {
                 self.invalidate().await;
                 return Err(ResolveError::Timeout);
@@ -133,7 +185,12 @@ impl Transport {
         // sie hier nicht geprüft. Frage, Typ und Klasse schon: ein Upstream, der
         // etwas anderes beantwortet als gefragt, ist ein Fehler — egal ob aus
         // Bosheit oder aus Kaputtheit.
-        dns::check_question(&outbound, &response).map_err(ResolveError::Mismatch)?;
+        // Eine aus dem Fehler geborgene Antwort trägt die Frage in der Form, in
+        // der hickory sie gestellt hat; der Vergleich gegen unsere ausgehende
+        // Nachricht wäre hier bedeutungslos.
+        if settled.is_none() {
+            dns::check_question(&outbound, &response).map_err(ResolveError::Mismatch)?;
+        }
 
         // Die Query-ID gehört auf dieser Verbindung dem Multiplexer: er schreibt
         // sie beim Senden um und gibt sie in der Antwort nicht zurück. Der Client
@@ -141,22 +198,50 @@ impl Transport {
         // Padding und ECS angefasst haben.
         response.metadata.id = request.metadata.id;
         response.queries = request.queries.clone();
-        Ok(response)
+
+        if !validate {
+            return Ok((response, None));
+        }
+
+        // `DnssecDnsHandle` stempelt jedem Record ein Urteil auf; das
+        // Zusammenfassen und die Folgerung daraus sind unsere (crate::dnssec).
+        // Bei Bogus wird kein anderer Upstream versucht: eine kaputte Zone ist
+        // bei jedem Anbieter kaputt, und ein zweiter Versuch würde den Namen
+        // nur einem weiteren Anbieter zeigen — das Gegenteil dessen, wofür
+        // split_by_zone da ist (siehe pool::Pool::resolve).
+        let verdict = match settled {
+            Some(verdict) => dnssec::apply_verdict(&mut response, verdict),
+            None => dnssec::apply(&mut response),
+        }
+        .inspect_err(|_| {
+            tracing::warn!(
+                upstream = %self.addr.socket_addr(),
+                "Antwort verworfen: Signaturkette schließt nicht"
+            );
+        })?;
+        Ok((response, Some(verdict)))
     }
 
     /// Liefert die offene Verbindung oder baut sie auf.
     ///
-    /// Der Lock wird nur für das Klonen des Handles gehalten, nicht für die
+    /// Der Lock wird nur für das Klonen der Handles gehalten, nicht für die
     /// Anfrage selbst — `DnsExchange` multiplext intern, ein Lock über der
     /// Anfrage würde den Upstream auf eine Anfrage nach der anderen drosseln.
-    async fn exchange(&self) -> Result<DnsExchange<TokioRuntimeProvider>, ResolveError> {
+    async fn exchange(&self) -> Result<Connection, ResolveError> {
         let mut guard = self.connection.lock().await;
-        if let Some(exchange) = guard.as_ref() {
-            return Ok(exchange.clone());
+        if let Some(connection) = guard.as_ref() {
+            return Ok(connection.clone());
         }
         let exchange = self.connect().await?;
-        *guard = Some(exchange.clone());
-        Ok(exchange)
+        let connection = Connection {
+            validating: self
+                .privacy
+                .dnssec
+                .then(|| DnssecDnsHandle::new(exchange.clone())),
+            exchange,
+        };
+        *guard = Some(connection.clone());
+        Ok(connection)
     }
 
     async fn invalidate(&self) {
@@ -230,13 +315,19 @@ impl Transport {
 }
 
 impl crate::resolve::ResolveBackend for Transport {
-    fn resolve(
+    // Welcher Resolver das hier ist, weiß nur der Pool — den Schritt
+    // `UpstreamUsed` schreibt deshalb er. Das DNSSEC-Urteil dagegen fällt hier
+    // und nirgends sonst, und ohne diesen Eintrag stünde in der
+    // Begründungskette nicht, dass überhaupt geprüft wurde.
+    async fn resolve(
         &self,
         request: &Message,
-        _ctx: &mut crate::trace::Ctx,
-    ) -> impl std::future::Future<Output = Result<Message, ResolveError>> + Send {
-        // Der Transport trägt nichts in den Trace ein; der Pool weiß, welcher
-        // Resolver er ist, und schreibt den Schritt.
-        self.send(request)
+        ctx: &mut crate::trace::Ctx,
+    ) -> Result<Message, ResolveError> {
+        let (response, verdict) = self.send_checked(request).await?;
+        if let Some(verdict) = verdict {
+            ctx.record(crate::trace::Step::DnssecChecked { verdict });
+        }
+        Ok(response)
     }
 }

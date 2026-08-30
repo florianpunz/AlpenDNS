@@ -260,6 +260,10 @@ impl StatusSource for Fake {
             privacy: alpendns::privacy::counters(),
             aggregate_k: self.log.aggregate_k(),
             below_threshold_queries: self.log.top(0).below_threshold_queries,
+            zone_seed_rotation: Duration::from_secs(24 * 60 * 60),
+            zone_seed_rotations: 0,
+            dnssec_enabled: true,
+            dnssec: alpendns::dnssec::counters(),
         }
     }
     fn lists(&self) -> Vec<ListInfo> {
@@ -755,4 +759,48 @@ async fn a_row_can_be_explained_over_the_api() {
 
     let response = api.get("/api/explain?domain=").await;
     assert_eq!(response.status(), reqwest::StatusCode::BAD_REQUEST);
+}
+
+// ---------------------------------------------------------------------------
+// Der Live-Strom unter Last
+// ---------------------------------------------------------------------------
+
+/// Ein Lasttest darf die Oberfläche nicht lahmlegen.
+///
+/// Vorher schickte der Server eine Nachricht je Anfrage. Bei einem `dnsperf`-Lauf
+/// sind das zehntausende JSON-Frames pro Sekunde: der Browser hängt, und der
+/// Server verbrennt fürs Formatieren Rechenzeit, die er zum Auflösen braucht.
+/// Die Statistik bleibt davon unberührt — gedeckelt ist nur der Strom.
+#[tokio::test]
+async fn a_burst_of_queries_does_not_flood_the_live_stream() {
+    let dir = TempDir::new("burst");
+    let log = QueryLog::new(&config(Mode::Ring, dir.0.join("q.jsonl"))).expect("QueryLog");
+    let mut stream = log.subscribe();
+
+    const BURST: u64 = 20_000;
+    for _ in 0..BURST {
+        log.record(&event(SECRET, false));
+    }
+
+    let mut received = Vec::new();
+    while let Ok(message) = stream.try_recv() {
+        received.push(message);
+    }
+
+    // Der Puffer des Kanals fasst 256; ohne Deckel wäre er längst übergelaufen
+    // und der Zuhörer hätte Ereignisse verloren, ohne es zu merken.
+    assert!(
+        received.len() <= 64,
+        "der Strom schickte {} Nachrichten für {BURST} Anfragen",
+        received.len()
+    );
+    assert!(!received.is_empty(), "der Strom ist ganz verstummt");
+
+    // Nichts geht verloren, was den Puls betrifft: die Zähler stehen vollständig,
+    // und die erste Nachricht der nächsten Sekunde trägt die Ausgelassenen nach.
+    assert_eq!(log.stats().queries, BURST);
+    assert!(
+        received.iter().all(|message| message.name.is_some()),
+        "im Modus ring gehören Namen in den Strom"
+    );
 }

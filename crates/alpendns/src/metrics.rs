@@ -11,6 +11,7 @@
 use std::fmt::Write as _;
 
 use crate::cache::Stats as CacheStats;
+use crate::dnssec::{CounterSnapshot as DnssecCounters, Verdict};
 use crate::filter::block::BlockMode;
 use crate::logging::{LogStats, Mode as LogMode};
 use crate::policy::PolicyStats;
@@ -38,6 +39,14 @@ pub struct Snapshot {
     pub aggregate_k: u32,
     /// Anfragen auf Namen unterhalb der k-Schwelle.
     pub below_threshold_queries: u64,
+    /// Abstand, in dem der Zonen-Seed neu gezogen wird. Null heißt: gar nicht.
+    pub zone_seed_rotation: std::time::Duration,
+    /// Wie oft er seit dem Start neu gezogen wurde.
+    pub zone_seed_rotations: u64,
+    /// Ob die Signaturkette selbst nachgerechnet wird.
+    pub dnssec_enabled: bool,
+    /// Wie die Prüfung ausgegangen ist.
+    pub dnssec: DnssecCounters,
 }
 
 /// Maskiert, was in einem Label-Wert nicht vorkommen darf.
@@ -235,6 +244,45 @@ pub fn render(snapshot: &Snapshot) -> String {
         snapshot.below_threshold_queries,
     );
 
+    // Was die eigene Validierung ergeben hat. Ohne `bogus` als eigene Zeile
+    // wäre nicht zu sehen, ob eine Zone im Netz kaputt ist oder ein Upstream
+    // lügt — und genau danach schaut man, wenn etwas nicht auflöst.
+    gauge(
+        &mut out,
+        "alpendns_dnssec_enabled",
+        "1, wenn AlpenDNS die Signaturkette selbst nachrechnet",
+        f64::from(u8::from(snapshot.dnssec_enabled)),
+    );
+    let _ = writeln!(
+        out,
+        "# HELP alpendns_dnssec_total Geprüfte Antworten je Urteil"
+    );
+    let _ = writeln!(out, "# TYPE alpendns_dnssec_total counter");
+    for verdict in Verdict::ALL {
+        let _ = writeln!(
+            out,
+            "alpendns_dnssec_total{{result=\"{}\"}} {}",
+            verdict.as_str(),
+            snapshot.dnssec.get(verdict)
+        );
+    }
+
+    // Die Rotation der Zonen-Zuordnung. Ohne diese beiden Zeilen ist "kein
+    // Anbieter lernt ein stabiles Bild" eine Behauptung; mit ihnen steht da,
+    // wie oft die Zuordnung tatsächlich gewechselt hat.
+    gauge(
+        &mut out,
+        "alpendns_zone_seed_rotation_seconds",
+        "Abstand, in dem die Zuordnung Domain → Upstream neu gewürfelt wird; 0 = nie",
+        snapshot.zone_seed_rotation.as_secs_f64(),
+    );
+    counter(
+        &mut out,
+        "alpendns_zone_seed_rotations_total",
+        "Wie oft die Zuordnung Domain → Upstream seit dem Start neu gewürfelt wurde",
+        snapshot.zone_seed_rotations,
+    );
+
     let _ = writeln!(out, "# HELP alpendns_lists Geladene Listen je Format");
     let _ = writeln!(out, "# TYPE alpendns_lists gauge");
     for (format, count) in &snapshot.list_formats {
@@ -370,6 +418,15 @@ mod tests {
             },
             aggregate_k: 5,
             below_threshold_queries: 21,
+            zone_seed_rotation: Duration::from_secs(24 * 60 * 60),
+            zone_seed_rotations: 3,
+            dnssec_enabled: true,
+            dnssec: DnssecCounters {
+                secure: 11,
+                insecure: 70,
+                bogus: 1,
+                indeterminate: 6,
+            },
         }
     }
 
@@ -432,6 +489,11 @@ mod tests {
             "alpendns_privacy_ecs_stripped_total 7",
             "alpendns_queries_below_threshold_total 21",
             "alpendns_aggregate_k 5",
+            "alpendns_zone_seed_rotations_total 3",
+            "alpendns_dnssec_enabled 1",
+            "alpendns_dnssec_total{result=\"secure\"} 11",
+            "alpendns_dnssec_total{result=\"bogus\"} 1",
+            "alpendns_zone_seed_rotation_seconds 86400",
             "alpendns_upstream_transport{resolver=\"quad9\",transport=\"dot\"} 1",
         ] {
             assert!(text.contains(expected), "fehlt: {expected}\n{text}");
@@ -523,7 +585,7 @@ mod tests {
     /// Label-Schlüssel auftauchen, egal wer was fragt.
     #[test]
     fn every_label_key_comes_from_a_closed_set() {
-        const ALLOWED: [&str; 7] = [
+        const ALLOWED: [&str; 8] = [
             "version",   // Konstante aus dem Build
             "rcode",     // Aufzählung des Protokolls
             "mode",      // Aufzählung aus der Konfiguration
@@ -531,6 +593,7 @@ mod tests {
             "reason",    // BlockReason::ALL
             "resolver",  // Name aus der Konfiguration
             "transport", // Aufzählung der Transporte
+            "result",    // dnssec::Verdict::ALL
         ];
         let text = render(&snapshot());
         for line in text.lines().filter(|l| !l.starts_with('#')) {

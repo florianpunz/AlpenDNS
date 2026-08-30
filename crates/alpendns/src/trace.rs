@@ -79,6 +79,10 @@ pub enum Step {
         resolver: Arc<str>,
         rtt: Duration,
     },
+    /// Die Signaturkette wurde selbst nachgerechnet (Phase 7, Schritt 3).
+    DnssecChecked {
+        verdict: crate::dnssec::Verdict,
+    },
     Synthesized {
         mode: BlockMode,
     },
@@ -122,6 +126,7 @@ impl std::fmt::Display for Step {
             Self::UpstreamUsed { resolver, rtt } => {
                 write!(f, "Upstream '{resolver}' antwortete in {rtt:.1?}")
             }
+            Self::DnssecChecked { verdict } => write!(f, "DNSSEC selbst geprüft: {verdict}"),
             Self::Synthesized { mode } => write!(f, "Antwort selbst erzeugt, Modus {mode:?}"),
         }
     }
@@ -266,6 +271,9 @@ mod tests {
             Step::UpstreamUsed {
                 resolver: Arc::from("quad9"),
                 rtt: Duration::from_millis(12),
+            },
+            Step::DnssecChecked {
+                verdict: crate::dnssec::Verdict::Secure,
             },
             Step::Synthesized {
                 mode: BlockMode::Nxdomain,

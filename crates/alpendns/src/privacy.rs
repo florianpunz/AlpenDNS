@@ -9,6 +9,7 @@
 //! | Padding | nur verschlüsselt | im Klartext verrät die Länge ohnehin nichts, was der Name nicht schon verrät |
 //! | 0x20 | nur Klartext | schützt gegen Off-Path-Spoofing, das es auf einer TLS-Verbindung nicht gibt |
 //! | Cookies | nur Klartext | dito (RFC 7873) |
+//! | DNSSEC | nur verschlüsselt | der Klartextweg geht nur in interne Zonen, und die sind nicht signiert |
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -23,6 +24,10 @@ pub struct Settings {
     pub padding: bool,
     pub cookies: bool,
     pub dns0x20: bool,
+    /// Signaturkette selbst nachrechnen. Wirkt nur auf verschlüsselten
+    /// Transporten: der Klartextweg führt ausschließlich in interne Zonen, und
+    /// die sind nicht signiert.
+    pub dnssec: bool,
 }
 
 impl From<&crate::config::PrivacyConfig> for Settings {
@@ -32,6 +37,7 @@ impl From<&crate::config::PrivacyConfig> for Settings {
             padding: config.padding,
             cookies: config.cookies,
             dns0x20: config.dns0x20,
+            dnssec: config.dnssec,
         }
     }
 }

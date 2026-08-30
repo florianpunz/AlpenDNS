@@ -212,6 +212,8 @@ h2 {
 /* Schreibt der Server auf die Platte, ist das keine Warnung im Sinne von
    "kaputt", aber die einzige Angabe hier, die jemand übersehen darf. */
 .privacy-item.is-persisting { color: var(--warn); }
+/* Eine verworfene Antwort ist ein Ausfall: der Name hat nicht aufgelöst. */
+.counters dd.is-bogus { color: var(--danger); }
 
 .masthead { border-bottom: 1px solid var(--line); }
 .masthead-inner {
@@ -423,7 +425,9 @@ h2 {
   margin: 0;
   padding: var(--s-8) var(--s-16) var(--s-16);
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  /* Drei Spalten für sechs Zähler: zwei volle Reihen statt einer Reihe mit
+     Rest. */
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--s-8);
   border-top: 1px solid var(--line);
 }

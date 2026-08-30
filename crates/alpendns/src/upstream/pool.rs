@@ -97,28 +97,77 @@ pub struct UpstreamStats {
 pub struct Pool<B, C> {
     upstreams: Vec<Upstream<B>>,
     strategy: Strategy,
-    /// Beim Start zufällig gezogen. Bestimmt bei `split_by_zone`, welcher
-    /// Upstream welche Domains sieht — nach jedem Neustart anders.
-    seed: u64,
+    /// Beim Start zufällig gezogen und danach im konfigurierten Abstand neu
+    /// gewürfelt. Bestimmt bei `split_by_zone`, welcher Upstream welche
+    /// Domains sieht.
+    ///
+    /// Atomar statt hinter einem Lock: gelesen wird er bei jeder Anfrage,
+    /// geschrieben höchstens einmal am Tag. Ein `Mutex` im Anfragepfad wäre für
+    /// dieses Verhältnis der falsche Preis (B.3 Regel 5). Dass eine Anfrage
+    /// mitten in der Rotation noch den alten Wert sieht, ist folgenlos: der
+    /// Upstream, den sie damit wählt, war eine Sekunde vorher der richtige.
+    seed: AtomicU64,
+    /// Wie oft der Seed seit dem Start neu gezogen wurde.
+    rotations: AtomicU64,
     clock: C,
 }
 
 impl<B: ResolveBackend, C: Clock> Pool<B, C> {
     pub fn new(upstreams: Vec<Upstream<B>>, strategy: Strategy, clock: C) -> Self {
-        Self {
-            upstreams,
-            strategy,
-            seed: rand::random(),
-            clock,
-        }
+        Self::with_seed(upstreams, strategy, clock, rand::random())
     }
 
     /// Wie [`Self::new`], aber mit festem Seed — für Tests, die eine
     /// bestimmte Verteilung erwarten.
-    pub fn with_seed(upstreams: Vec<Upstream<B>>, strategy: Strategy, clock: C, seed: u64) -> Self {
-        let mut pool = Self::new(upstreams, strategy, clock);
-        pool.seed = seed;
-        pool
+    pub const fn with_seed(
+        upstreams: Vec<Upstream<B>>,
+        strategy: Strategy,
+        clock: C,
+        seed: u64,
+    ) -> Self {
+        Self {
+            upstreams,
+            strategy,
+            seed: AtomicU64::new(seed),
+            rotations: AtomicU64::new(0),
+            clock,
+        }
+    }
+
+    /// Der aktuell gültige Seed.
+    pub fn seed(&self) -> u64 {
+        self.seed.load(Ordering::Relaxed)
+    }
+
+    /// Wie oft der Seed seit dem Start neu gezogen wurde.
+    ///
+    /// Steht in der Metrik, weil "die Zuordnung rotiert" sonst eine Behauptung
+    /// in der Konfiguration bliebe statt einer Zahl, die im Betrieb steigt.
+    pub fn rotations(&self) -> u64 {
+        self.rotations.load(Ordering::Relaxed)
+    }
+
+    /// Würfelt die Zuordnung Domain → Upstream neu.
+    ///
+    /// Was das kostet und was es bringt: ab dem nächsten Cache-Miss sieht ein
+    /// anderer Anbieter die Domain. Über einen Tag gerechnet sieht damit jeder
+    /// Anbieter mehr *verschiedene* Domains als vorher — aber keiner von ihnen
+    /// mehr ein Bild, das über die Rotation hinaus stabil bleibt. Genau das ist
+    /// der Zweck: ein Profil entsteht aus Wiedererkennung über Zeit, nicht aus
+    /// einzelnen Anfragen (FEATURES.md P2).
+    ///
+    /// Der Antwort-Cache bleibt unberührt — er liegt vor dem Pool und kennt
+    /// keine Upstreams (ARCHITECTURE.md §1).
+    pub fn rotate_seed(&self) {
+        self.seed.store(rand::random(), Ordering::Relaxed);
+        let count = self
+            .rotations
+            .fetch_add(1, Ordering::Relaxed)
+            .saturating_add(1);
+        tracing::info!(
+            rotations = count,
+            "Zonen-Seed neu gezogen; die Zuordnung Domain → Upstream ist ab jetzt eine andere"
+        );
     }
 
     pub fn stats(&self) -> Vec<UpstreamStats> {
@@ -149,7 +198,7 @@ impl<B: ResolveBackend, C: Clock> Pool<B, C> {
         let count = self.upstreams.len();
         let base = match self.strategy {
             Strategy::SplitByZone => match question {
-                Some(name) => strategy::by_zone(self.seed, name, count),
+                Some(name) => strategy::by_zone(self.seed(), name, count),
                 // Ohne Frage gibt es nichts zu verteilen.
                 None => strategy::round_robin(0, count),
             },
@@ -250,11 +299,49 @@ impl<B: ResolveBackend, C: Clock> Pool<B, C> {
                 });
                 Ok(response)
             }
+            // Eine faule Signatur ist kein Ausfall des Upstreams: er hat
+            // geantwortet, und die Antwort ist bei jedem anderen Anbieter
+            // genauso faul. Würde sie als Fehlversuch zählen, könnte eine
+            // einzige kaputte Zone nach drei Anfragen den ganzen Pool als tot
+            // markieren.
+            Err(ResolveError::Bogus) => {
+                ctx.record(Step::UpstreamUsed {
+                    resolver: std::sync::Arc::from(upstream.name.as_str()),
+                    rtt: self.clock.now().saturating_duration_since(started),
+                });
+                Err(ResolveError::Bogus)
+            }
             Err(error) => {
                 self.record_failure(index);
                 tracing::debug!(upstream = %upstream.name, %error, "Upstream-Anfrage fehlgeschlagen");
                 Err(error)
             }
+        }
+    }
+}
+
+/// Zieht den Zonen-Seed regelmäßig neu, bis der Shutdown kommt.
+///
+/// Läuft als eigene Aufgabe statt in der Anfrage: eine Rotation, die an
+/// Anfragen hängt, käme auf einem stillen Server nie und auf einem lauten
+/// dauernd. `every == 0` schaltet sie ab — dann gilt der Seed vom Start bis zum
+/// Neustart, das Verhalten aus Phase 3.
+pub async fn run_seed_rotation<B: ResolveBackend, C: Clock>(
+    pool: std::sync::Arc<Pool<B, C>>,
+    every: Duration,
+    shutdown: tokio_util::sync::CancellationToken,
+) {
+    if every.is_zero() {
+        tracing::info!("Zonen-Seed-Rotation ist abgeschaltet; die Zuordnung gilt bis zum Neustart");
+        return;
+    }
+    let mut ticker = tokio::time::interval(every);
+    // Der erste Tick kommt sofort; der Seed vom Start ist noch frisch.
+    ticker.tick().await;
+    loop {
+        tokio::select! {
+            () = shutdown.cancelled() => return,
+            _ = ticker.tick() => pool.rotate_seed(),
         }
     }
 }
@@ -285,6 +372,11 @@ impl<B: ResolveBackend, C: Clock> ResolveBackend for Pool<B, C> {
             for index in order {
                 match self.try_one(index, request, ctx).await {
                     Ok(response) => return Ok(response),
+                    // Terminal. Eine Zone mit kaputter Signatur ist überall
+                    // kaputt; den nächsten Upstream zu fragen brächte dieselbe
+                    // Antwort und zeigte den Namen einem zweiten Anbieter —
+                    // genau das, was split_by_zone verhindern soll.
+                    Err(ResolveError::Bogus) => return Err(ResolveError::Bogus),
                     Err(error) => last_error = Some(error),
                 }
             }
@@ -553,6 +645,94 @@ mod tests {
 
         let asked: usize = fakes.iter().map(|f| f.calls()).sum();
         assert_eq!(asked, 1, "mehr als ein Upstream sah die Frage");
+    }
+
+    #[tokio::test]
+    async fn rotating_the_seed_moves_domains_to_other_upstreams() {
+        // Der Zweck der Rotation: nach ihr sieht ein anderer Anbieter die
+        // Domain. Über viele Namen geprüft, weil ein einzelner auch nach dem
+        // Neuwürfeln zufällig beim selben Upstream landen kann.
+        let fakes: Vec<Arc<Fake>> = (0..4).map(|_| Fake::new(0)).collect();
+        let clock = Arc::new(TestClock::new());
+        let pool = pool_of(&fakes, clock, 0x5eed);
+
+        // Verschiedene registrierbare Domains — Subdomains derselben Domain
+        // gehören zusammen und würden hier nichts zeigen.
+        let domains: Vec<Name> = (0..200)
+            .map(|i| Name::from_ascii(format!("www.site{i}.com.")).expect("gültiger Name"))
+            .collect();
+        let before = strategy::distribution(pool.seed(), domains.iter(), 4);
+
+        pool.rotate_seed();
+        assert_eq!(pool.rotations(), 1);
+        let after = strategy::distribution(pool.seed(), domains.iter(), 4);
+
+        assert_ne!(
+            before, after,
+            "die Zuordnung ist nach der Rotation dieselbe geblieben"
+        );
+    }
+
+    #[tokio::test]
+    async fn rotation_keeps_the_distribution_even() {
+        // Eine Rotation, die die Verteilung schief macht, wäre eine
+        // Verschlechterung. Nach jedem Wurf muss das Abnahmekriterium aus
+        // Schritt 1 weiter gelten.
+        let fakes: Vec<Arc<Fake>> = (0..3).map(|_| Fake::new(0)).collect();
+        let clock = Arc::new(TestClock::new());
+        let pool = pool_of(&fakes, clock, 0x5eed);
+        let domains: Vec<Name> = (0..10_000)
+            .map(|i| Name::from_ascii(format!("www.site{i}.com.")).expect("gültiger Name"))
+            .collect();
+
+        for _ in 0..5 {
+            pool.rotate_seed();
+            let buckets = strategy::distribution(pool.seed(), domains.iter(), 3);
+            let deviation = strategy::max_deviation(&buckets);
+            assert!(deviation < 0.05, "{deviation} — {buckets:?}");
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_rotation_task_keeps_rotating_until_shutdown() {
+        let fakes: Vec<Arc<Fake>> = (0..2).map(|_| Fake::new(0)).collect();
+        let clock = Arc::new(TestClock::new());
+        let pool = Arc::new(pool_of(&fakes, clock, 0x5eed));
+        let shutdown = tokio_util::sync::CancellationToken::new();
+
+        let task = tokio::spawn(run_seed_rotation(
+            Arc::clone(&pool),
+            Duration::from_secs(3600),
+            shutdown.clone(),
+        ));
+        tokio::time::sleep(Duration::from_secs(3 * 3600 + 60)).await;
+        assert_eq!(pool.rotations(), 3, "die Aufgabe rotiert nicht im Takt");
+
+        shutdown.cancel();
+        task.await.expect("die Aufgabe endet beim Shutdown");
+        let stopped_at = pool.rotations();
+        tokio::time::sleep(Duration::from_secs(4 * 3600)).await;
+        assert_eq!(pool.rotations(), stopped_at, "sie läuft weiter");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_rotation_interval_of_zero_switches_the_rotation_off() {
+        // Das Verhalten aus Phase 3: der Seed gilt bis zum Neustart.
+        let fakes: Vec<Arc<Fake>> = (0..2).map(|_| Fake::new(0)).collect();
+        let clock = Arc::new(TestClock::new());
+        let pool = Arc::new(pool_of(&fakes, clock, 0x5eed));
+        let seed = pool.seed();
+
+        run_seed_rotation(
+            Arc::clone(&pool),
+            Duration::ZERO,
+            tokio_util::sync::CancellationToken::new(),
+        )
+        .await;
+
+        tokio::time::sleep(Duration::from_secs(48 * 3600)).await;
+        assert_eq!(pool.rotations(), 0);
+        assert_eq!(pool.seed(), seed);
     }
 
     #[tokio::test]

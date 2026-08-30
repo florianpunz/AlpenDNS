@@ -11,6 +11,7 @@ pub mod caching;
 pub mod clock;
 pub mod config;
 pub mod dns;
+pub mod dnssec;
 pub mod filter;
 pub mod history;
 pub mod logging;

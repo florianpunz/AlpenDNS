@@ -33,6 +33,10 @@ pub enum ResolveError {
     Upstream(String),
     #[error("kein Upstream im Pool konnte antworten")]
     NoUpstreamLeft,
+    /// Die Signaturkette schließt nicht. Terminal: es wird kein weiterer
+    /// Upstream gefragt (Begründung in `upstream::pool::Pool::resolve`).
+    #[error("DNSSEC-Prüfung fehlgeschlagen, die Antwort wurde verworfen")]
+    Bogus,
 }
 
 /// Löst eine Anfrage auf — in v1 durch Weiterleiten an einen Upstream.

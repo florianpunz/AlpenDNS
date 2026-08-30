@@ -19,7 +19,7 @@ pub mod ring;
 
 use std::collections::HashMap;
 use std::io::Write as _;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -140,6 +140,20 @@ pub struct QueryEvent {
     pub elapsed: Duration,
 }
 
+/// So viele Ereignisse gehen je Sekunde höchstens in den Live-Strom.
+///
+/// Ohne diese Grenze schickt ein Lasttest den Browser in die Knie: eine
+/// Nachricht je Anfrage heißt bei 20 000 Anfragen pro Sekunde 20 000 JSON-Frames
+/// und ebenso viele DOM-Zeilen, von denen 19 975 im selben Moment wieder aus dem
+/// Puffer fallen. Der Server verbrennt dabei CPU, die er zum Auflösen braucht.
+///
+/// 25 sind schnell genug, dass das Protokoll live wirkt, und langsam genug, dass
+/// es lesbar bleibt — schneller kann ohnehin niemand mitlesen. Was nicht
+/// durchkommt, verschwindet nicht: die nächste durchgelassene Nachricht trägt in
+/// `skipped`, wie viele dazwischen lagen, damit die Sparkline weiter die
+/// Wahrheit zeigt.
+const STREAM_MAX_PER_SECOND: u32 = 25;
+
 /// Was über den Live-Strom hinausgeht.
 ///
 /// In `none` und `aggregate` bleiben Name, Client und Begründung leer: der Puls
@@ -151,12 +165,26 @@ pub struct StreamEvent {
     pub blocked: bool,
     pub rcode: String,
     pub ms: f64,
+    /// Anfragen, die seit der letzten Nachricht ausgelassen wurden.
+    ///
+    /// Null im Normalbetrieb und dann nicht im JSON — das Feld kostet nur unter
+    /// Last etwas, und dort trägt es die Information, die sonst fehlte.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub skipped: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub client: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub why: Option<Vec<String>>,
+}
+
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "Signatur von serde vorgegeben"
+)]
+const fn is_zero(value: &u64) -> bool {
+    *value == 0
 }
 
 /// Ein Eintrag, wie ihn API und UI sehen.
@@ -237,6 +265,14 @@ pub struct QueryLog {
     file: Option<Mutex<std::fs::File>>,
     /// Live-Strom für die UI. Wer nicht zuhört, kostet nichts.
     events: tokio::sync::broadcast::Sender<StreamEvent>,
+    /// Bezugspunkt für das Sekundenfenster des Live-Stroms.
+    started: Instant,
+    /// In welcher Sekunde seit [`Self::started`] das aktuelle Fenster liegt.
+    stream_window: AtomicU64,
+    /// Schon gesendete Nachrichten in diesem Fenster.
+    stream_sent: AtomicU32,
+    /// Ausgelassene Anfragen seit der letzten gesendeten Nachricht.
+    stream_skipped: AtomicU64,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -273,6 +309,10 @@ impl QueryLog {
             // zurückfällt, verliert Ereignisse — ein Live-Strom soll den Server
             // nicht bremsen.
             events: tokio::sync::broadcast::channel(256).0,
+            started: Instant::now(),
+            stream_window: AtomicU64::new(0),
+            stream_sent: AtomicU32::new(0),
+            stream_skipped: AtomicU64::new(0),
         })
     }
 
@@ -382,6 +422,13 @@ impl QueryLog {
         if self.events.receiver_count() == 0 {
             return;
         }
+        let Some(skipped) = self.stream_budget() else {
+            // Zähler stehen weiter; nur die Nachricht entfällt. Das Formatieren
+            // von Zeit und RCODE passiert erst hinter dieser Grenze — unter Last
+            // ist genau das der teure Teil.
+            return;
+        };
+
         let detailed = self.mode.keeps_names();
         // Fehlt nur, wenn niemand mehr zuhört.
         let _ = self.events.send(StreamEvent {
@@ -389,10 +436,38 @@ impl QueryLog {
             blocked: event.blocked,
             rcode: format!("{:?}", event.rcode),
             ms: event.elapsed.as_secs_f64() * 1000.0,
+            skipped,
             name: detailed.then(|| event.name.clone()),
             client: detailed.then(|| event.client.to_string()),
             why: detailed.then(|| event.why.clone()),
         });
+    }
+
+    /// Ob diese Anfrage in den Live-Strom darf.
+    ///
+    /// Gibt die Zahl der seit der letzten Nachricht ausgelassenen Anfragen
+    /// zurück, oder `None`, wenn das Budget dieser Sekunde erschöpft ist.
+    ///
+    /// Bewusst ohne Sperre: unter Last läuft das hier in jedem Anfrage-Thread.
+    /// Zwei Threads können dieselbe Fensterschwelle sehen und beide senden — bei
+    /// einem Budget von 25 ist eine Nachricht mehr oder weniger belanglos, eine
+    /// Sperre im Anfragepfad wäre es nicht (B.3 Regel 5).
+    fn stream_budget(&self) -> Option<u64> {
+        self.stream_budget_at(self.started.elapsed().as_secs())
+    }
+
+    /// Wie [`Self::stream_budget`], aber mit gegebener Sekunde — damit sich das
+    /// Fensterverhalten ohne `sleep` prüfen lässt.
+    fn stream_budget_at(&self, second: u64) -> Option<u64> {
+        if self.stream_window.swap(second, Ordering::Relaxed) != second {
+            self.stream_sent.store(0, Ordering::Relaxed);
+        }
+
+        if self.stream_sent.fetch_add(1, Ordering::Relaxed) >= STREAM_MAX_PER_SECOND {
+            self.stream_skipped.fetch_add(1, Ordering::Relaxed);
+            return None;
+        }
+        Some(self.stream_skipped.swap(0, Ordering::Relaxed))
     }
 
     pub fn stats(&self) -> LogStats {
@@ -494,6 +569,54 @@ impl QueryLog {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn log() -> QueryLog {
+        QueryLog::new(&crate::config::LoggingConfig::default()).expect("QueryLog")
+    }
+
+    #[test]
+    fn the_stream_sends_at_most_the_budget_per_second() {
+        // Eine Nachricht je Anfrage bringt jeden Browser um: bei einem Lasttest
+        // sind das zehntausende JSON-Frames und ebenso viele DOM-Zeilen pro
+        // Sekunde. Der Deckel sitzt hier, nicht erst im Browser — sonst kostet
+        // schon das Formatieren der Nachricht den Server seine Rechenzeit.
+        let log = log();
+        let passed = (0..10_000)
+            .filter(|_| log.stream_budget_at(0).is_some())
+            .count();
+        assert_eq!(passed, STREAM_MAX_PER_SECOND as usize);
+    }
+
+    #[test]
+    fn the_first_message_of_a_window_reports_what_was_skipped() {
+        // Ausgelassene Anfragen verschwinden nicht: die nächste durchgelassene
+        // Nachricht trägt ihre Zahl mit, damit die Sparkline unter Last nicht
+        // einen ruhigen Server zeigt.
+        let log = log();
+        for _ in 0..STREAM_MAX_PER_SECOND {
+            assert_eq!(log.stream_budget_at(0), Some(0), "im Budget, nichts fehlt");
+        }
+        for _ in 0..900 {
+            assert_eq!(log.stream_budget_at(0), None, "über dem Budget");
+        }
+        assert_eq!(
+            log.stream_budget_at(1),
+            Some(900),
+            "die ausgelassenen Anfragen fehlen in der nächsten Nachricht"
+        );
+        assert_eq!(log.stream_budget_at(1), Some(0), "doppelt gezählt");
+    }
+
+    #[test]
+    fn the_budget_starts_over_in_every_window() {
+        let log = log();
+        for second in 0..5 {
+            let passed = (0..1_000)
+                .filter(|_| log.stream_budget_at(second).is_some())
+                .count();
+            assert_eq!(passed, STREAM_MAX_PER_SECOND as usize, "Sekunde {second}");
+        }
+    }
 
     #[test]
     fn the_block_reason_comes_from_the_last_matching_step() {

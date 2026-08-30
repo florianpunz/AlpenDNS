@@ -14,6 +14,11 @@
 // Benutzt werden genau die Endpunkte, die es gibt: /api/status für den Rahmen,
 // /api/events und /api/recent für das Protokoll, /api/top für die Nebenspalte,
 // /api/history für die Kurven und /api/explain für den Klick auf eine Zeile.
+//
+// Unter Last gilt: der Strom diktiert nicht das Tempo der Seite. Ereignisse
+// werden gesammelt und höchstens einmal je Bild gezeichnet — sonst erzwingt
+// jede einzelne Anfrage ein Layout, und bei einem Lasttest steht der Browser.
+// Der Server deckelt zusätzlich, wie viele Nachrichten er je Sekunde schickt.
 "use strict";
 
 const TOKEN_KEY = "alpendns.token";
@@ -156,7 +161,9 @@ function drawSpark() {
 function tickSpark() {
   spark.push(0);
   if (spark.length > SPARK_SECONDS) spark.shift();
-  drawSpark();
+  // Im Hintergrund weiterzählen, aber nicht zeichnen: ein Diagramm, das
+  // niemand sieht, ist reine Rechenzeit.
+  if (!document.hidden) drawSpark();
 }
 
 /** Eine Linie über gleich breite Punkte, von links nach rechts. */
@@ -317,6 +324,13 @@ function renderPrivacy(status) {
     $("p-k").textContent = `Namen ab ${thousands(status.aggregate_k)} Treffern`;
   }
 
+  // Ob die Signaturkette selbst nachgerechnet wird. Steht im Streifen und
+  // nicht bei den Zählern, weil es eine Daueraussage ist wie der Log-Modus:
+  // entweder man glaubt dem Upstream, oder man rechnet nach.
+  $("p-dnssec").textContent = status.dnssec.enabled
+    ? "DNSSEC selbst geprüft"
+    : "DNSSEC: dem Upstream geglaubt";
+
   // Nicht behaupten, sondern nachsehen: im Modus full schreibt der Server
   // sehr wohl auf die Platte, und dann muss das hier stehen.
   const store = $("p-store");
@@ -398,6 +412,10 @@ async function refreshStatus() {
   $("pc-pad").textContent = thousands(status.privacy.padded);
   $("pc-case").textContent = thousands(status.privacy.case_randomized);
   $("pc-cookie").textContent = thousands(status.privacy.cookies);
+  $("pc-secure").textContent = thousands(status.dnssec.secure);
+  const bogus = $("pc-bogus");
+  bogus.textContent = thousands(status.dnssec.bogus);
+  bogus.classList.toggle("is-bogus", status.dnssec.bogus > 0);
 
   // Der aktive Log-Modus bestimmt, was das Protokoll überhaupt zeigen kann.
   const quiet = status.logging_mode === "none" || status.logging_mode === "aggregate";
@@ -457,10 +475,11 @@ function showReason(event) {
  *  Der Unterschied zur Kette aus dem Protokoll: die dort ist ein Protokoll
  *  dessen, was passiert ist; diese hier ist die Antwort auf "und was würde
  *  jetzt passieren?". Deshalb steht dabei, woher sie kommt. */
+let askedRow = null;
+
 async function explainRow(name, client, row) {
-  for (const marked of document.querySelectorAll("tr.is-asked")) {
-    marked.classList.remove("is-asked");
-  }
+  if (askedRow) askedRow.classList.remove("is-asked");
+  askedRow = row;
   row.classList.add("is-asked");
 
   const query = new URLSearchParams({ domain: name });
@@ -525,37 +544,90 @@ function row(event) {
   // Anklickbar nur mit Namen: ohne ihn gibt es nichts zu erklären, und eine
   // Zeile, die auf einen Klick nicht reagiert, ist schlimmer als eine, die
   // gar nicht danach aussieht.
+  //
+  // Die Zeile bekommt keine eigenen Zuhörer: bei 300 Zeilen wären das 600, und
+  // jede neue Zeile müsste zwei anlegen. Stattdessen hört die Tabelle einmal zu
+  // und findet die Zeile über closest() — der Name hängt am Element.
   if (event.name) {
     tr.classList.add("askable");
     tr.tabIndex = 0;
     tr.title = "Entscheidungskette abfragen";
-    const ask = () => explainRow(event.name, event.client, tr);
-    tr.addEventListener("click", ask);
-    tr.addEventListener("keydown", (key) => {
-      if (key.key === "Enter" || key.key === " ") {
-        key.preventDefault();
-        ask();
-      }
-    });
+    tr.dataset.domain = event.name;
+    if (event.client) tr.dataset.client = event.client;
   }
   return tr;
 }
 
+/** Ein Klick oder Enter irgendwo in der Tabelle. */
+function onRowActivate(trigger) {
+  if (trigger.type === "keydown") {
+    if (trigger.key !== "Enter" && trigger.key !== " ") return;
+    trigger.preventDefault();
+  }
+  const tr = trigger.target.closest("tr.askable");
+  if (tr) explainRow(tr.dataset.domain, tr.dataset.client, tr);
+}
+
+// Was seit dem letzten Bild hereinkam. Mehr als MAX_ROWS zu behalten wäre
+// sinnlos: alles Ältere fiele beim Zeichnen sofort wieder aus der Tabelle.
+const pending = [];
+let flushScheduled = false;
+
 function addRow(event) {
+  // Die Sparkline zählt jede Anfrage — auch die, die der Server ausgelassen
+  // hat. Sonst zeigte die Linie unter Last einen ruhigen Server.
+  spark[spark.length - 1] += 1 + (event.skipped ?? 0);
+
+  // Im Hintergrund gibt es nichts zu zeichnen. Der Puls bleibt trotzdem
+  // gezählt, damit die Linie beim Zurückkommen stimmt.
+  if (document.hidden) return;
+
+  pending.push(event);
+  if (pending.length > MAX_ROWS) pending.splice(0, pending.length - MAX_ROWS);
+  if (!flushScheduled) {
+    flushScheduled = true;
+    requestAnimationFrame(flushRows);
+  }
+}
+
+/** Zeichnet alle gesammelten Ereignisse in einem Durchgang.
+ *
+ *  Der teure Teil am alten Weg war nicht das Erzeugen der Zeilen, sondern das
+ *  Wechselspiel: anhängen, Höhe lesen, scrollen — pro Anfrage einmal, und jedes
+ *  Lesen zwingt den Browser, das Layout sofort neu zu rechnen. Hier wird alles
+ *  in einem Fragment gebaut, einmal eingehängt und einmal gemessen. */
+function flushRows() {
+  flushScheduled = false;
+  if (pending.length === 0) return;
+
   const body = $("log");
   const scroller = $("log-scroll");
   const wasAtTop = scroller.scrollTop < 4;
+  const heightBefore = scroller.scrollHeight;
 
-  const tr = row(event);
-  body.prepend(tr);
+  // Das Protokoll wächst nach oben, also rückwärts durch den Puffer: die
+  // jüngste Zeile steht am Ende und muss zuoberst landen.
+  const fragment = document.createDocumentFragment();
+  let newestBlocked = null;
+  for (let index = pending.length - 1; index >= 0; index -= 1) {
+    const event = pending[index];
+    fragment.append(row(event));
+    if (!newestBlocked && event.blocked && event.name) newestBlocked = event;
+  }
+  body.prepend(fragment);
+
   while (body.childElementCount > MAX_ROWS) body.lastElementChild.remove();
 
   // Wer im Protokoll nach unten gescrollt hat, soll nicht mitgeschoben werden.
-  if (!wasAtTop) scroller.scrollTop += tr.offsetHeight;
+  if (!wasAtTop) {
+    scroller.scrollTop += scroller.scrollHeight - heightBefore;
+  }
 
-  spark[spark.length - 1] += 1;
+  pending.length = 0;
   syncEmptyStates();
-  if (event.blocked && event.name) showReason(event);
+  // Nur die jüngste Begründung: unter Last wäre alles andere ein Flackern, das
+  // niemand lesen kann.
+  if (newestBlocked) showReason(newestBlocked);
 }
 
 async function refreshTop() {
@@ -605,9 +677,11 @@ function connectStream() {
 /** Füllt das Protokoll beim Laden, damit die Seite nicht leer beginnt. */
 async function loadRecent() {
   const recent = await api("/api/recent?limit=80");
-  const body = $("log");
-  // Rückwärts anhängen ist billiger als 80-mal voranzustellen.
-  for (const event of recent.slice().reverse()) body.prepend(row(event));
+  // Ein Fragment, ein Einhängen: 80-mal einzeln voranzustellen heißt 80-mal
+  // Layout.
+  const fragment = document.createDocumentFragment();
+  for (const event of recent) fragment.append(row(event));
+  $("log").prepend(fragment);
   const newestBlocked = recent.find((event) => event.blocked && event.name);
   if (newestBlocked) showReason(newestBlocked);
   syncEmptyStates();
@@ -618,13 +692,24 @@ function showApp() {
   $("app").hidden = false;
 }
 
+let started = false;
+
 async function start() {
   await refreshStatus();
   showApp();
   await Promise.allSettled([loadRecent(), refreshTop(), refreshHistory()]);
+  if (started) return;
+  started = true;
+
+  // Ein Zuhörer für die ganze Tabelle statt zwei je Zeile.
+  const log = $("log");
+  log.addEventListener("click", onRowActivate);
+  log.addEventListener("keydown", onRowActivate);
+
   connectStream();
   setInterval(tickSpark, 1000);
   setInterval(async () => {
+    if (document.hidden) return;
     try {
       await refreshHistory();
     } catch {
@@ -632,6 +717,9 @@ async function start() {
     }
   }, HISTORY_MS);
   setInterval(async () => {
+    // Im Hintergrund fragt die Seite nichts ab: sie soll nebenher offen sein
+    // dürfen, ohne dafür Rechenzeit zu verlangen.
+    if (document.hidden) return;
     try {
       await refreshStatus();
       await refreshTop();
@@ -639,6 +727,14 @@ async function start() {
       setReachable(false);
     }
   }, POLL_MS);
+
+  // Beim Zurückkommen einmal nachziehen, statt bis zum nächsten Takt einen
+  // veralteten Stand zu zeigen.
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) return;
+    drawSpark();
+    refreshStatus().catch(() => setReachable(false));
+  });
 }
 
 $("login").addEventListener("submit", async (submitEvent) => {

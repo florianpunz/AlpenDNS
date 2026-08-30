@@ -151,6 +151,10 @@ pub(crate) async fn handle_request<B: ResolveBackend>(
     let response = match backend.resolve(&request, &mut ctx).await {
         Ok(mut response) => {
             response.metadata.recursion_available = true;
+            // Erst hier, hinter dem Cache: was von der Signaturkette an *diesen*
+            // Client geht, hängt an seiner Anfrage. Weiter unten gestrippt
+            // landete die gestutzte Fassung im Cache und alle bekämen sie.
+            crate::dnssec::for_client(&request, &mut response);
             response
         }
         Err(error) => {

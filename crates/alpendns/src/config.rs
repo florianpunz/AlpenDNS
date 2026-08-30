@@ -312,6 +312,14 @@ pub fn parse_clock_time(text: &str) -> Option<jiff::civil::Time> {
     jiff::civil::Time::new(hour.parse().ok()?, minute.parse().ok()?, 0, 0).ok()
 }
 
+/// Einmal am Tag. Oft genug, dass kein Anbieter über Wochen dasselbe Bild
+/// sieht; selten genug, dass die Zuordnung innerhalb eines Surftags stabil
+/// bleibt und nicht mitten in einer Sitzung ein zweiter Anbieter dieselbe
+/// Domain zu sehen bekommt.
+const fn default_seed_rotation() -> Duration {
+    Duration::from_secs(24 * 60 * 60)
+}
+
 fn default_sinkhole_v4() -> std::net::Ipv4Addr {
     std::net::Ipv4Addr::LOCALHOST
 }
@@ -402,6 +410,13 @@ pub struct UpstreamPool {
     pub name: String,
     #[serde(default)]
     pub strategy: Strategy,
+    /// Abstand, in dem der Seed von `split_by_zone` neu gezogen wird.
+    ///
+    /// Bis Phase 7 galt der Seed vom Start bis zum Neustart; wer nie neu
+    /// startet, gibt jedem Anbieter dauerhaft dasselbe Drittel seiner Domains
+    /// zu sehen. `"0s"` stellt das alte Verhalten wieder her.
+    #[serde(with = "humantime_serde", default = "default_seed_rotation")]
+    pub seed_rotation: Duration,
     /// Entfernt. Der Schlüssel steht nur noch hier, damit
     /// [`UpstreamPool::validate`] sagen kann, was stattdessen gilt — ohne ihn
     /// meldete `deny_unknown_fields` bloß "unknown field" (ADR-0012).
@@ -605,6 +620,33 @@ pub struct PrivacyConfig {
     /// Fehlerfall automatisch aus.
     #[serde(default = "default_true")]
     pub dns0x20: bool,
+    /// Die Signaturkette selbst nachrechnen, statt dem AD-Bit des Upstreams zu
+    /// glauben. Eine Antwort, die sich als signiert ausgibt und deren Kette
+    /// nicht schließt, wird verworfen (SERVFAIL) — Standardverhalten nach
+    /// RFC 4035. Kostet je neuer Zone ein paar zusätzliche Anfragen an
+    /// denselben Upstream.
+    #[serde(default = "default_true")]
+    pub dnssec: bool,
+    /// Oblivious DoH (RFC 9230): die Anfrage wird für den Zielresolver
+    /// verschlüsselt und über einen Proxy geschickt.
+    #[serde(default)]
+    pub odoh: OdohConfig,
+}
+
+/// Oblivious DoH.
+///
+/// Der Schutz steht und fällt damit, dass Proxy und Ziel **nicht demselben
+/// Betreiber gehören** — sonst kennt einer beides. Prüfen kann das niemand
+/// außer dem Betreiber; die Konfiguration kann nur sicherstellen, dass
+/// überhaupt beides da ist.
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct OdohConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    /// Vollständige URL des Proxys, etwa `https://odoh-proxy.example/proxy`.
+    #[serde(default)]
+    pub proxy: Option<String>,
 }
 
 impl Default for PrivacyConfig {
@@ -615,6 +657,8 @@ impl Default for PrivacyConfig {
             cookies: default_true(),
             logging: LoggingConfig::default(),
             dns0x20: default_true(),
+            dnssec: default_true(),
+            odoh: OdohConfig::default(),
         }
     }
 }
@@ -753,6 +797,25 @@ impl Config {
                 "cache.min_ttl ist größer als cache.max_ttl".to_owned(),
             ));
         }
+        self.privacy.odoh.validate()?;
+        if self.privacy.odoh.enabled {
+            // Ein Pool mit einem DoT-Resolver und eingeschaltetem ODoH sähe aus
+            // wie Schutz und wäre keiner: ODoH gibt es nur über HTTP. Lieber
+            // ein Startfehler als ein Versprechen, das die Hälfte der Anfragen
+            // nicht einlöst (B.1 Regel 5).
+            for pool in &self.upstream_pool {
+                for resolver in &pool.resolver {
+                    if !matches!(resolver.addr, UpstreamAddr::Doh { .. }) {
+                        return Err(ConfigError::Invalid(format!(
+                            "privacy.odoh ist eingeschaltet, aber Resolver '{}' in Pool '{}'                              spricht {}. Oblivious DoH gibt es nur über doh://; entweder alle                              Resolver auf doh:// umstellen oder odoh abschalten.",
+                            resolver.name,
+                            pool.name,
+                            resolver.addr.scheme()
+                        )));
+                    }
+                }
+            }
+        }
         if !(0.0..=1.0).contains(&self.cache.prefetch_threshold) {
             return Err(ConfigError::Invalid(format!(
                 "cache.prefetch_threshold muss zwischen 0.0 und 1.0 liegen, ist aber {}",
@@ -864,6 +927,31 @@ impl Config {
     }
 }
 
+impl OdohConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        if !self.enabled {
+            return Ok(());
+        }
+        let Some(proxy) = self
+            .proxy
+            .as_deref()
+            .map(str::trim)
+            .filter(|p| !p.is_empty())
+        else {
+            return Err(ConfigError::Invalid(
+                "privacy.odoh.enabled = true, aber kein proxy angegeben. Ohne Proxy wäre                  ODoH nur eine zweite Verschlüsselung zum selben Ziel und würde nichts                  verbergen."
+                    .to_owned(),
+            ));
+        };
+        if !proxy.starts_with("https://") {
+            return Err(ConfigError::Invalid(format!(
+                "privacy.odoh.proxy = '{proxy}': der Proxy muss über https erreichbar sein.                  Über http sähe ein Mitleser Zieladresse und Zeitpunkt jeder Anfrage."
+            )));
+        }
+        Ok(())
+    }
+}
+
 impl UpstreamPool {
     fn validate(&self) -> Result<(), ConfigError> {
         let pool = &self.name;
@@ -933,6 +1021,99 @@ tls_name = "dns.quad9.net"
         let config = parse(text).expect("muss parsen");
         config.validate().expect("muss gültig sein");
         config
+    }
+
+    #[test]
+    fn the_new_privacy_defaults_are_on() {
+        // Phase 7: beide sind bewusst Default-an bzw. Default-aus. Eine
+        // Änderung daran soll hier auffallen und nicht im Betrieb.
+        let config = valid(MINIMAL);
+        assert!(config.privacy.dnssec, "DNSSEC ist nicht Default");
+        assert!(!config.privacy.odoh.enabled, "ODoH ist Default an");
+        assert_eq!(
+            config
+                .upstream_pool
+                .first()
+                .expect("ein Pool")
+                .seed_rotation,
+            Duration::from_secs(24 * 60 * 60)
+        );
+    }
+
+    #[test]
+    fn the_seed_rotation_can_be_switched_off() {
+        // "0s" heißt: der Seed gilt bis zum Neustart, wie in Phase 3.
+        let text = r#"
+[server]
+listen_udp = ["127.0.0.1:5353"]
+
+[[upstream_pool]]
+name = "default"
+seed_rotation = "0s"
+
+[[upstream_pool.resolver]]
+name = "quad9"
+addr = "dot://9.9.9.9:853"
+tls_name = "dns.quad9.net"
+"#;
+        assert_eq!(
+            valid(text)
+                .upstream_pool
+                .first()
+                .expect("ein Pool")
+                .seed_rotation,
+            Duration::ZERO
+        );
+    }
+
+    #[test]
+    fn odoh_without_a_proxy_is_a_startup_error() {
+        let text = format!("{MINIMAL}\n[privacy]\nodoh = {{ enabled = true }}\n");
+        let config = parse(&text).expect("parst");
+        let error = config.validate().expect_err("muss abbrechen");
+        assert!(error.to_string().contains("proxy"), "{error}");
+    }
+
+    #[test]
+    fn an_odoh_proxy_without_tls_is_a_startup_error() {
+        let text = format!(
+            "{MINIMAL}\n[privacy]\nodoh = {{ enabled = true, proxy = \"http://proxy.example/p\" }}\n"
+        );
+        let config = parse(&text).expect("parst");
+        assert!(config.validate().is_err(), "http-Proxy wurde akzeptiert");
+    }
+
+    #[test]
+    fn odoh_with_a_non_doh_resolver_is_a_startup_error() {
+        // Der Pool aus MINIMAL spricht DoT. Mit ODoH wäre das ein Versprechen,
+        // das für jede Anfrage nicht eingelöst würde.
+        let text = format!(
+            "{MINIMAL}\n[privacy]\nodoh = {{ enabled = true, proxy = \"https://proxy.example/p\" }}\n"
+        );
+        let config = parse(&text).expect("parst");
+        let error = config.validate().expect_err("muss abbrechen");
+        assert!(error.to_string().contains("doh://"), "{error}");
+    }
+
+    #[test]
+    fn odoh_with_doh_resolvers_is_accepted() {
+        let text = r#"
+[server]
+listen_udp = ["127.0.0.1:5353"]
+
+[[upstream_pool]]
+name = "default"
+
+[[upstream_pool.resolver]]
+name = "mullvad"
+addr = "doh://194.242.2.4/dns-query"
+tls_name = "dns.mullvad.net"
+
+[privacy]
+odoh = { enabled = true, proxy = "https://proxy.example/p" }
+"#;
+        let config = valid(text);
+        assert!(config.privacy.odoh.enabled);
     }
 
     #[test]

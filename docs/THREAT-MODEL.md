@@ -26,15 +26,24 @@ diesen DNS-Server.
 Profil bauen; Antworten manipulieren.
 
 **AlpenDNS dagegen:** `split_by_zone` verteilt die Namen deterministisch über mehrere
-Anbieter, sodass jeder nur einen Teil sieht. ECS wird gestrippt, damit die Anfrage nicht
-zusätzlich dein Subnetz trägt. Padding verhindert Rückschlüsse aus Nachrichtenlängen.
-Optional ODoH: der Proxy kennt deine IP aber nicht die Anfrage, der Resolver umgekehrt.
+Anbieter, sodass jeder nur einen Teil sieht — die Einheit ist die registrierbare Domain
+laut Public Suffix List, und der Seed wird per Default alle 24 Stunden neu gezogen, damit
+kein Anbieter über die Zeit ein stabiles Bild behält ([ADR-0018](adr/0018-public-suffix-list-und-seed-rotation.md)).
+ECS wird gestrippt, damit die Anfrage nicht zusätzlich dein Subnetz trägt. Padding
+verhindert Rückschlüsse aus Nachrichtenlängen. Optional ODoH: der Proxy kennt deine IP
+aber nicht die Anfrage, der Resolver umgekehrt ([ADR-0017](adr/0017-oblivious-doh.md)).
 
-**Bleibt:** jeder Upstream sieht deine IP und seinen Anteil der Namen. Der Anteil ist
-nicht zufällig verteilt — populäre Domains landen bei jedem im selben Bucket, das ist bei
-allen Nutzern gleich. Ein Angreifer mit Zugriff auf *mehrere* der konfigurierten Upstreams
-hebt den Schutz auf. Bei der Auswahl der Upstreams gilt also: verschiedene Betreiber,
-verschiedene Rechtsräume.
+**Bleibt:** ohne ODoH sieht jeder Upstream deine IP und seinen Anteil der Namen. Der
+Anteil ist nicht zufällig verteilt — populäre Domains landen bei jedem im selben Bucket,
+das ist bei allen Nutzern gleich. Ein Angreifer mit Zugriff auf *mehrere* der
+konfigurierten Upstreams hebt den Schutz auf. Bei der Auswahl der Upstreams gilt also:
+verschiedene Betreiber, verschiedene Rechtsräume.
+
+**Bleibt auch mit ODoH:** der Proxy weiß, mit welchem Anbieter du sprichst (`targethost`
+steht in der URL, anders kann er nicht weiterreichen), und einmal je Prozessstart sieht
+das Ziel deine Adresse beim Abruf seines öffentlichen Schlüssels — aber keine Frage
+dabei. Gehören Proxy und Ziel demselben Betreiber, ist der Schutz aufgehoben; das kann
+kein Code prüfen.
 
 ### A3 — Off-Path-Angreifer (Cache-Poisoning, Spoofing)
 
@@ -44,10 +53,16 @@ verschiedene Rechtsräume.
 Zusätzlich: 0x20-Encoding, DNS Cookies (RFC 7873), strikte Validierung jeder Antwort gegen
 die gestellte Frage vor dem Cachen, Quellport-Randomisierung.
 
-**Bleibt offen:** ohne DNSSEC-Validierung vertraut AlpenDNS dem Upstream. Ein kompromittierter
-Upstream kann lügen. DNSSEC-Validierung im Forwarder-Modus ist möglich (das AD-Bit des
-Upstreams *glauben* ist wertlos, selbst validieren ist echt) und ist als Phase-7-Punkt
-notiert, aber nicht v1.
+**Seit Phase 7 geschlossen:** AlpenDNS rechnet die Signaturkette selbst nach, ab den
+einkompilierten Root-Schlüsseln, und verwirft eine Antwort, deren Zone sich als signiert
+ausweist und deren Kette nicht schließt (SERVFAIL). Das AD-Bit in unserer Antwort steht
+danach für unser Urteil, nicht für die Behauptung des Upstreams
+([ADR-0016](adr/0016-dnssec-validierung-im-forwarder.md)).
+
+**Bleibt:** DNSSEC deckt nur signierte Zonen ab, und das ist der kleinere Teil des Netzes.
+Für eine unsignierte Zone kann ein kompromittierter Upstream weiterhin lügen, und dagegen
+gibt es im Forwarder-Modus kein Mittel — auch ein Rekursor hätte keines. Wer die
+Validierung abschaltet (`privacy.dnssec = false`), landet wieder beim Zustand davor.
 
 ### A4 — Der Angreifer im eigenen LAN
 

@@ -17,9 +17,10 @@ use alpendns::policy::{Blueprint, Engine, Explanation, PolicyBackend};
 use alpendns::privacy;
 use alpendns::router::ZoneRouter;
 use alpendns::server::Server;
-use alpendns::upstream::ForwardBackend;
+use alpendns::upstream::odoh::{OdohBackend, OdohTransport};
 use alpendns::upstream::pool::{Pool, Upstream};
 use alpendns::upstream::transport::Transport;
+use alpendns::upstream::{Encrypted, ForwardBackend};
 use anyhow::Context as _;
 use tokio_util::sync::CancellationToken;
 
@@ -194,25 +195,56 @@ fn run() -> anyhow::Result<()> {
         .iter()
         .map(|resolver| format!("{} ({})", resolver.name, resolver.addr.scheme()))
         .collect();
-    let upstreams: Vec<Upstream<Transport>> = pool_config
+    // Mit ODoH geht jede Anfrage über den konfigurierten Proxy; die Validierung
+    // hat schon sichergestellt, dass dann alle Resolver doh:// sprechen.
+    let odoh_proxy = privacy_config
+        .odoh
+        .enabled
+        .then(|| privacy_config.odoh.proxy.clone())
+        .flatten();
+    let upstreams: Vec<Upstream<Encrypted>> = pool_config
         .resolver
         .iter()
-        .map(|resolver| {
-            Upstream::new(
-                resolver.name.clone(),
-                resolver.addr.scheme(),
-                Transport::new(
+        .map(|resolver| -> anyhow::Result<Upstream<Encrypted>> {
+            // Die Validierung stellt sicher, dass hier ein Name steht.
+            let tls_name = resolver.tls_name.as_deref().unwrap_or_default();
+            let backend = match (&odoh_proxy, &resolver.addr) {
+                (Some(proxy), alpendns::config::UpstreamAddr::Doh { addr, path }) => {
+                    Encrypted::Oblivious(OdohBackend::new(
+                        OdohTransport::new(
+                            proxy.clone(),
+                            tls_name,
+                            path,
+                            *addr,
+                            alpendns::upstream::odoh::well_known_config_url(tls_name),
+                            timeout,
+                            privacy,
+                        )
+                        .with_context(|| {
+                            format!("ODoH-Transport für Resolver '{}'", resolver.name)
+                        })?,
+                    ))
+                }
+                _ => Encrypted::Direct(Transport::new(
                     resolver.addr.clone(),
-                    // Die Validierung stellt sicher, dass hier ein Name steht.
-                    resolver.tls_name.as_deref().unwrap_or_default(),
+                    tls_name,
                     timeout,
                     privacy,
                     Arc::clone(&tls),
-                ),
-            )
+                )),
+            };
+            Ok(Upstream::new(
+                resolver.name.clone(),
+                // Der Transport heißt in Statistik und Metrik weiterhin `doh`;
+                // ob er über einen Proxy geht, ist eine Eigenschaft der
+                // Konfiguration und steht dort, nicht je Upstream.
+                resolver.addr.scheme(),
+                backend,
+            ))
         })
-        .collect();
+        .collect::<anyhow::Result<Vec<_>>>()?;
     let strategy = pool_config.strategy;
+    let seed_rotation = pool_config.seed_rotation;
     let zones: Vec<(hickory_proto::rr::Name, ForwardBackend)> = config
         .forward_zone
         .iter()
@@ -320,6 +352,7 @@ fn run() -> anyhow::Result<()> {
             tcp = ?bound.tcp_addrs(),
             upstreams = ?upstream_names,
             strategy = ?strategy,
+            seed_rotation = ?seed_rotation,
             forward_zones = ?zone_names,
             cache_entries = cache_config.max_entries,
             serve_stale = cache_config.serve_stale,
@@ -328,11 +361,20 @@ fn run() -> anyhow::Result<()> {
             policies = policy_count,
             blocking = ?blocking_config.mode,
             logging = ?privacy_config.logging.mode,
+            dnssec = privacy.dnssec,
+            odoh = odoh_proxy.is_some(),
             "AlpenDNS gestartet"
         );
 
         let shutdown = CancellationToken::new();
 
+        // Der Seed von split_by_zone wird regelmäßig neu gezogen, damit kein
+        // Anbieter über die Zeit ein stabiles Bild lernt (FEATURES.md P2).
+        tokio::spawn(alpendns::upstream::pool::run_seed_rotation(
+            Arc::clone(&pool),
+            seed_rotation,
+            shutdown.clone(),
+        ));
         tokio::spawn(report_stats(
             Arc::clone(&cache),
             Arc::clone(&pool),
@@ -351,6 +393,8 @@ fn run() -> anyhow::Result<()> {
             lists: list_infos.clone(),
             policies: policy_infos.clone(),
             blocking_mode: blocking_config.mode,
+            seed_rotation,
+            dnssec: privacy.dnssec,
             started: std::time::Instant::now(),
             history: Arc::clone(&history),
             client_addrs: client_addrs.clone(),
@@ -470,7 +514,7 @@ fn to_specs(blocklists: &[ListConfig], allowlists: &[ListConfig]) -> Vec<ListSpe
 
 async fn report_stats<C: alpendns::clock::Clock>(
     cache: Arc<alpendns::cache::Cache<C>>,
-    pool: Arc<Pool<Transport, SystemClock>>,
+    pool: Arc<Pool<Encrypted, SystemClock>>,
     engine: Arc<PolicyEngine>,
     shutdown: CancellationToken,
 ) {
@@ -493,7 +537,7 @@ async fn report_stats<C: alpendns::clock::Clock>(
 
 fn log_stats<C: alpendns::clock::Clock>(
     cache: &alpendns::cache::Cache<C>,
-    pool: &Pool<Transport, SystemClock>,
+    pool: &Pool<Encrypted, SystemClock>,
     engine: &PolicyEngine,
     message: &'static str,
 ) {
@@ -535,12 +579,16 @@ type PolicyEngine = Engine<SystemClock, SystemWallClock>;
 /// Backend-Typ generisch sein muss.
 struct Runtime {
     cache: Arc<alpendns::cache::Cache<SystemClock>>,
-    pool: Arc<Pool<Transport, SystemClock>>,
+    pool: Arc<Pool<Encrypted, SystemClock>>,
     engine: Arc<PolicyEngine>,
     log: Arc<QueryLog>,
     lists: Vec<ListInfo>,
     policies: Vec<PolicyInfo>,
     blocking_mode: alpendns::filter::block::BlockMode,
+    /// Abstand der Seed-Rotation aus der Konfiguration.
+    seed_rotation: Duration,
+    /// Ob die Signaturkette selbst nachgerechnet wird.
+    dnssec: bool,
     started: std::time::Instant,
     /// Die Zeitreihe der letzten 24 Stunden. Hinter einem Mutex, aber außerhalb
     /// des Anfragepfads: hier schreibt nur der Sampler alle 30 Sekunden.
@@ -564,6 +612,10 @@ impl StatusSource for Runtime {
             list_formats: count_formats(&self.lists),
             privacy: alpendns::privacy::counters(),
             aggregate_k: self.log.aggregate_k(),
+            zone_seed_rotation: self.seed_rotation,
+            zone_seed_rotations: self.pool.rotations(),
+            dnssec_enabled: self.dnssec,
+            dnssec: alpendns::dnssec::counters(),
             below_threshold_queries: self.log.top(0).below_threshold_queries,
         }
     }

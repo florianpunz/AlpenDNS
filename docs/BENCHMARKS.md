@@ -201,3 +201,52 @@ Obergrenze, und sie ist gedeckelt — mehr als `MAX_TRACKED` Namen nimmt die
 Tabelle nicht auf.
 
 Konsequenz: [ADR-0015](adr/0015-exakte-zaehlung-statt-sketch.md).
+
+---
+
+## Phase 7 — Live-Strom unter Last · gemessen am 2026-08-30
+
+**Anlass:** Die Web-UI hing bei einem Lasttest und zeigte nur noch alle paar
+Sekunden ein Update. Die Ursache lag nicht im Browser, sondern in der
+Schnittstelle: der Server schickte **eine SSE-Nachricht je Anfrage**.
+
+Gemessen gegen einen laufenden Server auf Port 15353 mit einer lokalen
+Blockliste (alle Anfragen werden lokal beantwortet, kein Upstream im Spiel).
+Der Lastgenerator ist ein UDP-Flooder ohne Antwort-Auswertung, `dnsperf` ist auf
+dieser Maschine nach wie vor nicht installiert. Das Binary lief im
+Profil `dev` — die absoluten Durchsatzzahlen sind deshalb *keine* Aussage über
+die Leistung des Resolvers, nur der Rahmen für den Vergleich darunter.
+
+| | vorher (rechnerisch) | nachher (gemessen) |
+|---|---|---|
+| Anfragen in 5 s | 484 294 | 484 294 |
+| SSE-Nachrichten | 484 294 | **151** |
+| JSON-Frames je Sekunde | ~97 000 | 25 |
+| DOM-Zeilen je Sekunde im Browser | ~97 000 | 25 |
+
+Von den 151 Nachrichten trugen 5 ein `skipped`-Feld, zusammen 428 471
+ausgelassene Anfragen — je eine zu Beginn jeder Sekunde. Der Puls bleibt damit
+vollständig, obwohl 99,97 % der Nachrichten entfallen.
+
+**Kostet ein offenes GUI den Resolver etwas?** Zweimal 4 s Flut, einmal ohne und
+einmal mit offener SSE-Verbindung:
+
+| | beantwortete Anfragen in 4 s |
+|---|---|
+| ohne offenes GUI | 354 497 |
+| mit offenem GUI | 387 734 |
+
+Der Unterschied liegt innerhalb der Streuung zwischen zwei Läufen; ein
+mitlesendes GUI ist im Rauschen nicht mehr zu finden. Vorher kostete es den
+Server je Anfrage einen formatierten Zeitstempel, mehrere Allokationen und eine
+JSON-Serialisierung.
+
+**Im Normaltempo wird nichts ausgelassen:** 12 Anfragen im Abstand von 250 ms
+ergaben 12 Nachrichten, keine davon mit `skipped`. Die Grenze greift erst
+oberhalb von 25 Anfragen pro Sekunde — schneller kann ohnehin niemand mitlesen.
+
+Die Browser-Seite ist nicht separat vermessen (dafür fehlt hier ein Browser).
+Geändert sind dort drei Dinge, deren Wirkung sich aus der Zahl oben ergibt:
+Ereignisse werden gesammelt und einmal je Bild gezeichnet statt einzeln, die
+Tabelle hat einen Zuhörer statt zwei je Zeile, und eine unsichtbare Seite
+zeichnet und pollt nicht mehr.

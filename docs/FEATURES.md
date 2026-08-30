@@ -55,6 +55,15 @@ Domains verteilen sich bei allen Nutzern gleich. Ein Angreifer mit Zugriff auf m
 konfigurierten Upstreams hebt den Schutz auf — die Auswahl sollte verschiedene Betreiber
 und Rechtsräume abdecken.
 
+**Nachgezogen in Phase 7** ([ADR-0018](adr/0018-public-suffix-list-und-seed-rotation.md)):
+Die registrierbare Domain kam aus einer Näherung ("letzte zwei Labels") und lieferte für
+`shop.example.co.uk` das wirkungslose `co.uk` — alle `.co.uk`-Namen landeten bei einem
+Upstream. Jetzt aus der Public Suffix List, einkompiliert. Und der Seed gilt nicht mehr
+bis zum Neustart, sondern wird per Default alle 24 Stunden neu gezogen: der Satz "über die
+Zeit lernt keiner ein stabiles Bild" stimmte vorher nur für den, der auch neu startet.
+Gemessen: 10 000 Domains über vier Poolgrößen und acht Seeds, Abweichung je Upstream unter
+5 %.
+
 ### P3 · Privacy-Budget `Aufwand S` `Neu ●` `Phase 7`
 
 Der Server zählt, welcher Anteil der Anfragen zu welchem Upstream ging, und zeigt das in
@@ -74,6 +83,15 @@ Problem "der Upstream kennt deine IP" wirklich löst statt es zu verteilen.
 **Grenze:** Braucht einen Proxy und einen ODoH-fähigen Zielresolver, die *nicht* demselben
 Betreiber gehören dürfen — sonst ist der Schutz Theater. Die Auswahl ist überschaubar.
 Zusätzliche Latenz durch den zusätzlichen Hop.
+
+**Umgesetzt in Phase 7** ([ADR-0017](adr/0017-oblivious-doh.md)), Default aus. Zwei
+Grenzen dazugelernt und dokumentiert: der Proxy weiß, *mit wem* du sprichst
+(`targethost` muss in der URL stehen, sonst kann er nicht weiterreichen), und der
+öffentliche Schlüssel des Ziels wird einmal je Prozessstart direkt bei ihm geholt — diese
+eine Verbindung geht nicht über den Proxy, das Ziel sieht dabei die Adresse, aber keine
+Frage. Über den Proxy ginge es nicht: der nimmt ausschließlich ODoH-Nachrichten entgegen.
+Eingeschaltet verlangt die Konfiguration, dass *alle* Resolver im Pool `doh://` sprechen —
+ein `dot://` daneben wäre eine Zusage, die für jede Anfrage nicht eingelöst würde.
 
 ### P5 · DDR/DNR — Clients automatisch auf Verschlüsselung heben `Aufwand M` `Neu ●` `Phase 10`
 

@@ -5,6 +5,7 @@
 //! lehnt ihn in einem `upstream_pool` ab. Alles, was ins Internet geht, läuft
 //! über [`transport::Transport`] und damit über DoT, DoH oder DoQ.
 
+pub mod odoh;
 pub mod pool;
 pub mod strategy;
 pub mod transport;
@@ -20,6 +21,34 @@ use hickory_proto::rr::Name;
 use crate::dns;
 use crate::privacy;
 use crate::resolve::{ResolveBackend, ResolveError};
+
+/// Ein verschlüsselter Upstream — direkt oder über einen ODoH-Proxy.
+///
+/// Ein Enum statt zweier Pool-Typen: `Pool<B, C>` ist über seinen Inhalt
+/// generisch, und zwei verschiedene Inhalte hießen zwei verschiedene Pool-Typen
+/// durch das ganze Binary bis in die API-Struktur hinein. Die Wahl fällt einmal
+/// beim Start und ändert sich danach nicht; ein Match je Anfrage ist dafür der
+/// billigere Preis.
+#[derive(Debug)]
+pub enum Encrypted {
+    /// DoT, DoH oder DoQ direkt zum Resolver.
+    Direct(transport::Transport),
+    /// DoH zum Resolver, aber über einen Proxy und für ihn verschlüsselt.
+    Oblivious(odoh::OdohBackend),
+}
+
+impl ResolveBackend for Encrypted {
+    async fn resolve(
+        &self,
+        request: &Message,
+        ctx: &mut crate::trace::Ctx,
+    ) -> Result<Message, ResolveError> {
+        match self {
+            Self::Direct(transport) => transport.resolve(request, ctx).await,
+            Self::Oblivious(backend) => backend.resolve(request, ctx).await,
+        }
+    }
+}
 
 /// Größter Puffer, den wir für eine UDP-Antwort vom Upstream bereithalten.
 /// Mehr als 4096 Byte kommen über UDP nicht sinnvoll an; der Rest ist TCP.

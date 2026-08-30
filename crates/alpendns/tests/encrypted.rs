@@ -161,12 +161,26 @@ async fn dot_fake(pki: &TestPki) -> (SocketAddr, Arc<AtomicUsize>) {
     (addr, hits)
 }
 
+/// Ein Transport ohne DNSSEC-Validierung.
+///
+/// Die Fakes hier beantworten *jede* Frage mit demselben A-Record — auch eine
+/// nach DNSKEY oder DS. Für einen validierenden Griff ist das keine unsignierte
+/// Zone, sondern eine kaputte Kette, und jede Antwort käme als Bogus zurück.
+/// Was diese Datei prüft, sind die Transporte; die Validierung hat mit
+/// `tests/dnssec.rs` eine eigene, in der die Zone wirklich signiert ist.
 fn transport_for(addr: UpstreamAddr, pki: &TestPki) -> Transport {
+    transport_with(addr, pki, false)
+}
+
+fn transport_with(addr: UpstreamAddr, pki: &TestPki, dnssec: bool) -> Transport {
     Transport::new(
         addr,
         SERVER_NAME,
         Duration::from_secs(5),
-        privacy::Settings::default(),
+        privacy::Settings {
+            dnssec,
+            ..privacy::Settings::default()
+        },
         Arc::clone(&pki.client),
     )
 }
@@ -245,6 +259,83 @@ async fn dot_request_is_padded_to_a_full_block() {
         0,
         "Anfrage war {size} Byte, kein Vielfaches von {}",
         privacy::PADDING_BLOCK
+    );
+}
+
+/// Beweist, dass der validierende Griff wirklich vorgeschaltet ist.
+///
+/// Sichtbar ist das an zwei Dingen auf dem Draht: das DO-Bit steht in der
+/// EDNS-Option, und noch bevor eine Antwort zurückkommt, fragt der Griff
+/// DNSKEY- und DS-Sätze nach. Ohne Validierung passiert beides nicht — der
+/// Test unterscheidet also die beiden Einstellungen und nicht bloß zwei Wege
+/// durch denselben Code.
+#[tokio::test]
+async fn dnssec_sets_the_do_bit_and_asks_for_the_chain() {
+    async fn observed_query_types(dnssec: bool) -> (bool, Vec<RecordType>) {
+        let pki = TestPki::new(&[]);
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let addr = listener.local_addr().expect("local_addr");
+        let acceptor = TlsAcceptor::from(Arc::clone(&pki.server));
+        let seen = Arc::new(std::sync::Mutex::new(Vec::<RecordType>::new()));
+        let dnssec_ok = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (recorded, flag) = (Arc::clone(&seen), Arc::clone(&dnssec_ok));
+
+        tokio::spawn(async move {
+            while let Ok((stream, _)) = listener.accept().await {
+                let recorded = Arc::clone(&recorded);
+                let flag = Arc::clone(&flag);
+                let acceptor = acceptor.clone();
+                tokio::spawn(async move {
+                    let Ok(mut tls) = acceptor.accept(stream).await else {
+                        return;
+                    };
+                    while let Some(request) = read_prefixed(&mut tls).await {
+                        if let Some(query) = request.queries.first() {
+                            recorded.lock().expect("Lock").push(query.query_type());
+                        }
+                        if request
+                            .edns
+                            .as_ref()
+                            .is_some_and(|edns| edns.flags().dnssec_ok)
+                        {
+                            flag.store(true, Ordering::SeqCst);
+                        }
+                        write_prefixed(&mut tls, &answer(&request)).await;
+                    }
+                });
+            }
+        });
+
+        let transport = transport_with(UpstreamAddr::Dot(addr), &pki, dnssec);
+        // Mit Validierung endet das hier als Bogus — der Fake beantwortet auch
+        // DNSKEY-Fragen mit einem A-Record. Das Ergebnis interessiert nicht,
+        // nur was vorher über den Draht ging.
+        let _ = transport
+            .resolve(&question("example.com."), &mut ctx())
+            .await;
+
+        let types = seen.lock().expect("Lock").clone();
+        (dnssec_ok.load(Ordering::SeqCst), types)
+    }
+
+    let (with_do, with_types) = observed_query_types(true).await;
+    assert!(with_do, "das DO-Bit ging nicht raus");
+    // Womit der Griff die Kette aufrollt, ist seine Sache — angefangen wird bei
+    // der Delegation (NS), von dort geht es zu DS und DNSKEY. Festgenagelt wird
+    // deshalb nur, dass er überhaupt nachfragt statt die Antwort zu glauben.
+    assert!(
+        with_types
+            .iter()
+            .any(|kind| matches!(*kind, RecordType::NS | RecordType::DS | RecordType::DNSKEY)),
+        "die Kette wurde nicht nachverfolgt: {with_types:?}"
+    );
+
+    let (without_do, without_types) = observed_query_types(false).await;
+    assert!(!without_do, "DO-Bit obwohl die Validierung aus ist");
+    assert_eq!(
+        without_types,
+        vec![RecordType::A],
+        "ohne Validierung darf nur die eine Frage rausgehen"
     );
 }
 

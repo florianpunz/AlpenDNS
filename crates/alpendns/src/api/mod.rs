@@ -210,6 +210,8 @@ struct Status {
     block_reasons: Vec<ReasonInfo>,
     /// Wie oft die Privacy-Mechanismen gegriffen haben.
     privacy: PrivacyInfo,
+    /// Was die eigene DNSSEC-Prüfung ergeben hat.
+    dnssec: DnssecInfo,
     queries: u64,
     blocked: u64,
     block_rate: f64,
@@ -231,6 +233,20 @@ struct PrivacyInfo {
     padded: u64,
     case_randomized: u64,
     cookies: u64,
+}
+
+/// Die eigene Signaturprüfung, für den Privacy-Streifen im Kopf der UI.
+#[derive(Debug, Serialize)]
+struct DnssecInfo {
+    /// Ob überhaupt selbst nachgerechnet wird.
+    enabled: bool,
+    secure: u64,
+    insecure: u64,
+    /// Antworten, die verworfen wurden. Die einzige Zahl hier, die im Betrieb
+    /// eine Frage aufwirft — deshalb steht sie in der UI neben den anderen und
+    /// nicht in einem Untermenü.
+    bogus: u64,
+    indeterminate: u64,
 }
 
 #[derive(Debug, Serialize)]
@@ -273,6 +289,13 @@ async fn status(State(state): State<ApiState>) -> Json<Status> {
             padded: snapshot.privacy.padded,
             case_randomized: snapshot.privacy.randomized,
             cookies: snapshot.privacy.cookies,
+        },
+        dnssec: DnssecInfo {
+            enabled: snapshot.dnssec_enabled,
+            secure: snapshot.dnssec.secure,
+            insecure: snapshot.dnssec.insecure,
+            bogus: snapshot.dnssec.bogus,
+            indeterminate: snapshot.dnssec.indeterminate,
         },
         queries: snapshot.log.queries,
         blocked: snapshot.log.blocked,

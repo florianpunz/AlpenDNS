@@ -4,7 +4,7 @@ Der Plan ist in Phasen geschnitten. Jede Phase hat ein **Ziel**, eine **Schrittl
 Verify-Format** (siehe CLAUDE.md, Teil A.4) und ein **Abnahmekriterium**. Eine Phase gilt
 als fertig, wenn das Abnahmekriterium erfüllt ist — nicht, wenn der Code kompiliert.
 
-**Aktuelle Phase: 7.**
+**Aktuelle Phase: 8.**
 
 Die Reihenfolge ist so gewählt, dass **nach Phase 4 ein Server steht, den du produktiv
 im eigenen Netz benutzen kannst**. Alles danach macht ihn besser, nicht erst benutzbar.
@@ -375,11 +375,107 @@ entlang ADR-0004 ausgebaut worden, Leitsatz "alles zeigen, nichts merken":
   Kommandozeile und UI nicht verschiedene Antworten auf dieselbe Frage geben.
 * Alle Zähler im deutschen Zahlenformat (`de-AT`).
 
+Nachgezogen am selben Tag: der Live-Strom war so gebaut, dass er je Anfrage eine
+Nachricht schickte. Bei einem Lasttest legte das die Oberfläche lahm. Jetzt
+deckelt der Server auf 25 Nachrichten je Sekunde und trägt die ausgelassenen als
+Zahl nach (`skipped`), damit die Sparkline nicht lügt; der Browser sammelt
+Ereignisse und zeichnet einmal je Bild. Zahlen in
+[BENCHMARKS.md](BENCHMARKS.md#phase-7--live-strom-unter-last--gemessen-am-2026-08-30).
+
 Dazu zwei neue Tests, die die Grenze festhalten: `every_label_key_comes_from_a_closed_set`
 nagelt die Prometheus-Label-Schlüssel auf eine Positivliste fest (bisher waren nur
 drei Schreibweisen verboten, eine vierte wäre durchgerutscht), und
 `no_metric_label_carries_a_domain_or_client_name` fährt in allen vier Log-Modi
 echten Verkehr durch und greppt die gerenderte Metrik nach Query- und Client-Namen.
+
+**Umgesetzt am 2026-08-30 — alle sechs Punkte.** Die vier Kommandos der Definition
+of Done laufen durch. Was dazugekommen ist:
+
+**Schritt 1 — `split_by_zone` gehärtet** ([ADR-0018](adr/0018-public-suffix-list-und-seed-rotation.md)).
+Die registrierbare Domain kommt jetzt aus der Public Suffix List (`psl`,
+einkompiliert, kein Netzabruf, keine Laufzeitdatei) statt aus der Näherung
+"letzte zwei Labels" — die lieferte für `shop.example.co.uk` das wirkungslose
+`co.uk`. Der Seed wird per Default alle 24 Stunden neu gezogen
+(`[[upstream_pool]] seed_rotation`, `"0s"` schaltet ab); vorher galt er bis zum
+Neustart, und der Satz aus FEATURES.md P2 "über die Zeit lernt keiner ein
+stabiles Bild" stimmte nur für den, der auch neu startet. Das Abnahmekriterium
+ist ein Test und keine einmalige Messung: `ten_thousand_domains_stay_within_five_percent_per_upstream`
+fährt 10 000 Domains — ein Fünftel unter mehrteiligen Suffixen — über vier
+Poolgrößen und acht Seeds, größte Abweichung je Upstream **unter 5 %**. In der
+Metrik steht `alpendns_zone_seed_rotations_total`, damit "die Zuordnung rotiert"
+im Betrieb eine Zahl ist und keine Behauptung.
+
+**Schritt 3 — eigene DNSSEC-Validierung** ([ADR-0016](adr/0016-dnssec-validierung-im-forwarder.md)).
+Per Default an; eine Antwort, deren Zone sich als signiert ausweist und deren
+Kette nicht schließt, wird verworfen (SERVFAIL, RFC 4035). Die drei Testvektoren
+in `tests/dnssec.rs` laufen mit **echten** Signaturen durch dieselbe Prüfung wie
+der Betrieb: gültig → `Secure` und durchgelassen, verdrehtes Bit → `Bogus` und
+verworfen, fehlende Signatur in signierter Zone → `Bogus` und verworfen. Damit
+ist der offene Punkt aus THREAT-MODEL.md A3 geschlossen.
+
+Drei Entscheidungen, die im ADR begründet sind und von außen willkürlich
+aussehen: zusammengefasst wird pessimistisch (ein fauler Record macht die
+Antwort faul, Authority-Abschnitt eingeschlossen); `Bogus` ist terminal und
+zählt *nicht* als Ausfall des Upstreams (sonst markiert eine kaputte Zone nach
+drei Anfragen den ganzen Pool als tot); die Signaturen gehen nur an Clients
+weiter, die mit DO danach gefragt haben.
+
+**Schritt 4 — Oblivious DoH** ([ADR-0017](adr/0017-oblivious-doh.md)), Default
+aus. `tests/odoh.rs` baut die vollständige Kette auf Loopback — ein Proxy, der
+weiterreicht ohne entschlüsseln zu können, und ein Ziel mit echtem
+Schlüsselpaar. Der wichtigste Test durchsucht die Bytes, die durch den Proxy
+gingen, nach den Labels des Query-Namens; sie stehen nicht drin. Dazu geprüft:
+der Schlüssel des Ziels wird genau einmal geholt, eine vom Proxy veränderte
+Antwort wird verworfen, ein toter Proxy ergibt einen Fehler statt eines Hängers.
+DNSSEC gilt auch über ODoH — der Transport ist als `DnsHandle` verpackt, damit
+sich der validierende Griff davorhängen kann; sonst täte `dnssec = true` mit
+eingeschaltetem ODoH still nichts.
+
+**Abweichungen und Preise, die notiert gehören:**
+
+* **`time` ist jetzt Produktionsabhängigkeit.** `hickory-proto/dnssec-ring`
+  zieht es herein, und damit stimmt die alte Begründung der Advisory-Ausnahme
+  RUSTSEC-2026-0009 ("steckt gar nicht im Binary") nicht mehr. Die Ausnahme
+  bleibt mit engerer Begründung — der verwundbare Pfad (RFC-2822-Datumsparsen)
+  wird nicht betreten; hickory benutzt aus `time` nur `OffsetDateTime` für
+  RRSIG-Zeitstempel, die als Zahlen vom Draht kommen. Vollständig in `deny.toml`.
+  Sie fällt weg, sobald die MSRV auf 1.88 steigt; dagegen steht die
+  Debian-Paketierung aus Phase 9 (Debian 13 liefert `rustc 1.85`).
+* **Der ODoH-Schlüsselabruf geht direkt zum Ziel**, nicht über den Proxy — das
+  Ziel sieht dabei einmal je Prozessstart die Adresse, aber keine Frage. Über
+  den Proxy ginge es nicht: der nimmt nur ODoH-Nachrichten entgegen.
+* **Drei Fehler kamen erst beim Lauf gegen echte Upstreams heraus** und sind
+  behoben: ein verworfenes `dnssec-failed.org` wurde nicht gezählt und dem
+  Upstream als Fehlversuch angerechnet (hickory liefert diesen Fall als Fehler,
+  nicht als gestempelte Nachricht); `dig` bekam die Signaturkette, ohne danach
+  gefragt zu haben (AD in der Anfrage ist nach RFC 6840 §5.7 kein Wunsch nach
+  Records, nur DO ist es); und ein `dig +dnssec` bekam null Signaturen, weil ein
+  `dig` ohne davor da war — gestrippt wurde unter dem Cache, der eine Antwort
+  für alle hält. Ausführlich in [ADR-0016](adr/0016-dnssec-validierung-im-forwarder.md).
+  Gegen den laufenden Server nachgeprüft:
+
+  ```
+  dnssec-failed.org            → SERVFAIL, bogus=1, quad9 ohne Fehlversuch
+  cloudflare.com               → NOERROR, ad-Flag, keine RRSIG in der Antwort
+  cloudflare.com +dnssec       → dieselbe Cache-Zeile, RRSIG dabei
+  gnu.org                      → NOERROR, kein ad-Flag (unsignierte Zone)
+  ```
+* **Die DNSSEC-Vektoren pinnen den Schlüssel der Testzone als Trust Anchor,**
+  statt eine Kette bis zur echten Root zu bauen. An der Rechnerei ist dabei
+  nichts abgekürzt; dass der validierende Griff im Transport auch wirklich
+  vorgeschaltet ist, hält ein eigener Test in `encrypted.rs` fest.
+* **Die Transport-Fakes in `encrypted.rs` laufen jetzt ohne Validierung.** Sie
+  beantworten jede Frage mit demselben A-Record, auch eine nach DNSKEY — für
+  einen validierenden Griff ist das keine unsignierte Zone, sondern eine kaputte
+  Kette. Was dort geprüft wird, sind die Transporte.
+* **Weiterhin offen aus Phase 0:** der CI-Lauf, dafür fehlt ein GitHub-Remote.
+  Das Abnahmekriterium dieser Phase verlangt, dass Punkt 6 *dauerhaft in CI*
+  läuft; lokal läuft er bei jedem `cargo test`.
+* **Weiterhin offen aus Phase 6, Schritt 8:** der Blick eines Menschen auf die
+  gerenderte UI. Dazugekommen sind dort ein Eintrag im Privacy-Streifen
+  ("DNSSEC selbst geprüft" bzw. "dem Upstream geglaubt") und zwei Zähler in der
+  Privacy-Kachel, darunter die verworfenen Antworten — die einzige Zahl der
+  Reihe, die im Betrieb eine Frage aufwirft.
 
 ---
 

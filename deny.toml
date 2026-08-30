@@ -13,15 +13,32 @@ ignore = [
     { id = "RUSTSEC-2026-0009", reason = """
 time 0.3.45: Stack Exhaustion beim Parsen von RFC-2822-Daten aus fremder Eingabe.
 
-Nicht im ausgelieferten Binary: `cargo tree -e normal -i time` findet nichts.
-time kommt ausschließlich über rcgen herein, und rcgen ist eine
-dev-dependency für die Testzertifikate der DoT/DoH/DoQ-Fakes. Der
-verwundbare Pfad wird dabei nicht einmal betreten — rcgen benutzt time, um
-Gültigkeitsdaten zu *schreiben*, nicht um fremde Zeichenketten zu lesen.
+**Seit Phase 7 im ausgelieferten Binary.** Bis dahin kam time nur über rcgen
+herein, also über eine dev-dependency, und die Begründung dieser Ausnahme war
+"steckt gar nicht im Binary". Das stimmt nicht mehr: die eigene
+DNSSEC-Validierung (Roadmap Phase 7, Schritt 3) braucht
+`hickory-proto/dnssec-ring`, und dessen Feature `__dnssec` enthält `dep:time`.
+`cargo tree -e normal -i time` zeigt jetzt hickory-proto und hickory-net.
 
-Der Fix steht in time 0.3.47, verlangt aber Rust 1.88. Der Workspace steht
-auf rust-version = 1.85, und diese Zahl hat für die Debian-Paketierung in
-Phase 9 Bedeutung. Die Ausnahme fällt weg, sobald die MSRV ohnehin steigt.
+Die Ausnahme bleibt trotzdem, mit neuer und engerer Begründung: **der
+verwundbare Pfad ist von hier aus nicht erreichbar.** Das Advisory betrifft das
+*Parsen* von RFC-2822-Datumszeichenketten. hickory benutzt aus time
+ausschließlich `OffsetDateTime`, und zwar in den Konstruktoren von RRSIG und SIG
+(`src/dnssec/rdata/rrsig.rs`, `src/dnssec/rdata/sig.rs`). Die Zeitstempel darin
+kommen als 32-Bit-Zahlen vom Draht, nicht als Zeichenkette; eine
+RFC-2822-Parsefunktion wird an keiner Stelle des Baums aufgerufen. Geprüft mit
+`grep -rn "time::" $(cargo pkgid hickory-proto)`.
+
+Der Fix steht in time 0.3.47, verlangt aber Rust 1.88. Der Workspace steht auf
+rust-version = 1.85, und diese Zahl hat für die Debian-Paketierung in Phase 9
+Bedeutung: Debian 13 liefert rustc 1.85, mit 1.88 ließe sich das .deb nicht mehr
+mit dem Compiler der Distribution bauen.
+
+**Umkehrbedingung:** die Ausnahme fällt ersatzlos weg, sobald die MSRV auf 1.88
+steigt — dann löst der Resolver time >= 0.3.47 auf. Sie ist außerdem neu zu
+bewerten, sobald hickory eine Datumszeichenkette aus einer Antwort parst; heute
+tut es das nicht. Bewertung im Zusammenhang:
+docs/adr/0016-dnssec-validierung-im-forwarder.md.
 """ },
 ]
 yanked = "deny"

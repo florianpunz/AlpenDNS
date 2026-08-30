@@ -84,8 +84,9 @@ diesem Projekt. Das heißt konkret: erkläre nicht-offensichtliche Entscheidunge
 Commit oder in der Antwort, statt sie kommentarlos einzubauen. Ein Einzeiler
 "warum so und nicht anders" ist mehr wert als drei Absätze Doku.
 
-**Stand:** Phasen 1 bis 6 sind umgesetzt. Abgenommen sind 1 bis 5; bei Phase 6
-fehlt nur der Blick eines Menschen auf die gerenderte UI (Roadmap, Schritt 8). Der Praxistest im echten
+**Stand:** Phasen 1 bis 7 sind umgesetzt. Abgenommen sind 1 bis 5; bei Phase 6
+fehlt nur der Blick eines Menschen auf die gerenderte UI (Roadmap, Schritt 8), bei
+Phase 7 nur der CI-Lauf, für den es kein GitHub-Remote gibt. Der Praxistest im echten
 Netz ist bewusst auf Phase 9 verschoben — vorher gibt es keine systemd-Unit und
 damit keinen Betrieb auf Port 53. Der gesamte testbare Code
 liegt in der Library (`src/lib.rs` und die Module daneben), `main.rs` macht nur
@@ -93,9 +94,9 @@ Start, Signale und Shutdown — Voraussetzung dafür, dass Module später ohne U
 eigenen Crates werden.
 
 Die Pipeline ist eine Kette von `ResolveBackend`-Implementierungen, von außen nach
-innen: `PolicyBackend` → `CachingBackend` → `ZoneRouter` → `Pool` → `Transport`
-(DoT/DoH/DoQ) bzw. `ForwardBackend` (Klartext, nur für `forward_zone`). Keine Schicht
-kennt die anderen. Die Policy-Auswertung liegt **vor** dem Cache, damit dieser die
+innen: `PolicyBackend` → `CachingBackend` → `ZoneRouter` → `Pool` → `Encrypted`
+(`Transport` für DoT/DoH/DoQ, `OdohBackend` für Oblivious DoH) bzw. `ForwardBackend`
+(Klartext, nur für `forward_zone`). Keine Schicht kennt die anderen. Die Policy-Auswertung liegt **vor** dem Cache, damit dieser die
 ungefilterte Antwort hält und alle Clients sie teilen können (ARCHITECTURE.md §4).
 
 `resolve` bekommt neben der Nachricht einen `Ctx` mit Client-Adresse und
@@ -107,14 +108,19 @@ Namen loggen will, macht etwas falsch — der Test
 `no_query_name_leaves_the_process_in_the_quiet_modes` fängt es.
 
 Klartext-DNS nach außen ist erledigt (B.1 Regel 7): `udp://` in einem
-`upstream_pool` ist ein Startfehler. Eine Abweichung bleibt offen — B.1 Regel 1:
-`hickory-proto 0.26.1` panict beim Parsen eines kaputten TSIG-Records, wenn
-Overflow-Checks an sind. Bewertung und Auflagen in ADR-0006, bekannter Fall in
-`crates/alpendns/fuzz/known-crashes/`. Dazu eine dokumentierte Advisory-Ausnahme in
-`deny.toml` (RUSTSEC-2026-0009 in einer dev-dependency). Der CI-Lauf fehlt
-weiterhin, dafür gibt es kein GitHub-Remote.
+`upstream_pool` ist ein Startfehler. Seit Phase 7 wird auch die Signaturkette
+selbst nachgerechnet, statt dem AD-Bit des Upstreams zu glauben (ADR-0016) — damit
+ist der offene Punkt A3 aus `docs/THREAT-MODEL.md` geschlossen. Eine Abweichung
+bleibt offen — B.1 Regel 1: `hickory-proto 0.26.1` panict beim Parsen eines
+kaputten TSIG-Records, wenn Overflow-Checks an sind. Bewertung und Auflagen in
+ADR-0006, bekannter Fall in `crates/alpendns/fuzz/known-crashes/`. Dazu eine
+dokumentierte Advisory-Ausnahme in `deny.toml`: RUSTSEC-2026-0009 betrifft `time`,
+das seit dem DNSSEC-Feature **im Produktionsbaum** liegt — die Ausnahme trägt seit
+Phase 7 eine engere Begründung (der verwundbare Pfad wird nicht betreten), nicht
+mehr "steckt gar nicht im Binary". Der CI-Lauf fehlt weiterhin, dafür gibt es kein
+GitHub-Remote.
 
-Zahlen in `docs/BENCHMARKS.md`. Aktuelle Arbeit: Phase 7 (Privacy-Ausbau).
+Zahlen in `docs/BENCHMARKS.md`. Aktuelle Arbeit: Phase 8 (Heuristik ohne Cloud).
 
 **Doku-Karte:** `docs/ROADMAP.md` = aktuelle Phase und Abnahmekriterien ·
 `docs/ARCHITECTURE.md` = Zielbild · `docs/TESTING.md` = Teststrategie ·

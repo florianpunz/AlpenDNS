@@ -59,6 +59,10 @@ name = "default"
 # (docs/adr/0012-fanout-entfaellt.md). Beide Schlüssel sind jetzt ein
 # Startfehler mit Begründung, kein stilles Ignorieren.
 strategy = "split_by_zone"
+# Abstand, in dem der Seed neu gezogen wird. Bis Phase 7 galt er vom Start bis
+# zum Neustart — wer nie neu startet, gibt jedem Anbieter dauerhaft dasselbe
+# Drittel seiner Domains zu sehen. "0s" stellt das alte Verhalten wieder her.
+seed_rotation = "24h"
 
 [[upstream_pool.resolver]]
 name = "quad9"
@@ -115,8 +119,26 @@ cookies = true
 # 0x20 Encoding: zufällige Groß-/Kleinschreibung im QNAME zu Upstreams.
 # Manche Upstreams reagieren allergisch — deshalb per Pool abschaltbar.
 dns0x20 = true
-# [PHASE 7] Oblivious DoH (RFC 9230): Upstream sieht die Query, Proxy die IP,
-# aber niemand beides.
+# Die Signaturkette selbst nachrechnen, statt dem AD-Bit des Upstreams zu
+# glauben. Eine Antwort, deren Zone sich als signiert ausgibt und deren Kette
+# nicht schließt, wird verworfen (SERVFAIL) — Standardverhalten nach RFC 4035.
+# Kostet je neuer Zone ein paar zusätzliche Anfragen an denselben Upstream.
+# Ausgeschaltet gilt wieder, was der Upstream behauptet.
+dnssec = true
+# Oblivious DoH (RFC 9230): Der Proxy kennt deine Adresse, aber nicht die
+# Anfrage; das Ziel kennt die Anfrage, aber nicht deine Adresse.
+#
+# Zwei Bedingungen, sonst ist es Theater:
+#   1. Proxy und Ziel dürfen NICHT demselben Betreiber gehören. Das kann der
+#      Server nicht prüfen — das ist deine Auswahl.
+#   2. Alle Resolver im Pool müssen doh:// sprechen; ODoH gibt es nur über
+#      HTTP. Ein dot:// im Pool ist bei eingeschaltetem odoh ein Startfehler,
+#      statt für die Hälfte der Anfragen still nichts zu tun.
+#
+# Grenze, die bleibt: den öffentlichen Schlüssel des Ziels holt der Prozess
+# einmal je Start direkt von dessen /.well-known/odohconfigs. Diese eine
+# Verbindung geht nicht über den Proxy — das Ziel sieht dabei deine Adresse,
+# aber keine einzige Frage. Siehe docs/adr/0017-oblivious-doh.md.
 odoh = { enabled = false, proxy = "https://odoh-proxy.example/proxy" }
 
 [privacy.logging]
