@@ -1,0 +1,19 @@
+#!/bin/sh
+# Bei `purge` bleibt nichts zurück: kein User, keine Listen, kein Token.
+# Bei `remove` bleibt alles stehen — eine Neuinstallation soll den Cache und
+# den API-Token wiederfinden.
+set -e
+
+#DEBHELPER#
+
+if [ "$1" = "purge" ]; then
+    rm -rf /var/lib/alpendns /var/cache/alpendns /var/log/alpendns
+    if getent passwd alpendns >/dev/null; then
+        deluser --system --quiet alpendns || true
+    fi
+    if getent group alpendns >/dev/null; then
+        delgroup --system --quiet alpendns || true
+    fi
+fi
+
+exit 0

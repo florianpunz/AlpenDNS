@@ -1,0 +1,180 @@
+# AlpenDNS — Auslieferungskonfiguration des Debian-Pakets.
+#
+# Sie ist bewusst zurückhaltend: nach `apt install` läuft ein funktionierender
+# Resolver, der **nur von diesem Rechner aus erreichbar** ist. Wer ihn im LAN
+# benutzen will, ändert genau einen Block — den ersten. Das ist die einzige
+# Änderung, die ein normaler Betrieb braucht.
+#
+# Die vollständige Referenz aller Schlüssel liegt daneben:
+#   /usr/share/doc/alpendns/alpendns.example.toml
+# Betrieb, Upgrade, Fehlersuche:
+#   /usr/share/doc/alpendns/OPERATIONS.md
+#
+# Nach jeder Änderung, vor dem Neustart:
+#   sudo alpendns -c /etc/alpendns/alpendns.toml check
+#
+# Unbekannte Schlüssel sind ein Startfehler, kein Warning. Ein Tippfehler soll
+# nicht dazu führen, dass jemand ungefiltert im Internet hängt und es nicht
+# merkt.
+
+[server]
+# ---------------------------------------------------------------------------
+# HIER ÄNDERN, um den Resolver im LAN nutzbar zu machen.
+#
+# Ausgeliefert wird Loopback: frisch installiert ist der Server von außen nicht
+# erreichbar. Ein Resolver, der ungefragt am Internet lauscht, ist ein
+# Amplification-Reflektor, und das darf nicht der Auslieferungszustand sein.
+#
+# Für das eigene Netz die LAN-Adresse dieses Rechners eintragen, zum Beispiel:
+#   listen_udp = ["127.0.0.1:53", "192.168.1.10:53"]
+#   listen_tcp = ["127.0.0.1:53", "192.168.1.10:53"]
+#
+# Eine konkrete Adresse und nicht "0.0.0.0": die Wildcard bindet auch an eine
+# Schnittstelle, die morgen am Internet hängt.
+# ---------------------------------------------------------------------------
+listen_udp = ["127.0.0.1:53", "[::1]:53"]
+listen_tcp = ["127.0.0.1:53", "[::1]:53"]
+query_timeout = "3s"
+
+[server.edns]
+udp_payload_size = 1232
+
+# Drosselung pro Client. An, auch auf Loopback — sonst fällt beim Umstellen auf
+# eine LAN-Adresse genau die Einstellung weg, die dort gebraucht wird.
+# 100 Anfragen je Sekunde sind für ein Gerät sehr viel und für einen Angreifer
+# sehr wenig; die Spitze fängt Seitenaufrufe mit vielen Einbettungen ab.
+[server.rate_limit]
+enabled = true
+per_client_qps = 100
+burst = 200
+max_clients = 8192
+
+# ---------------------------------------------------------------------------
+# Upstreams — verschlüsselt, mehrere Anbieter
+# ---------------------------------------------------------------------------
+#
+# split_by_zone verteilt die Domains über einen zufälligen Seed auf die
+# Resolver: derselbe Name geht immer zum selben Anbieter (der Cache bleibt
+# wirksam), aber keiner sieht das ganze Profil. Der Seed wird täglich neu
+# gezogen.
+#
+# Klartext (udp://) ist hier nicht erlaubt und ein Startfehler.
+
+[[upstream_pool]]
+name = "default"
+strategy = "split_by_zone"
+seed_rotation = "24h"
+
+[[upstream_pool.resolver]]
+name = "quad9"
+addr = "dot://9.9.9.9:853"
+tls_name = "dns.quad9.net"
+
+[[upstream_pool.resolver]]
+name = "mullvad"
+addr = "doh://194.242.2.4/dns-query"
+tls_name = "dns.mullvad.net"
+
+[[upstream_pool.resolver]]
+name = "dnsforge"
+addr = "doh://176.9.93.198/dns-query"
+tls_name = "dnsforge.de"
+
+# Interne Zonen an den Router im eigenen Netz. Der einzige Ort, an dem
+# Klartext-DNS erlaubt ist — und die Anfrage verlässt dabei das LAN nicht.
+# [[forward_zone]]
+# zone = "home.arpa"
+# upstream = "udp://192.168.1.1:53"
+
+[cache]
+max_entries = 100_000
+min_ttl = "10s"
+max_ttl = "24h"
+max_negative_ttl = "15m"
+serve_stale = true
+serve_stale_max = "1h"
+prefetch = true
+prefetch_threshold = 0.85
+
+[privacy]
+strip_ecs = true
+padding = true
+cookies = true
+dns0x20 = true
+
+[privacy.logging]
+# aggregate: Zähler und Häufigkeiten, aber kein Name unter der k-Schwelle und
+# keine Zeile auf Platte. Das ist der Default und die Zurückhaltung, für die es
+# dieses Projekt gibt.
+#
+# Für die Beobachtungswoche (docs/ROADMAP.md, Abnahme Phase 8) braucht die UI
+# Namen; dafür ist `ring` gedacht — die letzten Minuten im Arbeitsspeicher,
+# nie auf Platte:
+#   mode = "ring"
+mode = "aggregate"
+ring_seconds = "5m"
+aggregate_k = 5
+
+# ---------------------------------------------------------------------------
+# Blocken
+# ---------------------------------------------------------------------------
+
+[blocking]
+mode = "nxdomain"
+# Von systemd angelegt (CacheDirectory=), gehört dem Dienstuser. Damit filtert
+# ein Neustart auch ohne Internet.
+cache_dir = "/var/cache/alpendns/lists"
+
+# ACHTUNG: Ohne erreichbare Liste bricht der *erste* Start ab — lieber kein DNS
+# als ungefiltertes DNS. Ein späterer Ausfall ist unkritisch, dann gilt die
+# zwischengespeicherte Fassung weiter.
+[[blocklist]]
+name = "stevenblack-unified"
+url = "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts"
+format = "hosts"
+refresh = "24h"
+enabled = true
+
+# ---------------------------------------------------------------------------
+# Heuristiken — alle auf `flag`, keine blockt
+# ---------------------------------------------------------------------------
+#
+# `flag` heißt: läuft, zählt mit, erscheint in der UI unter "Auffällig" — und
+# blockt nichts. Der Weg zu `block` führt über eine Woche Beobachtung und das
+# Durchsehen der Fehlalarme; die Anleitung dazu steht in OPERATIONS.md unter
+# "Beobachtungswoche".
+
+[detection]
+dga = { action = "flag", threshold = 0.75 }
+tunneling = { action = "flag", threshold = 0.75, window = "5m", allow_zones = [] }
+rebinding = { action = "flag", allow_zones = [] }
+# Ohne Einträge tut der Typosquat-Wächter nichts. Hier gehören die Domains
+# hinein, die DIR wichtig sind — Bank, Behörde, Arbeitgeber:
+#   typosquat = { action = "flag", threshold = 0.85, protect = ["meine-bank.at"] }
+typosquat = { action = "flag", threshold = 0.85, protect = [] }
+# Fehlt die Datei, läuft der Detektor leer mit. Der Resolver hängt nicht davon
+# ab, dass ein zweiter Dienst gelaufen ist.
+nrd = { action = "flag", max_age = "30d", source = "/var/lib/alpendns/nrd.txt" }
+
+# ---------------------------------------------------------------------------
+# API, UI, Metriken
+# ---------------------------------------------------------------------------
+
+# Die UI zeigt Namen und gehört deshalb auf Loopback. Von einem anderen Rechner
+# erreicht man sie über einen SSH-Tunnel:
+#   ssh -L 8053:127.0.0.1:8053 <server>
+# und dann http://127.0.0.1:8053 im Browser.
+[api]
+enabled = true
+listen = "127.0.0.1:8053"
+# Unter /var/lib und nicht unter /etc: die Unit setzt ProtectSystem=strict,
+# /etc ist für den Dienst schreibgeschützt. Der Token wird beim ersten Start
+# erzeugt und mit Rechten 0600 abgelegt.
+token_file = "/var/lib/alpendns/api.token"
+
+# Ohne Token, dafür ohne Namen in der Ausgabe. Aus, bis jemand einen Prometheus
+# hat, der es abholt.
+[metrics]
+enabled = false
+listen = "127.0.0.1:9153"
+path = "/metrics"

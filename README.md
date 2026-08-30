@@ -2,16 +2,37 @@
 
 Ein privacy-fokussierter DNS-Server für Linux, in Rust.
 
-> **Status: Phase 6 — Sichtbarkeit.** HTTP-API mit Token, Prometheus-Endpunkt,
+> **Status: Phase 9 — Betrieb und Paketierung.** systemd-Unit ohne root
+> (Port 53 über `CAP_NET_BIND_SERVICE`), gehärtet auf `systemd-analyze
+> security` = 1,5, `.deb`-Paket mit `cargo deb`, Konfigurationsprüfung als
+> `ExecStartPre` und Drosselung pro Client
+> ([ADR-0020](docs/adr/0020-rate-limiting-verwirft.md)). Frisch installiert
+> lauscht der Server nur auf Loopback — von außen nicht erreichbar, bis man es
+> ausdrücklich will.
+> Betrieb: [docs/OPERATIONS.md](docs/OPERATIONS.md) · Stand:
+> [docs/ROADMAP.md](docs/ROADMAP.md).
+
+<details>
+<summary>Vorherige Stände</summary>
+
+> **Phase 8 — Heuristik ohne Cloud.** Fünf lokale Detektoren: DGA über ein
+> 3-Gramm-Modell im Binary, DNS-Tunneling je Zone über ein Zeitfenster,
+> DNS-Rebinding, Typosquatting gegen eigene Schutz-Domains und neu
+> registrierte Domains aus lokaler Datei. **Alle stehen auf `flag` und blocken
+> nichts** ([ADR-0019](docs/adr/0019-heuristiken-melden-statt-blocken.md)).
+
+> **Phase 7 — Privacy-Ausbau.** DNSSEC-Validierung im Forwarder statt Glauben
+> an das AD-Bit des Upstreams, Oblivious DoH, Public Suffix List für
+> `split_by_zone`, Rotation des Zonen-Seeds. Dazu zurückgebaut, was nicht
+> hielt, was es versprach: zwei Upstream-Strategien, Fanout, zwei
+> Listenformate, ein Block-Modus.
+
+> **Phase 6 — Sichtbarkeit.** HTTP-API mit Token, Prometheus-Endpunkt,
 > Live-Strom und eine Web-UI, die drei Fragen ohne Klick beantwortet: Läuft er?
 > Was gerade passiert? Warum wurde das geblockt? Dazu die vier Log-Modi aus
 > [ADR-0004](docs/adr/0004-logging-default-aggregiert.md) — Default ist
 > `aggregate`, und ein automatisierter Test prüft, dass in den leisen Modi kein
 > Query-Name den Prozess verlässt.
-> Siehe [docs/ROADMAP.md](docs/ROADMAP.md).
-
-<details>
-<summary>Vorherige Stände</summary>
 
 > **Phase 5 — Clients und Policies.** Unterschiedliche Geräte,
 > unterschiedliche Regeln: Policies pro Client (über IP oder Subnetz), eigene
@@ -47,6 +68,22 @@ cargo run -- -c config/alpendns.minimal.toml policy test doubleclick.net
 
 # Web-UI: http://127.0.0.1:8053 — der Token steht in api.token_file
 ```
+
+### Als Dienst auf einem Server
+
+```bash
+cargo install cargo-deb --locked
+cargo deb -p alpendns
+sudo apt install ./target/debian/alpendns_0.0.1-1_amd64.deb
+
+dig @127.0.0.1 example.com
+```
+
+Danach läuft der Resolver als unprivilegierter Dienst — vorerst nur auf
+Loopback. Für das eigene Netz die LAN-Adresse in
+`/etc/alpendns/alpendns.toml` eintragen und
+`sudo alpendns -c /etc/alpendns/alpendns.toml check` laufen lassen. Alles
+Weitere in [docs/OPERATIONS.md](docs/OPERATIONS.md).
 
 ## Warum noch ein DNS-Server?
 
@@ -105,6 +142,8 @@ docs/ARCHITECTURE.md         Aufbau, Request-Pipeline, Datenmodell
 docs/FEATURES.md             Feature-Katalog mit Aufwand/Nutzen-Bewertung
 docs/THREAT-MODEL.md         Wogegen das hier schützt — und wogegen nicht
 docs/TESTING.md              Teststrategie
+docs/OPERATIONS.md           Installation, Upgrade, Backup, Fehlersuche
+packaging/                   systemd-Unit, Debian-Skripte, Auslieferungskonfiguration
 docs/adr/                    Architekturentscheidungen mit Begründung
 ```
 

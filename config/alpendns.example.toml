@@ -22,6 +22,25 @@ udp_payload_size = 1232
 # RFC 7830 / 8467: Padding für verschlüsselte Transporte.
 padding = true
 
+# Drosselung pro Client. Per Default AN — ein Resolver ohne Limit ist ein
+# Amplification-Reflektor, sobald er nicht mehr nur sein eigenes LAN sieht
+# (CLAUDE.md B.5). Über dem Limit wird verworfen, nicht abgelehnt: eine
+# Antwort an eine womöglich gefälschte Absenderadresse wäre genau die
+# Reflexion, gegen die gedrosselt wird. docs/adr/0020-rate-limiting-verwirft.md
+#
+# Gezählt wird je IPv4-Adresse und je IPv6-/64: ein Host hat dort nicht eine
+# Adresse, sondern beliebig viele aus demselben Präfix.
+[server.rate_limit]
+enabled = true
+# Anfragen je Sekunde, die einem Client dauerhaft zustehen.
+per_client_qps = 100
+# Guthaben, das ein stiller Client ansammeln darf. Eine Seite mit vielen
+# Einbettungen löst auf einen Schlag Dutzende Anfragen aus.
+burst = 200
+# Obergrenze der Buchführung. Ohne sie wäre die Drosselung bei einer Flut
+# gefälschter Absender selbst der Speicherfresser, den sie verhindern soll.
+max_clients = 8192
+
 # [PHASE 3+] Verschlüsselte Listener für eigene *Clients* (Laptop unterwegs,
 # Handy). Nicht zu verwechseln mit den verschlüsselten Upstreams weiter unten:
 # die gibt es, diese Listener noch nicht.

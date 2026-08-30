@@ -52,3 +52,48 @@ rcgen.workspace = true
 tokio = { workspace = true, features = ["test-util", "process"] }
 tokio-rustls.workspace = true
 time.workspace = true
+
+# ---------------------------------------------------------------------------
+# Debian-Paket (ROADMAP Phase 9, Schritt 4)
+# ---------------------------------------------------------------------------
+#
+# Bauen:  cargo deb -p alpendns
+# Ergebnis: target/debian/alpendns_<version>_<arch>.deb
+#
+# cargo-deb ist ein Werkzeug, keine Abhängigkeit des Bauens: `cargo build`
+# funktioniert weiterhin ohne es. Installiert wird es mit
+#   cargo install cargo-deb --locked
+[package.metadata.deb]
+maintainer = "Florian Punz <florian.punz04@gmail.com>"
+copyright = "2026, Florian Punz"
+extended-description = """\
+AlpenDNS ist ein forwarding DNS-Resolver für das eigene Netz. Er filtert gegen \
+Blocklisten und Policies und leitet ausschließlich verschlüsselt weiter \
+(DoT/DoH/DoQ). Query-Namen werden per Default nicht gespeichert; fünf lokale \
+Heuristiken melden Auffälligkeiten, ohne zu blocken."""
+section = "net"
+priority = "optional"
+# Die Unit läuft den Dienst als eigenen User; adduser kommt aus dem Basissystem
+# und steht hier nur, damit ein minimales Image nicht daran scheitert.
+depends = "$auto, adduser, systemd"
+assets = [
+    ["target/release/alpendns", "usr/bin/", "755"],
+    ["../../packaging/alpendns.toml", "etc/alpendns/alpendns.toml", "644"],
+    ["../../docs/OPERATIONS.md", "usr/share/doc/alpendns/OPERATIONS.md", "644"],
+    ["../../config/alpendns.example.toml", "usr/share/doc/alpendns/alpendns.example.toml", "644"],
+    ["../../README.md", "usr/share/doc/alpendns/README.md", "644"],
+]
+# Ausdrücklich, obwohl cargo-deb alles unter /etc ohnehin so behandelt: ein
+# Upgrade darf eine bearbeitete Konfiguration nicht überschreiben.
+conf-files = ["/etc/alpendns/alpendns.toml"]
+maintainer-scripts = "../../packaging/debian"
+
+[package.metadata.deb.systemd-units]
+unit-name = "alpendns"
+unit-scripts = "../../packaging/systemd"
+enable = true
+# Gestartet wird im postinst von Hand: schlägt der erste Start fehl (kein Netz,
+# Port 53 belegt), soll das eine erklärte Meldung geben und nicht ein halb
+# konfiguriertes Paket.
+start = false
+restart-after-upgrade = true

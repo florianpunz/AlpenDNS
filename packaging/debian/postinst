@@ -1,0 +1,62 @@
+#!/bin/sh
+# Legt den Dienstuser an und startet den Dienst.
+#
+# Die Verzeichnisse (/var/lib, /var/cache, /var/log) legt systemd über
+# StateDirectory= und Geschwister an und übereignet sie dem Dienstuser. Hier
+# passiert das absichtlich *nicht*: sonst gäbe es zwei Stellen, die Rechte
+# setzen, und nach einem Upgrade wäre unklar, welche gewonnen hat.
+set -e
+
+if [ "$1" = "configure" ]; then
+    if ! getent group alpendns >/dev/null; then
+        addgroup --system --quiet alpendns
+    fi
+    if ! getent passwd alpendns >/dev/null; then
+        adduser --system --quiet \
+                --ingroup alpendns \
+                --home /var/lib/alpendns \
+                --no-create-home \
+                --shell /usr/sbin/nologin \
+                --gecos "AlpenDNS resolver" \
+                alpendns
+    fi
+fi
+
+#DEBHELPER#
+
+# Nur bei der Erstinstallation ($2 ist leer). Beim Upgrade hat die von
+# cargo-deb erzeugte Passage oben schon neu gestartet, und die Meldung mit den
+# ersten Schritten will dann niemand mehr lesen.
+if [ "$1" = "configure" ] && [ -z "$2" ] && [ -d /run/systemd/system ]; then
+    if systemctl start alpendns.service; then
+        cat <<'MSG'
+
+AlpenDNS läuft — vorerst nur auf diesem Rechner (127.0.0.1:53).
+
+  Prüfen:      dig @127.0.0.1 example.com
+  Für das LAN: /etc/alpendns/alpendns.toml, erster Block, dann
+               sudo alpendns -c /etc/alpendns/alpendns.toml check
+               sudo systemctl restart alpendns
+  Oberfläche:  ssh -L 8053:127.0.0.1:8053 <dieser-host>, dann
+               http://127.0.0.1:8053 im Browser
+  Handbuch:    /usr/share/doc/alpendns/OPERATIONS.md
+
+MSG
+    else
+        cat >&2 <<'MSG'
+
+AlpenDNS ist installiert, aber nicht gestartet. Die häufigsten zwei Gründe:
+
+  * Kein Internet. Der erste Start lädt die Blockliste und bricht ohne sie ab —
+    lieber kein DNS als ungefiltertes DNS. Nach dem Verbinden:
+    sudo systemctl start alpendns
+  * Port 53 ist belegt, meist von systemd-resolved. Was dagegen zu tun ist,
+    steht in /usr/share/doc/alpendns/OPERATIONS.md unter "Port 53 ist belegt".
+
+  Genauer:  systemctl status alpendns  und  journalctl -u alpendns -n 50
+
+MSG
+    fi
+fi
+
+exit 0

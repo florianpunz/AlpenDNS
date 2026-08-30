@@ -551,6 +551,48 @@ pub struct ServerConfig {
     pub query_timeout: Duration,
     #[serde(default)]
     pub edns: EdnsConfig,
+    #[serde(default)]
+    pub rate_limit: RateLimitConfig,
+}
+
+/// Drosselung pro Client.
+///
+/// **Per Default an** (CLAUDE.md B.5): ein Resolver ohne Limit ist ein
+/// Amplification-Reflektor, sobald er nicht mehr nur sein eigenes LAN sieht,
+/// und ob das so ist, weiß die Konfiguration nicht sicher.
+///
+/// Die Zahlen sind bewusst großzügig. Der teurere Fehler ist der Fehlalarm:
+/// ein gedrosselter Browser sieht aus wie kaputtes Internet, und wer das
+/// erlebt, schaltet die Drosselung ab — dann ist sie auch gegen Missbrauch weg.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RateLimitConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Anfragen je Sekunde, die einem Client dauerhaft zustehen.
+    #[serde(default = "default_per_client_qps")]
+    pub per_client_qps: u32,
+    /// Guthaben, das ein stiller Client ansammeln darf. Eine Seite mit vielen
+    /// Einbettungen löst auf einen Schlag Dutzende Anfragen aus; ohne Spitze
+    /// wäre das der erste Fehlalarm.
+    #[serde(default = "default_burst")]
+    pub burst: u32,
+    /// Wie viele Clients gleichzeitig beobachtet werden. Die Grenze ist der
+    /// Schutz gegen eine Flut gefälschter Absenderadressen: ohne sie wäre die
+    /// Drosselung selbst der Speicherfresser, den sie verhindern soll.
+    #[serde(default = "default_max_clients")]
+    pub max_clients: usize,
+}
+
+impl Default for RateLimitConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            per_client_qps: default_per_client_qps(),
+            burst: default_burst(),
+            max_clients: default_max_clients(),
+        }
+    }
 }
 
 /// EDNS(0)-Parameter.
@@ -914,6 +956,49 @@ const fn default_udp_payload_size() -> u16 {
     1232
 }
 
+/// 100 Anfragen je Sekunde und Client.
+///
+/// Gemessen an dem, was ein Gerät im Betrieb tatsächlich erzeugt, ist das viel:
+/// ein Seitenaufruf mit vielen Einbettungen liegt im Bereich von Dutzenden
+/// Anfragen, und die kommen aus dem Burst. Als Reflektor-Bremse reicht es
+/// trotzdem — 100 Antworten je Sekunde und Quelladresse sind kein Angriff,
+/// mit dem sich jemand Mühe geben würde.
+/// Ist diese Adresse nur aus dem eigenen Netz erreichbar?
+///
+/// `false` für die Wildcard-Adressen: sie binden an alles, was da ist.
+/// `Ipv6Addr::is_unique_local` und `is_unicast_link_local` sind in stable Rust
+/// noch nicht verfügbar, deshalb hier von Hand — die Präfixe stehen in RFC 4193
+/// und RFC 4291.
+fn is_local_address(addr: std::net::IpAddr) -> bool {
+    match addr {
+        std::net::IpAddr::V4(v4) => {
+            !v4.is_unspecified() && (v4.is_loopback() || v4.is_private() || v4.is_link_local())
+        }
+        std::net::IpAddr::V6(v6) => {
+            if let Some(mapped) = v6.to_ipv4_mapped() {
+                return is_local_address(std::net::IpAddr::V4(mapped));
+            }
+            if v6.is_unspecified() {
+                return false;
+            }
+            let first = v6.segments().first().copied().unwrap_or_default();
+            v6.is_loopback() || (first & 0xfe00) == 0xfc00 || (first & 0xffc0) == 0xfe80
+        }
+    }
+}
+
+const fn default_per_client_qps() -> u32 {
+    100
+}
+
+const fn default_burst() -> u32 {
+    200
+}
+
+const fn default_max_clients() -> usize {
+    8192
+}
+
 impl Default for EdnsConfig {
     fn default() -> Self {
         Self {
@@ -944,6 +1029,28 @@ impl Config {
                 "kein Listener konfiguriert: server.listen_udp und server.listen_tcp sind beide leer"
                     .to_owned(),
             ));
+        }
+        if self.server.rate_limit.enabled {
+            let limit = &self.server.rate_limit;
+            if limit.per_client_qps == 0 {
+                return Err(ConfigError::Invalid(
+                    "server.rate_limit.per_client_qps = 0 drosselt nicht, es sperrt: nach dem \
+                     Burst läuft kein Guthaben mehr nach. Entweder eine Rate setzen oder \
+                     enabled = false."
+                        .to_owned(),
+                ));
+            }
+            if limit.burst == 0 {
+                return Err(ConfigError::Invalid(
+                    "server.rate_limit.burst = 0 lässt keine einzige Anfrage durch".to_owned(),
+                ));
+            }
+            if limit.max_clients == 0 {
+                return Err(ConfigError::Invalid(
+                    "server.rate_limit.max_clients = 0 ergibt eine Buchführung ohne Platz"
+                        .to_owned(),
+                ));
+            }
         }
         if self.cache.max_entries == 0 {
             return Err(ConfigError::Invalid(
@@ -1126,6 +1233,25 @@ impl DetectionConfig {
 }
 
 impl Config {
+    /// Die Listener, die nicht nur im eigenen Netz erreichbar sind.
+    ///
+    /// Grundlage von `alpendns check` und damit des Auslieferungszustands
+    /// (ROADMAP Phase 9, Schritt 6): frisch installiert soll der Server von
+    /// außen nicht erreichbar sein. Die Wildcard-Adressen `0.0.0.0` und `[::]`
+    /// zählen dazu — sie lauschen auf *jeder* Schnittstelle, und ob eine davon
+    /// am Internet hängt, weiß die Konfiguration nicht.
+    pub fn public_listeners(&self) -> Vec<SocketAddr> {
+        self.server
+            .listen_udp
+            .iter()
+            .chain(self.server.listen_tcp.iter())
+            .chain(self.api.enabled.then_some(&self.api.listen))
+            .chain(self.metrics.enabled.then_some(&self.metrics.listen))
+            .filter(|addr| !is_local_address(addr.ip()))
+            .copied()
+            .collect()
+    }
+
     /// Die Zonen, in denen private Adressen erlaubt sind.
     ///
     /// Die konfigurierten plus **alle `forward_zone`-Einträge**. Ohne diese
@@ -1674,6 +1800,86 @@ odoh = { enabled = true, proxy = "https://proxy.example/p" }
             .replace("listen_tcp = [\"127.0.0.1:5353\"]", "listen_tcp = []");
         let err = valid_err(&text);
         assert!(err.contains("Listener"), "{err}");
+    }
+
+    /// Die Datei, die das Debian-Paket nach `/etc/alpendns` legt. Sie ist der
+    /// Auslieferungszustand, und der ist ein Abnahmekriterium (ROADMAP Phase 9,
+    /// Schritt 6): frisch installiert darf der Server von außen nicht
+    /// erreichbar sein.
+    const PACKAGED: &str = include_str!("../../../packaging/alpendns.toml");
+
+    #[test]
+    fn the_packaged_configuration_is_valid() {
+        let config = parse(PACKAGED).expect("die ausgelieferte Datei muss parsen");
+        config
+            .validate()
+            .expect("die ausgelieferte Datei muss gültig sein");
+    }
+
+    #[test]
+    fn the_packaged_configuration_listens_nowhere_public() {
+        let config = valid(PACKAGED);
+        assert!(
+            config.public_listeners().is_empty(),
+            "das Paket liefert einen von außen erreichbaren Listener aus: {:?}",
+            config.public_listeners()
+        );
+    }
+
+    /// Ohne Drosselung wäre der erste Handgriff nach der Installation — den
+    /// Listener auf die LAN-Adresse setzen — zugleich der Schritt, der einen
+    /// Amplification-Reflektor aufmacht (CLAUDE.md B.5).
+    #[test]
+    fn the_packaged_configuration_throttles_per_client() {
+        let config = valid(PACKAGED);
+        assert!(config.server.rate_limit.enabled);
+        assert!(config.server.rate_limit.per_client_qps > 0);
+    }
+
+    #[test]
+    fn rate_limiting_is_on_unless_it_is_switched_off() {
+        let config = valid(MINIMAL);
+        assert!(
+            config.server.rate_limit.enabled,
+            "die Drosselung war ohne Zutun aus"
+        );
+    }
+
+    #[test]
+    fn a_wildcard_listener_counts_as_public() {
+        let text = MINIMAL.replace("127.0.0.1:5353", "0.0.0.0:5353");
+        let config = valid(&text);
+        assert_eq!(
+            config.public_listeners().len(),
+            2,
+            "0.0.0.0 galt als privat; es bindet an jede Schnittstelle"
+        );
+    }
+
+    #[test]
+    fn private_ranges_do_not_count_as_public() {
+        for address in ["10.1.2.3:53", "192.168.1.10:53", "172.16.0.1:53"] {
+            let text = MINIMAL.replace("127.0.0.1:5353", address);
+            let config = valid(&text);
+            assert!(
+                config.public_listeners().is_empty(),
+                "{address} galt als öffentlich"
+            );
+        }
+    }
+
+    #[test]
+    fn a_routable_address_counts_as_public() {
+        let text = MINIMAL.replace("127.0.0.1:5353", "203.0.113.7:53");
+        let config = valid(&text);
+        assert_eq!(config.public_listeners().len(), 2);
+    }
+
+    #[test]
+    fn a_rate_limit_without_refill_is_rejected() {
+        let text = format!("{MINIMAL}\n[server.rate_limit]\nper_client_qps = 0\n");
+        let err = valid_err(&text);
+        assert!(err.contains("per_client_qps"), "{err}");
     }
 
     #[test]

@@ -385,3 +385,70 @@ Messung, und die verbietet Phase 4 ausdrücklich.
 Beide Grenzen sind hart und stehen als Test da
 (`the_table_does_not_grow_with_traffic`, `the_unique_set_per_zone_is_bounded`):
 die Tabelle liegt im Anfragepfad und darf nicht mit dem Verkehr wachsen.
+
+---
+
+## Phase 9 — Drosselung pro Client · gemessen am 2026-08-30
+
+```bash
+cargo test --release --test load -- --ignored --nocapture --test-threads=1 \
+    throughput_with_and_without_rate_limiting a_flooding_client
+```
+
+Die Last kommt hier aus **16 verschiedenen Absenderadressen** (`127.0.0.1` bis
+`127.0.0.16`) und nicht wie in den früheren Läufen aus einer. Anders wäre die
+Messung sinnlos: aus einer Quelle wäre die einzige Frage, wie schnell ein Eimer
+leerläuft.
+
+### Was die Drosselung den Anfragepfad kostet
+
+Das Limit steht dabei so hoch (1 000 000/s), dass nichts verworfen wird —
+gemessen wird der Weg durch den Token-Bucket, nicht seine Wirkung.
+
+| Anfragepfad | Anfragen/s | p50 | p99 |
+|---|---:|---:|---:|
+| ohne Drosselung | 85 788 /s | 145 µs | 663 µs |
+| mit Drosselung | 84 078 /s | 147 µs | 674 µs |
+
+**2 % Durchsatz**, p99 um 11 µs schlechter. Das ist der Preis für ein
+Pflichtstück (CLAUDE.md B.5), und er ist keiner: die Drosselung sitzt *vor* dem
+Parsen, ein verworfenes Paket kostet einen Hash und einen Vergleich.
+
+RSS des Testprozesses über den ganzen Lauf: 31 272 KiB → 39 732 KiB, mit 16
+beobachteten Clients. Die Buchführung selbst ist gedeckelt (LRU, Default 8192
+Clients); der Zuwachs hier ist der Cache mit 32 000 neuen Namen, nicht der
+Limiter.
+
+### Ein Störer neben normalen Clients
+
+Ein Client feuert zehn Sekunden lang, so schnell er kann, gegen ein Limit von
+200/s (Spitze 400). Daneben laufen die 16 Messclients ihre übliche Last.
+
+| | |
+|---|---:|
+| Der Störer schickte | 2 746 620 Anfragen |
+| davon verworfen | 2 742 924 (99,87 %) |
+| Die übrigen Clients | 3 804 Anfragen/s, p50 157 µs, **p99 765 µs** |
+
+Der Befund, auf den es ankommt, ist die **p99 der übrigen Clients: 765 µs gegen
+674 µs im ungestörten Lauf**. Unter einer Flut von 274 000 Paketen je Sekunde
+bleibt die Antwortzeit für alle anderen praktisch unverändert — das ist es, was
+„andere IPs unbeeinflusst" heißen soll.
+
+Der Durchsatz der übrigen Clients fällt dabei von 84 000 auf 3 800 Anfragen/s,
+und das ist **kein** Ergebnis über die Drosselung: der Störer läuft als Task im
+selben Prozess auf denselben Kernen und verbrennt sie mit seiner eigenen
+Sendeschleife. Über echtes Netz wäre die Konkurrenz eine andere. Die Zahl steht
+hier, weil sie im Testausgang steht — nicht als Aussage über den Betrieb.
+
+### Anfragen/s, p99, RSS auf einen Blick
+
+Die drei Zahlen, die ROADMAP Phase 9 Schritt 7 verlangt, im Auslieferungszustand
+(Cache an, Drosselung an, keine Detektoren, lauter neue Namen — also der teure
+Fall, in dem der Cache nie hilft):
+
+| | |
+|---|---:|
+| Durchsatz | **84 078 Anfragen/s** |
+| p99 | **674 µs** |
+| RSS am Ende des Laufs | **39 732 KiB** |

@@ -16,6 +16,15 @@ query_timeout = "3s"
 # Ab dieser Antwortgröße wird über UDP das TC-Flag gesetzt (DNS Flag Day 2020).
 udp_payload_size = 1232
 
+# Alle Werte hier sind auch die Defaults; die Drosselung ist an, ohne dass man
+# sie hinschreiben müsste. Über dem Limit wird verworfen, nicht abgelehnt —
+# docs/adr/0020-rate-limiting-verwirft.md
+[server.rate_limit]
+enabled = true
+per_client_qps = 100
+burst = 200
+max_clients = 8192
+
 # Alle Werte hier sind auch die Defaults; sie stehen nur da, um sichtbar zu sein.
 [cache]
 max_entries = 100_000
@@ -183,7 +192,11 @@ enabled = true
 listen = "127.0.0.1:8053"
 # Fehlt die Datei, wird beim Start ein Token erzeugt und mit Rechten 0600
 # abgelegt. Die UI fragt ihn beim ersten Aufruf ab.
-token_file = "/etc/alpendns/api.token"
+#
+# Hier relativ, damit diese Datei ohne root läuft. Im Betrieb liegt der Token
+# unter /var/lib/alpendns — und nicht unter /etc, weil die systemd-Unit
+# ProtectSystem=strict setzt und /etc für den Dienst schreibgeschützt ist.
+token_file = "./alpendns-api.token"
 
 [metrics]
 # Ohne Token — ein Prometheus-Scraper schickt keinen Bearer-Header, und die

@@ -32,6 +32,7 @@ use alpendns::logging::QueryLog;
 use alpendns::policy::rules::RegexRules;
 use alpendns::policy::{Blueprint, Engine, PolicyBackend, PolicyBlueprint};
 use alpendns::privacy;
+use alpendns::ratelimit::RateLimiter;
 use alpendns::server::Server;
 use alpendns::upstream::ForwardBackend;
 use hickory_proto::op::{Message, MessageType, OpCode, Query};
@@ -96,7 +97,7 @@ struct Harness {
 }
 
 async fn start(cache_config: CacheConfig) -> Harness {
-    start_with_lists(cache_config, LoadedLists::default(), Detectors::new()).await
+    start_with_lists(cache_config, LoadedLists::default(), Detectors::new(), None).await
 }
 
 /// Startet den Server mit einer Policy, die alle übergebenen Listen benutzt.
@@ -104,6 +105,7 @@ async fn start_with_lists(
     cache_config: CacheConfig,
     lists: LoadedLists,
     detectors: Detectors,
+    limiter: Option<Arc<RateLimiter>>,
 ) -> Harness {
     let upstream_hits = Arc::new(AtomicUsize::new(0));
     let upstream = fake_upstream(Arc::clone(&upstream_hits)).await;
@@ -152,6 +154,7 @@ async fn start_with_lists(
         config.server.edns.udp_payload_size,
         Arc::new(QueryLog::new(&LoggingConfig::default()).expect("QueryLog")),
     )
+    .with_rate_limit(limiter)
     .bind(&config.server)
     .await
     .expect("bind");
@@ -270,7 +273,13 @@ async fn throughput_with_and_without_detectors() {
     };
     let detectors =
         alpendns::detect::from_config(&config, Vec::new(), SystemClock, SystemWallClock);
-    let with = start_with_lists(CacheConfig::default(), LoadedLists::default(), detectors).await;
+    let with = start_with_lists(
+        CacheConfig::default(),
+        LoadedLists::default(),
+        detectors,
+        None,
+    )
+    .await;
     let detected = drive(with.addr, true, 1).await;
     with.shutdown.cancel();
 
@@ -285,6 +294,176 @@ async fn throughput_with_and_without_detectors() {
     assert!(
         detected > plain * 0.5,
         "die Detektoren kosten mehr als die Hälfte des Durchsatzes: {detected:.0} gegen {plain:.0}"
+    );
+}
+
+/// Feuert Last von `CLIENTS` **verschiedenen** Absenderadressen und misst
+/// Durchsatz, p99 und Speicher in einem Lauf.
+///
+/// Verschiedene Adressen, weil das die Drosselung überhaupt erst sinnvoll
+/// belastet: aus einer einzigen Quelle wäre der Vergleich nur die Frage, wie
+/// schnell ein Eimer leerläuft. Linux gibt das ganze `127.0.0.0/8` an
+/// Loopback, es muss also nichts konfiguriert werden.
+async fn drive_measured(server: SocketAddr, offset: usize) -> (f64, Duration, Duration) {
+    let start = Instant::now();
+    let mut clients = Vec::with_capacity(CLIENTS);
+    for client in 0..CLIENTS {
+        clients.push(tokio::spawn(async move {
+            let source = SocketAddr::from((
+                Ipv4Addr::new(127, 0, 0, u8::try_from(client + 1).expect("CLIENTS < 255")),
+                0,
+            ));
+            let socket = UdpSocket::bind(source).await.expect("bind");
+            socket.connect(server).await.expect("connect");
+            let mut buf = vec![0_u8; 4096];
+            let mut samples = Vec::with_capacity(PER_CLIENT);
+            for i in 0..PER_CLIENT {
+                let name = format!("h{offset}-{client}-{i}.example.");
+                let id = u16::try_from(i % 65_535).unwrap_or(0);
+                let sent = Instant::now();
+                if socket.send(&packet(&name, id)).await.is_err() {
+                    continue;
+                }
+                if tokio::time::timeout(Duration::from_secs(2), socket.recv(&mut buf))
+                    .await
+                    .is_ok()
+                {
+                    samples.push(sent.elapsed());
+                }
+            }
+            samples
+        }));
+    }
+    let mut samples = Vec::with_capacity(CLIENTS * PER_CLIENT);
+    for client in clients {
+        samples.extend(client.await.expect("Client-Task"));
+    }
+    let elapsed = start.elapsed();
+    samples.sort_unstable();
+    #[expect(clippy::cast_precision_loss, reason = "Zählwerte weit unter 2^53")]
+    let answered = samples.len() as f64;
+    (
+        answered / elapsed.as_secs_f64(),
+        percentile(&samples, 0.50),
+        percentile(&samples, 0.99),
+    )
+}
+
+/// Die Zahlen für ROADMAP Phase 9, Schritt 7: Anfragen/s, p99 und RSS, einmal
+/// ohne und einmal mit Drosselung.
+///
+/// Die Frage dahinter ist nicht "wie schnell ist der Server", sondern "was
+/// kostet die Pflichtausstattung aus CLAUDE.md B.5". Das Limit steht dabei so
+/// hoch, dass nichts verworfen wird — gemessen wird der Weg durch den
+/// Token-Bucket, nicht die Wirkung der Drosselung.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "Lastmessung: maschinenabhängig, gehört nicht in die Definition of Done"]
+async fn throughput_with_and_without_rate_limiting() {
+    let before = resident_kib();
+    let plain = start(CacheConfig::default()).await;
+    let (plain_qps, plain_p50, plain_p99) = drive_measured(plain.addr, 0).await;
+    plain.shutdown.cancel();
+
+    let limiter = Arc::new(RateLimiter::new(
+        1_000_000,
+        1_000_000,
+        8192,
+        Arc::new(SystemClock),
+    ));
+    let limited = start_with_lists(
+        CacheConfig::default(),
+        LoadedLists::default(),
+        Detectors::new(),
+        Some(Arc::clone(&limiter)),
+    )
+    .await;
+    let (limited_qps, limited_p50, limited_p99) = drive_measured(limited.addr, 1).await;
+    limited.shutdown.cancel();
+    let after = resident_kib();
+
+    println!("\n| Anfragepfad        | Anfragen/s | p50 | p99 |");
+    println!("|--------------------|-----------:|----:|----:|");
+    println!("| ohne Drosselung    | {plain_qps:>10.0} | {plain_p50:?} | {plain_p99:?} |");
+    println!("| mit Drosselung     | {limited_qps:>10.0} | {limited_p50:?} | {limited_p99:?} |");
+    println!(
+        "\nAnteil: {:.1} %  ·  RSS {} KiB → {} KiB  ·  beobachtete Clients: {}  ·  verworfen: {}",
+        limited_qps / plain_qps * 100.0,
+        before,
+        after,
+        limiter.tracked(),
+        limiter.throttled()
+    );
+
+    assert_eq!(
+        limiter.throttled(),
+        0,
+        "bei diesem Limit darf nichts verworfen werden — sonst misst der Lauf etwas anderes"
+    );
+    assert!(
+        limited_qps > plain_qps * 0.8,
+        "die Drosselung kostet mehr als ein Fünftel des Durchsatzes: \
+         {limited_qps:.0} gegen {plain_qps:.0}"
+    );
+}
+
+/// Ein Client über dem Limit darf die anderen nicht mitreißen.
+///
+/// Der Unit-Test in `src/ratelimit.rs` prüft die Buchführung, der
+/// Integrationstest die Wirkung auf eine Handvoll Pakete — hier geht es um die
+/// Frage, ob das auch unter Last gilt: nebenan feuert ein Client dauerhaft
+/// über dem Limit.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "Lastmessung: maschinenabhängig, gehört nicht in die Definition of Done"]
+async fn a_flooding_client_does_not_slow_down_the_others() {
+    let limiter = Arc::new(RateLimiter::new(200, 400, 8192, Arc::new(SystemClock)));
+    let harness = start_with_lists(
+        CacheConfig::default(),
+        LoadedLists::default(),
+        Detectors::new(),
+        Some(Arc::clone(&limiter)),
+    )
+    .await;
+
+    // Der Störer: eine Adresse, die nicht in der Reihe der Messclients liegt.
+    let server = harness.addr;
+    let flood = tokio::spawn(async move {
+        let socket = UdpSocket::bind(SocketAddr::from((Ipv4Addr::new(127, 0, 0, 200), 0)))
+            .await
+            .expect("bind");
+        socket.connect(server).await.expect("connect");
+        let mut sent = 0_u64;
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while Instant::now() < deadline {
+            if socket.send(&packet("flut.example.", 1)).await.is_ok() {
+                sent += 1;
+            }
+            if sent % 1000 == 0 {
+                tokio::task::yield_now().await;
+            }
+        }
+        sent
+    });
+
+    let (qps, p50, p99) = drive_measured(harness.addr, 2).await;
+    let sent = flood.await.expect("Flut-Task");
+    harness.shutdown.cancel();
+
+    println!(
+        "\nStörer: {sent} Anfragen abgeschickt, {} verworfen",
+        limiter.throttled()
+    );
+    println!("Die übrigen Clients: {qps:.0} Anfragen/s, p50 {p50:?}, p99 {p99:?}");
+
+    assert!(
+        limiter.throttled() > 0,
+        "der Störer wurde nicht gedrosselt — dann misst der Lauf nichts"
+    );
+    // Die Messclients bleiben unter ihrem Limit und müssen alle Antworten
+    // bekommen haben; wären sie mitgedrosselt worden, fehlten Antworten und der
+    // Durchsatz bräche ein.
+    assert!(
+        qps > 1000.0,
+        "die übrigen Clients wurden mitgerissen: nur {qps:.0} Anfragen/s"
     );
 }
 
@@ -465,7 +644,7 @@ async fn cache_hit_latency_with_two_million_blocklist_entries() {
     )]);
     let entries = lists.total_entries();
 
-    let harness = start_with_lists(CacheConfig::default(), lists, Detectors::new()).await;
+    let harness = start_with_lists(CacheConfig::default(), lists, Detectors::new(), None).await;
     let rss = resident_kib();
 
     // Einmal aufwärmen, danach kommt alles aus dem Cache.

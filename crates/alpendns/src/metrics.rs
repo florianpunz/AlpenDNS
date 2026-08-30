@@ -52,6 +52,19 @@ pub struct Snapshot {
     pub detectors: Vec<(crate::detect::Detector, crate::detect::Action)>,
     /// Wie oft jeder Detektor angeschlagen hat.
     pub detections: Vec<(crate::detect::Detector, u64)>,
+    /// Fehlt, wenn die Drosselung abgeschaltet ist.
+    pub rate_limit: Option<RateLimitStats>,
+}
+
+/// Was die Drosselung pro Client zu berichten hat.
+#[derive(Debug)]
+pub struct RateLimitStats {
+    pub per_client_qps: f64,
+    pub burst: f64,
+    /// Verworfene Anfragen seit dem Start.
+    pub throttled: u64,
+    /// Clients, für die gerade Buch geführt wird.
+    pub tracked: usize,
 }
 
 /// Maskiert, was in einem Label-Wert nicht vorkommen darf.
@@ -392,6 +405,42 @@ pub fn render(snapshot: &Snapshot) -> String {
             );
         }
     }
+    // Keine Adressen: der Zähler sagt, *dass* gedrosselt wurde, nicht wen.
+    // Ein Label mit der Client-IP wäre eine Anwesenheitsliste mit Zeitstempel,
+    // die Prometheus für immer behält.
+    gauge(
+        &mut out,
+        "alpendns_rate_limit_enabled",
+        "1, wenn pro Client gedrosselt wird",
+        f64::from(u8::from(snapshot.rate_limit.is_some())),
+    );
+    if let Some(limit) = &snapshot.rate_limit {
+        counter(
+            &mut out,
+            "alpendns_rate_limited_total",
+            "Anfragen, die wegen Überschreitung des Client-Limits verworfen wurden",
+            limit.throttled,
+        );
+        gauge(
+            &mut out,
+            "alpendns_rate_limit_clients",
+            "Clients, für die gerade ein Guthaben geführt wird",
+            limit.tracked as f64,
+        );
+        gauge(
+            &mut out,
+            "alpendns_rate_limit_qps",
+            "Konfigurierte Anfragen je Sekunde und Client",
+            limit.per_client_qps,
+        );
+        gauge(
+            &mut out,
+            "alpendns_rate_limit_burst",
+            "Konfiguriertes Guthaben, das ein Client ansammeln darf",
+            limit.burst,
+        );
+    }
+
     let _ = writeln!(
         out,
         "# HELP alpendns_upstream_down 1, wenn ein Upstream gerade übersprungen wird"
@@ -485,7 +534,38 @@ mod tests {
                 (DetectorKind::Tunneling, DetectorAction::Block),
             ],
             detections: vec![(DetectorKind::Dga, 4), (DetectorKind::Nrd, 0)],
+            rate_limit: Some(RateLimitStats {
+                per_client_qps: 100.0,
+                burst: 200.0,
+                throttled: 5,
+                tracked: 12,
+            }),
         }
+    }
+
+    /// Der Zähler sagt, *dass* gedrosselt wurde. Stünde die Adresse als Label
+    /// daneben, wäre die Metrik eine Anwesenheitsliste mit Zeitstempel — und
+    /// Prometheus behält jede Zeitreihe für immer.
+    #[test]
+    fn the_rate_limit_metric_carries_no_address() {
+        let out = render(&snapshot());
+        assert!(out.contains("alpendns_rate_limited_total 5"));
+        assert!(out.contains("alpendns_rate_limit_clients 12"));
+        assert!(
+            !out.contains("alpendns_rate_limited_total{"),
+            "die Drosselungs-Metrik hat Labels bekommen"
+        );
+    }
+
+    /// Abgeschaltet gibt es die Zähler nicht — statt einer Null, die aussieht
+    /// wie "es wurde nie gedrosselt".
+    #[test]
+    fn a_disabled_rate_limit_is_visible_as_such() {
+        let mut snapshot = snapshot();
+        snapshot.rate_limit = None;
+        let out = render(&snapshot);
+        assert!(out.contains("alpendns_rate_limit_enabled 0"));
+        assert!(!out.contains("alpendns_rate_limited_total"));
     }
 
     /// Jede Metrik braucht HELP und TYPE vor der ersten Zeile, sonst lehnt

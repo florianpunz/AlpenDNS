@@ -4,7 +4,7 @@ Der Plan ist in Phasen geschnitten. Jede Phase hat ein **Ziel**, eine **Schrittl
 Verify-Format** (siehe CLAUDE.md, Teil A.4) und ein **Abnahmekriterium**. Eine Phase gilt
 als fertig, wenn das Abnahmekriterium erfüllt ist — nicht, wenn der Code kompiliert.
 
-**Aktuelle Phase: 9.**
+**Aktuelle Phase: 9** — Code steht, die Abnahme läuft im echten Netz.
 
 Die Reihenfolge ist so gewählt, dass **nach Phase 4 ein Server steht, den du produktiv
 im eigenen Netz benutzen kannst**. Alles danach macht ihn besser, nicht erst benutzbar.
@@ -618,6 +618,92 @@ eine Woche als einziger Resolver im LAN, ohne dass jemand meckert. Erst hier ist
 dafür überhaupt eingerichtet — auf Port 53, als Dienst, über Neustarts hinweg. Was
 dabei auffällt, gehört als Fehlalarm-Liste oder Konfigurationsänderung
 dokumentiert; "lief bei mir" ist kein Abnahmekriterium.
+
+**Umgesetzt am 2026-08-30 — alle acht Punkte.** Die vier Kommandos der
+Definition of Done laufen durch, das Paket baut und ist auspackbar geprüft.
+Was **aussteht**, ist der Teil der Abnahme, der einen zweiten Rechner und
+mehrere Tage braucht (siehe unten). Anleitung dafür:
+[OPERATIONS.md](OPERATIONS.md).
+
+**Schritt 1 und 2 — Unit und Hardening.** `packaging/systemd/alpendns.service`.
+Port 53 kommt über `AmbientCapabilities=CAP_NET_BIND_SERVICE`; der Prozess
+startet direkt als `alpendns` und war nie root. `systemd-analyze security`
+sagt **1,5** — gefordert waren unter 3,0. Was übrig bleibt, ist das, was ein
+Resolver naturgemäß braucht: Netzzugang und Port 53.
+
+Eine Abweichung von CLAUDE.md B.5, die eine sein muss: `RestrictAddressFamilies`
+führt zusätzlich `AF_NETLINK`. glibc fragt beim Auflösen eines Hostnamens über
+Netlink ab, welche Adressfamilien die Maschine hat; ohne die Zeile scheitert der
+Blocklisten-Download auf manchen Systemen, und zwar still. Ebenfalls geprüft und
+wieder entfernt: `PrivateUsers=yes` — in einem eigenen User-Namespace trägt
+`CAP_NET_BIND_SERVICE` nicht mehr bis Port 53.
+
+**Schritt 3 — `alpendns check`.** Läuft als `ExecStartPre`. Prüft Konfiguration,
+Blueprint (Verweise zwischen Clients, Policies und Listen) und die drei
+Verzeichnisse, in die geschrieben werden muss — letztere durch Hinschreiben,
+nicht durch Rechte-Rechnen. Ausdrücklich **nichts, was Netz braucht**: ein
+Startskript, das auf das Internet wartet, ist ein Startskript, das irgendwann
+hängt.
+
+**Schritt 4 — .deb.** `cargo deb -p alpendns`, Metadaten in
+`crates/alpendns/Cargo.toml`, Maintainer-Skripte in `packaging/debian/`. Das
+Paket legt den Systemuser an; die Verzeichnisse unter `/var` legt **systemd**
+über `StateDirectory=` und Geschwister an — damit gibt es genau eine Stelle,
+die Rechte setzt, und ein Upgrade kann sie nicht kaputtmachen.
+`/etc/alpendns/alpendns.toml` ist ein conffile.
+
+**Schritt 5 — Drosselung.** Token Bucket je Client, 16 Schubladen mit je einem
+Mutex (kein globales Schloss im Anfragepfad, B.3 Regel 5), LRU-gedeckelt.
+Über dem Limit wird **verworfen, nicht abgelehnt** —
+[ADR-0020](adr/0020-rate-limiting-verwirft.md). IPv6 wird auf /64
+zusammengefasst, sonst hätte ein Laptop mit Privacy Extensions stündlich ein
+neues Guthaben. Per Default an.
+
+**Schritt 6 — sichere Defaults.** Die ausgelieferte
+`packaging/alpendns.toml` lauscht auf Loopback; frisch installiert ist der
+Server von außen nicht erreichbar. Das steht als Test da
+(`the_packaged_configuration_listens_nowhere_public`), und `0.0.0.0` zählt
+dabei als öffentlich — die Wildcard bindet auch an eine Schnittstelle, die
+morgen am Internet hängt. `alpendns check` sagt am Ende, ob ein Listener über
+das eigene Netz hinausreicht.
+
+**Schritt 7 — Zahlen.** 84 078 Anfragen/s, p99 674 µs, RSS 39 732 KiB; die
+Drosselung kostet **2 % Durchsatz**. Unter einer Flut von 274 000 Paketen/s aus
+einer Quelle bleibt die p99 der übrigen Clients bei 765 µs.
+[BENCHMARKS.md](BENCHMARKS.md), Abschnitt Phase 9.
+
+**Schritt 8 — Betriebsdoku.** [OPERATIONS.md](OPERATIONS.md): Installation,
+Freigabe für das LAN, Upgrade, Backup, Fehlersuche, was die
+Hardening-Direktiven bedeuten, Beobachtungswoche, Deinstallation. Liegt im
+Paket unter `/usr/share/doc/alpendns/`.
+
+**Was aussteht — und warum es aussteht:**
+
+* **Die Installation auf einer frischen Debian-VM ist nicht durchgeführt.** Es
+  gab keine. Geprüft ist, was ohne VM prüfbar ist: das Paket baut, `dpkg-deb -c`
+  zeigt den erwarteten Inhalt, die Maintainer-Skripte sind korrekt
+  zusammengesetzt, `systemd-analyze verify` findet keinen Fehler in der Unit und
+  `systemd-analyze security` gibt 1,5. Dazu ein Lauf des **ausgepackten
+  Paketbinaries** gegen die **ausgelieferte Konfiguration** (Ports und Pfade in
+  ein Temporärverzeichnis umgebogen, sonst unverändert): `check` grün,
+  `dig example.com` liefert über UDP und TCP eine Adresse, `doubleclick.net`
+  liefert NXDOMAIN, ein Sturm von 400 Anfragen aus einer Quelle wird nach genau
+  200 abgeschnitten — der konfigurierte Burst —, während ein zweiter Client
+  daneben alle 50 Antworten bekommt, und SIGTERM beendet sauber mit der
+  Cache-Bilanz im Log.
+
+  Was das **nicht** belegt: dass `adduser`, `deb-systemd-helper` und der erste
+  Start auf einem fremden System in dieser Reihenfolge durchlaufen, und dass die
+  Hardening-Direktiven den Prozess im Betrieb nicht doch an einer Stelle
+  behindern, die hier nicht auftrat (der Kandidat dafür ist
+  `SystemCallFilter`). Das ist der erste Schritt der Abnahme.
+* **Der mehrtägige Praxistest steht aus.** Er braucht Tage und ein echtes Netz.
+  Die Anleitung dazu steht in OPERATIONS.md §6; sie umfasst zugleich die
+  ausstehende Abnahme von Phase 8 (Beobachtungswoche mit allen Detektoren auf
+  `flag`), weil beides derselbe Lauf ist.
+* **Weiterhin offen aus Phase 0:** der CI-Lauf, dafür fehlt ein GitHub-Remote.
+* **Weiterhin offen aus Phase 6, Schritt 8:** der Blick eines Menschen auf die
+  gerenderte UI.
 
 ---
 

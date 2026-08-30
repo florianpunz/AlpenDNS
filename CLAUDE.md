@@ -84,13 +84,16 @@ diesem Projekt. Das heißt konkret: erkläre nicht-offensichtliche Entscheidunge
 Commit oder in der Antwort, statt sie kommentarlos einzubauen. Ein Einzeiler
 "warum so und nicht anders" ist mehr wert als drei Absätze Doku.
 
-**Stand:** Phasen 1 bis 8 sind umgesetzt. Abgenommen sind 1 bis 5; bei Phase 6
+**Stand:** Phasen 1 bis 9 sind umgesetzt. Abgenommen sind 1 bis 5; bei Phase 6
 fehlt nur der Blick eines Menschen auf die gerenderte UI (Roadmap, Schritt 8), bei
-Phase 7 nur der CI-Lauf, für den es kein GitHub-Remote gibt, und bei Phase 8 die
-Beobachtungswoche im echten Netz — erst danach darf ein Detektor von `flag` auf
-`block`. Der Praxistest im echten
-Netz ist bewusst auf Phase 9 verschoben — vorher gibt es keine systemd-Unit und
-damit keinen Betrieb auf Port 53. Der gesamte testbare Code
+Phase 7 nur der CI-Lauf, für den es kein GitHub-Remote gibt. Bei Phase 8 und 9
+steht derselbe Praxistest aus, weil es derselbe Lauf ist: der Server als
+einziger Resolver im LAN, mehrere Tage, alle Detektoren auf `flag` — erst
+danach darf ein Detektor auf `block`. Anleitung dazu in `docs/OPERATIONS.md`
+§6. Ebenfalls offen aus Phase 9: die Installation des `.deb` auf einer frischen
+Debian-VM; geprüft ist bisher nur, was ohne VM prüfbar ist (Paketinhalt,
+Maintainer-Skripte, `systemd-analyze verify` und `security`). Der gesamte
+testbare Code
 liegt in der Library (`src/lib.rs` und die Module daneben), `main.rs` macht nur
 Start, Signale und Shutdown — Voraussetzung dafür, dass Module später ohne Umbau zu
 eigenen Crates werden.
@@ -130,9 +133,20 @@ die Antwort. Die Schwellen sind gemessen und stehen im jeweiligen Modul, nicht
 in der Konfiguration. Die Messkorpora liegen **nicht** im Repo, die Messläufe
 sind `--ignored`; Anleitung in `docs/TESTING.md` §6.
 
-Zahlen in `docs/BENCHMARKS.md`. Aktuelle Arbeit: Phase 9 (Betrieb und Paketierung).
+Seit Phase 9 gibt es den Betrieb als Dienst: die systemd-Unit in
+`packaging/systemd/`, das Debian-Paket über `cargo deb -p alpendns`, die
+Auslieferungskonfiguration in `packaging/alpendns.toml` (Loopback — frisch
+installiert ist der Server von außen nicht erreichbar) und `alpendns check`
+als `ExecStartPre`. Dazu die Drosselung pro Client in `crate::ratelimit`, per
+Default an: über dem Limit wird **verworfen**, nicht abgelehnt (ADR-0020).
+Eine Abweichung von B.5 mit Begründung: `RestrictAddressFamilies` führt
+zusätzlich `AF_NETLINK`, sonst scheitert der Blocklisten-Download still.
+
+Zahlen in `docs/BENCHMARKS.md`. Aktuelle Arbeit: die Abnahme von Phase 8 und 9
+im echten Netz.
 
 **Doku-Karte:** `docs/ROADMAP.md` = aktuelle Phase und Abnahmekriterien ·
+`docs/OPERATIONS.md` = Installation, Upgrade, Backup, Fehlersuche, Beobachtungswoche ·
 `docs/ARCHITECTURE.md` = Zielbild · `docs/TESTING.md` = Teststrategie ·
 `docs/THREAT-MODEL.md` = wogegen geschützt wird und wogegen nicht · `docs/FEATURES.md` =
 Katalog mit Aufwand/Nutzen · `docs/adr/` = warum etwas so ist ·
@@ -193,6 +207,10 @@ Projekt "korrekt" heißt.
 ### B.3 Struktur
 
 ```
+packaging/
+  systemd/           Unit-Datei, gehärtet (systemd-analyze security = 1,5)
+  debian/            Maintainer-Skripte für das .deb
+  alpendns.toml      Auslieferungskonfiguration nach /etc/alpendns
 crates/
   alpendns/          Binary: Startup, Config laden, Signale, Shutdown
   alpendns-server/   Listener (UDP/TCP/DoT/DoH/DoQ), Request-Pipeline

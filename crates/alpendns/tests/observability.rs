@@ -324,6 +324,7 @@ impl StatusSource for Fake {
             dnssec: alpendns::dnssec::counters(),
             detectors: Vec::new(),
             detections: alpendns::detect::counters(),
+            rate_limit: None,
         }
     }
     fn lists(&self) -> Vec<ListInfo> {

@@ -58,6 +58,11 @@ Testfälle, die es geben muss:
 * Zweiter identischer Query kommt aus dem Cache (Upstream sieht genau eine Anfrage).
 * 100 gleichzeitige identische Queries → genau eine Upstream-Anfrage (Dedup).
 * Upstream tot → nächster Resolver; alle tot → `serve_stale`, dann SERVFAIL.
+* Ein Client über dem Limit wird gedrosselt, ein anderer nicht
+  (`tests/ratelimit.rs`). Die zweite Adresse ist `127.0.0.2` — Linux gibt das
+  ganze `127.0.0.0/8` an Loopback, es muss nichts konfiguriert werden. Ein
+  Unit-Test allein reichte hier nicht: geprüft werden muss, dass die
+  Absenderadresse des Pakets ankommt und nicht die des Listeners.
 * Antwort mit falscher Query-ID/falschem QNAME wird verworfen und nicht gecacht.
 * Antwort über 1232 Byte über UDP setzt TC; derselbe Query über TCP liefert die volle
   Antwort.

@@ -18,6 +18,7 @@ use tokio_util::task::TaskTracker;
 use crate::config::ServerConfig;
 use crate::dns;
 use crate::logging::{BlockReason, QueryEvent, QueryLog};
+use crate::ratelimit::RateLimiter;
 use crate::resolve::ResolveBackend;
 use crate::trace::{Ctx, Step};
 
@@ -29,6 +30,8 @@ pub struct Server<B> {
     udp_payload_size: usize,
     /// Die einzige Stelle, an der Query-Namen den Prozess überleben dürfen.
     log: Arc<QueryLog>,
+    /// Fehlt, wenn die Drosselung abgeschaltet ist.
+    limiter: Option<Arc<RateLimiter>>,
 }
 
 impl<B: ResolveBackend> Server<B> {
@@ -37,7 +40,19 @@ impl<B: ResolveBackend> Server<B> {
             backend: Arc::new(backend),
             udp_payload_size: usize::from(udp_payload_size),
             log,
+            limiter: None,
         }
+    }
+
+    /// Hängt die Drosselung pro Client davor.
+    ///
+    /// Als eigener Schritt und nicht als Argument von [`Server::new`], weil sie
+    /// abschaltbar ist und die Tests, die etwas anderes prüfen, sie nicht
+    /// erwähnen sollen.
+    #[must_use]
+    pub fn with_rate_limit(mut self, limiter: Option<Arc<RateLimiter>>) -> Self {
+        self.limiter = limiter;
+        self
     }
 
     /// Öffnet alle konfigurierten Listener.
@@ -98,6 +113,7 @@ impl<B: ResolveBackend> Bound<B> {
                 socket,
                 Arc::clone(&self.server.backend),
                 Arc::clone(&self.server.log),
+                self.server.limiter.clone(),
                 self.server.udp_payload_size,
                 shutdown.clone(),
                 tracker.clone(),
@@ -108,6 +124,7 @@ impl<B: ResolveBackend> Bound<B> {
                 listener,
                 Arc::clone(&self.server.backend),
                 Arc::clone(&self.server.log),
+                self.server.limiter.clone(),
                 shutdown.clone(),
                 tracker.clone(),
             ));
@@ -131,7 +148,23 @@ pub(crate) async fn handle_request<B: ResolveBackend>(
     raw: &[u8],
     peer: SocketAddr,
     log: &QueryLog,
+    limiter: Option<&RateLimiter>,
 ) -> Option<Message> {
+    // Vor allem anderen: was hier verworfen wird, kostet weder Parsen noch
+    // Upstream. Verworfen und nicht abgelehnt — eine Antwort an eine
+    // womöglich gefälschte Absenderadresse ist genau die Reflexion, gegen die
+    // gedrosselt wird (ADR-0020).
+    if let Some(limiter) = limiter
+        && !limiter.allow(peer.ip())
+    {
+        // Die Adresse steht nur auf `debug` und damit per Default nirgends:
+        // im Betrieb genügt der Zähler, bei der Fehlersuche braucht man das
+        // Gerät. Ein Query-Name taucht hier auch dann nicht auf — die Anfrage
+        // ist zu diesem Zeitpunkt noch nicht einmal geparst.
+        tracing::debug!(%peer, "Anfrage wegen Überschreitung des Limits verworfen");
+        return None;
+    }
+
     let request = match Message::from_vec(raw) {
         Ok(request) => request,
         Err(_) => {

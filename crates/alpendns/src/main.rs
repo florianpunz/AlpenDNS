@@ -15,6 +15,7 @@ use alpendns::history::{History, Sample};
 use alpendns::logging::QueryLog;
 use alpendns::policy::{Blueprint, Engine, Explanation, PolicyBackend};
 use alpendns::privacy;
+use alpendns::ratelimit::RateLimiter;
 use alpendns::router::ZoneRouter;
 use alpendns::server::Server;
 use alpendns::upstream::odoh::{OdohBackend, OdohTransport};
@@ -37,6 +38,11 @@ Aufruf:
   alpendns -c <datei>
       Server mit dieser Konfiguration starten
 
+  alpendns -c <datei> check
+      Prüft die Konfiguration und die Verzeichnisse, ohne den Server zu
+      starten. Exit 0 heißt: dieser Start wird nicht an der Konfiguration
+      scheitern. Läuft als ExecStartPre in der systemd-Unit.
+
   alpendns -c <datei> policy test <domain> [--client <name>]
       Zeigt, wie diese Domain für diesen Client entschieden würde, samt
       vollständiger Begründung. Ohne --client gilt die Default-Policy.
@@ -49,6 +55,7 @@ Optionen:
 
 enum Args {
     Run(PathBuf),
+    Check(PathBuf),
     PolicyTest {
         config: PathBuf,
         domain: String,
@@ -94,6 +101,7 @@ fn parse_args() -> anyhow::Result<Args> {
     let config = config.context(format!("keine Konfiguration angegeben\n\n{USAGE}"))?;
     match rest.as_slice() {
         [] => Ok(Args::Run(config)),
+        [command] if command == "check" => Ok(Args::Check(config)),
         [command, action, domain] if command == "policy" && action == "test" => {
             Ok(Args::PolicyTest {
                 config,
@@ -123,6 +131,7 @@ fn run() -> anyhow::Result<()> {
             print!("{text}");
             return Ok(());
         }
+        Args::Check(config) => return check(&config),
         Args::PolicyTest {
             config,
             domain,
@@ -351,11 +360,18 @@ fn run() -> anyhow::Result<()> {
         // Metrik-Endpunkt dafür kommt in Phase 6.
         let cache = Arc::clone(caching.cache());
         let backend = PolicyBackend::new(Arc::clone(&engine), caching);
+        // Pflicht, bevor der Server irgendwo lauscht, wo er nicht nur sein
+        // eigenes LAN sieht (CLAUDE.md B.5). Abschaltbar, aber per Default an.
+        let limiter = RateLimiter::from_config(
+            &server_config.rate_limit,
+            Arc::new(SystemClock) as Arc<dyn alpendns::clock::Clock>,
+        );
         let bound = Server::new(
             backend,
             server_config.edns.udp_payload_size,
             Arc::clone(&query_log),
         )
+            .with_rate_limit(limiter.clone())
             .bind(&server_config)
             .await
             .context("Listener konnten nicht geöffnet werden")?;
@@ -380,6 +396,13 @@ fn run() -> anyhow::Result<()> {
                 .iter()
                 .map(|(detector, action)| format!("{}={}", detector.as_str(), action.as_str()))
                 .collect::<Vec<_>>(),
+            rate_limit = limiter.as_ref().map_or_else(
+                || "aus".to_owned(),
+                |limiter| {
+                    let (rate, burst) = limiter.limits();
+                    format!("{rate:.0}/s, Burst {burst:.0}")
+                }
+            ),
             "AlpenDNS gestartet"
         );
 
@@ -415,6 +438,7 @@ fn run() -> anyhow::Result<()> {
             started: std::time::Instant::now(),
             history: Arc::clone(&history),
             client_addrs: client_addrs.clone(),
+            limiter: limiter.clone(),
         });
         tokio::spawn(sample_history(
             Arc::clone(&source),
@@ -613,6 +637,8 @@ struct Runtime {
     /// Client-Name → erste konfigurierte Adresse, für `/api/explain`.
     /// Dieselbe Auswahl wie bei `alpendns policy test`.
     client_addrs: std::collections::HashMap<String, std::net::IpAddr>,
+    /// Fehlt, wenn die Drosselung abgeschaltet ist.
+    limiter: Option<Arc<RateLimiter>>,
 }
 
 impl StatusSource for Runtime {
@@ -636,6 +662,15 @@ impl StatusSource for Runtime {
             detectors: self.engine.detectors(),
             detections: alpendns::detect::counters(),
             below_threshold_queries: self.log.top(0).below_threshold_queries,
+            rate_limit: self.limiter.as_ref().map(|limiter| {
+                let (rate, burst) = limiter.limits();
+                alpendns::metrics::RateLimitStats {
+                    per_client_qps: rate,
+                    burst,
+                    throttled: limiter.throttled(),
+                    tracked: limiter.tracked(),
+                }
+            }),
         }
     }
 
@@ -772,6 +807,138 @@ fn read_or_create_token(path: &std::path::Path) -> anyhow::Result<String> {
     }
     tracing::info!(path = %path.display(), "neuen API-Token erzeugt");
     Ok(token)
+}
+
+/// `alpendns check`
+///
+/// Läuft als `ExecStartPre` vor jedem Start (ROADMAP Phase 9, Schritt 3). Der
+/// Sinn ist nicht die Ausgabe, sondern der Exit-Code: schlägt die Prüfung fehl,
+/// startet systemd den neuen Prozess gar nicht erst — und die alte Instanz
+/// läuft weiter, statt beim Neustart über eine kaputte Datei zu stolpern.
+///
+/// Geprüft wird ausdrücklich **nichts, was Netz braucht**: kein Listen-Download,
+/// keine Upstream-Verbindung. Ein Startskript, das auf das Internet wartet, ist
+/// ein Startskript, das irgendwann hängt.
+fn check(path: &std::path::Path) -> anyhow::Result<()> {
+    let config = Config::load(path)?;
+    // Der Blueprint liest quer über Clients, Policies und Listennamen; ohne ihn
+    // fiele ein Verweis auf eine unbekannte Liste erst beim Start auf.
+    Blueprint::from_config(&config)?;
+
+    println!("Konfiguration: {}", path.display());
+    println!(
+        "  Listener:    UDP {:?}, TCP {:?}",
+        config.server.listen_udp, config.server.listen_tcp
+    );
+    println!(
+        "  Upstreams:   {}",
+        config
+            .upstream_pool
+            .iter()
+            .flat_map(|pool| pool.resolver.iter())
+            .map(|resolver| format!("{} ({})", resolver.name, resolver.addr.scheme()))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    println!(
+        "  Listen:      {} Blocklisten, {} Allowlisten",
+        config.blocklist.iter().filter(|list| list.enabled).count(),
+        config.allowlist.iter().filter(|list| list.enabled).count()
+    );
+    println!(
+        "  Policies:    {} für {} Clients",
+        config.policy.len(),
+        config.client.len()
+    );
+    println!(
+        "  Blocken:     {:?}, Logging: {:?}",
+        config.blocking.mode, config.privacy.logging.mode
+    );
+    let limit = &config.server.rate_limit;
+    if limit.enabled {
+        println!(
+            "  Drosselung:  {} Anfragen/s je Client, Burst {}",
+            limit.per_client_qps, limit.burst
+        );
+    } else {
+        println!("  Drosselung:  aus");
+    }
+
+    // Verzeichnisse: die häufigste Ursache für einen Start, der an der
+    // Konfiguration nicht scheitert und trotzdem nicht funktioniert. Nach einem
+    // Upgrade gehört ein Verzeichnis schnell wieder root statt dem Dienstuser.
+    let mut problems: Vec<String> = Vec::new();
+    writable(
+        &config.blocking.cache_dir,
+        "blocking.cache_dir",
+        &mut problems,
+    );
+    if config.api.enabled
+        && let Some(parent) = config.api.token_file.parent()
+    {
+        writable(parent, "Verzeichnis von api.token_file", &mut problems);
+    }
+    // Nur im Modus `full` wird überhaupt eine Datei geschrieben.
+    if config.privacy.logging.mode == alpendns::logging::Mode::Full
+        && let Some(parent) = config.privacy.logging.path.parent()
+    {
+        writable(
+            parent,
+            "Verzeichnis von privacy.logging.path",
+            &mut problems,
+        );
+    }
+    if !problems.is_empty() {
+        anyhow::bail!("{}", problems.join("\n"));
+    }
+
+    // Kein Fehler, sondern ein Hinweis: wer bewusst öffentlich lauscht, hat
+    // sich dafür entschieden. Ungefragt darf das nur nicht passieren
+    // (ROADMAP Phase 9, Schritt 6).
+    let public = config.public_listeners();
+    if public.is_empty() {
+        println!("\nOK — erreichbar nur aus dem eigenen Netz.");
+    } else {
+        println!("\nOK — mit einem Hinweis:");
+        for addr in &public {
+            println!(
+                "  {addr} ist nicht auf eine private Adresse beschränkt. Wenn dieser Port \n\
+                 aus dem Internet erreichbar ist, ist der Server ein offener Resolver."
+            );
+        }
+        if !config.server.rate_limit.enabled {
+            println!(
+                "  Dazu steht server.rate_limit.enabled auf false. Ein offener Resolver \n\
+                 ohne Drosselung ist ein Amplification-Reflektor (CLAUDE.md B.5)."
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Prüft, ob in dieses Verzeichnis geschrieben werden kann.
+///
+/// Geprüft wird durch Hinschreiben, nicht durch Rechte-Rechnen: die effektiven
+/// Rechte hängen an User, Gruppen, ACLs und den systemd-Direktiven zusammen,
+/// und die einzige Antwort, auf die es ankommt, ist die des Kernels.
+fn writable(dir: &std::path::Path, label: &str, problems: &mut Vec<String>) {
+    if !dir.is_dir() {
+        problems.push(format!(
+            "{label}: {} gibt es nicht (oder ist kein Verzeichnis)",
+            dir.display()
+        ));
+        return;
+    }
+    let probe = dir.join(".alpendns-check");
+    match std::fs::write(&probe, b"") {
+        Ok(()) => {
+            let _ = std::fs::remove_file(&probe);
+        }
+        Err(error) => problems.push(format!(
+            "{label}: in {} kann nicht geschrieben werden ({error})",
+            dir.display()
+        )),
+    }
 }
 
 /// `alpendns policy test <domain> [--client <name>]`
