@@ -89,35 +89,52 @@ mod tests {
     }
 
     #[test]
-    fn there_is_exactly_one_accent_and_it_exists_in_both_schemes() {
-        // Ein Akzentton, sonst neutrale Graustufen (CLAUDE.md B.6). Je eine
-        // Festlegung für hell und dunkel — eine Farbe, die nur in einem Modus
-        // existiert, fehlt im anderen.
-        assert_eq!(STYLE.matches("--accent:").count(), 2);
-        for forbidden in ["--brand:", "--ok:", "--warn:", "--info:"] {
+    fn the_palette_is_semantic_and_exists_in_both_schemes() {
+        // Vier Bedeutungen plus die Marke, mehr Farbe gibt es nicht
+        // (CLAUDE.md B.6). Je eine Festlegung für hell und dunkel — eine Farbe,
+        // die nur in einem Modus existiert, fehlt im anderen.
+        for token in ["--danger:", "--success:", "--warn:", "--muted:", "--brand:"] {
+            assert_eq!(
+                STYLE.matches(token).count(),
+                2,
+                "{token} ist nicht genau einmal hell und einmal dunkel festgelegt"
+            );
+        }
+        // Ein weiterer Ton wäre wieder Dekoration.
+        for forbidden in ["--accent:", "--info:", "--primary:"] {
             assert!(
                 !STYLE.contains(forbidden),
-                "{forbidden} ist ein zweiter Akzent"
+                "{forbidden} ist eine Farbe ohne Bedeutung"
             );
         }
     }
 
     #[test]
-    fn the_accent_marks_only_blocked_things() {
-        // Jede Regel, die var(--accent) benutzt, muss zu Geblocktem gehören
-        // oder zu einer Fehlermeldung. Sonst markiert die Farbe irgendwann alles.
-        for (index, _) in STYLE.match_indices("var(--accent)") {
-            let selector = STYLE
-                .get(..index)
-                .and_then(|before| before.rfind('}').map(|end| end + 1))
-                .and_then(|start| STYLE.get(start..index))
-                .unwrap_or_default();
-            assert!(
-                selector.contains("is-blocked")
-                    || selector.contains(".subject")
-                    || selector.contains(".error"),
-                "Akzent außerhalb von Geblocktem:{selector}"
-            );
+    fn colour_only_appears_where_it_carries_meaning() {
+        // Jede Regel, die --danger, --success oder --warn benutzt, muss zu einer
+        // der vier Bedeutungen gehören. Sonst markiert die Farbe irgendwann
+        // alles. (--muted ist die neutrale Textfarbe und steht überall.)
+        for colour in ["var(--danger)", "var(--success)", "var(--warn)"] {
+            for (index, _) in STYLE.match_indices(colour) {
+                let selector = STYLE
+                    .get(..index)
+                    .and_then(|before| before.rfind('}').map(|end| end + 1))
+                    .and_then(|start| STYLE.get(start..index))
+                    .unwrap_or_default();
+                assert!(
+                    [
+                        "is-blocked",
+                        ".subject",
+                        ".error",
+                        ".ms-",
+                        ".up-dot",
+                        ".dot"
+                    ]
+                    .iter()
+                    .any(|allowed| selector.contains(allowed)),
+                    "{colour} außerhalb einer Bedeutung:{selector}"
+                );
+            }
         }
     }
 
@@ -133,9 +150,85 @@ mod tests {
         ] {
             assert!(STYLE.contains(token), "Skala unvollständig: {token}");
         }
-        for token in ["--s-1:", "--s-2:", "--s-3:", "--s-4:", "--s-6:", "--s-8:"] {
+        // Abstände auf 8er-Basis; --s-4 ist die einzige halbe Stufe.
+        for token in [
+            "--s-4:", "--s-8:", "--s-16:", "--s-24:", "--s-32:", "--s-48:",
+        ] {
             assert!(STYLE.contains(token), "Abstandsstufe fehlt: {token}");
         }
+    }
+
+    #[test]
+    fn the_content_sits_in_one_centred_container() {
+        assert!(STYLE.contains("--page: 1400px"), "keine Maximalbreite");
+        assert!(STYLE.contains("margin-inline: auto"), "nicht zentriert");
+    }
+
+    #[test]
+    fn the_four_key_figures_are_cards() {
+        // Genau vier Kennzahlen, alle mit derselben Behandlung: 1px Rahmen,
+        // 12px Radius, abgesetzte Fläche.
+        assert_eq!(
+            INDEX.matches("class=\"card\"").count(),
+            4,
+            "es sind nicht vier Kennzahlenkarten"
+        );
+        assert!(STYLE.contains("--radius: 12px"), "kein 12px-Radius");
+        assert!(
+            STYLE.contains("border: 1px solid var(--line)"),
+            "Karten ohne Haarlinie"
+        );
+    }
+
+    #[test]
+    fn the_sparkline_is_inline_svg_without_a_library() {
+        // Eine Linie, kein Diagrammpaket: die Seite lädt nichts nach.
+        assert!(INDEX.contains("<svg class=\"spark\""), "keine Sparkline");
+        assert!(
+            INDEX.contains("vector-effect=\"non-scaling-stroke\""),
+            "die Linie würde beim Strecken mitwachsen"
+        );
+        // Der Pfad wird gesetzt, nicht erzeugt — kein createElementNS, kein
+        // Namensraum-URI, der die Prüfung auf fremde Herkunft aufweichen würde.
+        assert!(
+            SCRIPT.contains("path.setAttribute(\"d\""),
+            "die Sparkline wird nicht über das vorhandene <path> gezeichnet"
+        );
+        assert!(!SCRIPT.contains("createElementNS"));
+    }
+
+    #[test]
+    fn empty_areas_explain_themselves() {
+        // Kein leeres Rechteck: Zeichen plus ein Satz, warum hier nichts steht.
+        assert_eq!(
+            INDEX.matches("class=\"empty\"").count(),
+            3,
+            "nicht jede leere Fläche erklärt sich"
+        );
+        assert_eq!(INDEX.matches("class=\"empty-icon\"").count(), 3);
+    }
+
+    #[test]
+    fn the_answer_badge_says_what_it_means_without_colour() {
+        // Farbe wiederholt den Text, sie ersetzt ihn nicht — sonst ist die
+        // Tabelle für Farbenblinde unlesbar.
+        assert!(SCRIPT.contains("badge.textContent = \"BLOCKED\""));
+        assert!(
+            SCRIPT.contains("badge.title = event.rcode"),
+            "RCODE geht verloren"
+        );
+    }
+
+    #[test]
+    fn latency_thresholds_are_shared_between_upstreams_and_log() {
+        // Dieselbe Farbe darf an zwei Stellen nicht zweierlei heißen.
+        assert!(SCRIPT.contains("const MS_FAST = 20;"));
+        assert!(SCRIPT.contains("const MS_SLOW = 100;"));
+        assert_eq!(
+            SCRIPT.matches("latencyClass(").count(),
+            3,
+            "zweite Schwelle"
+        );
     }
 
     #[test]
@@ -164,13 +257,18 @@ mod tests {
     #[test]
     fn motion_is_reduced_on_request() {
         assert!(
+            STYLE.contains("@media (prefers-color-scheme: dark)"),
+            "kein dunkles Schema"
+        );
+        assert!(
             STYLE.contains("@media (prefers-reduced-motion: reduce)"),
             "prefers-reduced-motion wird nicht beachtet"
         );
-        // Höchstens eine dezente Übergangsregel.
+        // Zwei dezente Übergänge — Eingabefelder und Protokollzeilen — plus
+        // die Regel, die beide wieder abschaltet.
         assert!(
-            STYLE.matches("transition:").count() <= 2,
-            "mehr Übergänge als die eine erlaubte Regel"
+            STYLE.matches("transition:").count() <= 3,
+            "mehr Übergänge als die zwei erlaubten Regeln"
         );
     }
 

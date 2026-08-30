@@ -300,8 +300,17 @@ GET  /                          → HTTP 200, die UI
 **Offen: Schritt 8.** "Screenshot-Review gegen die Vorgaben in CLAUDE.md B.6" ist
 ein Blick eines Menschen auf eine gerenderte Seite. Automatisiert geprüft ist, was
 sich prüfen lässt: keine Verweise nach außen, die drei Fragen als Überschriften
-vorhanden, ein Akzentton, tabellarische Ziffern, kein `innerHTML`. Ob die Seite
-*ruhig* aussieht, kann kein Test sagen.
+vorhanden, die semantischen Farben in beiden Schemata und nur in Selektoren
+mit Bedeutung, zentrierter Container, 8er-Abstände, vier Kennzahlenkarten,
+Sparkline als Inline-SVG ohne Bibliothek, erklärte Leerflächen, tabellarische
+Ziffern, kein `innerHTML`. Ob die Seite *ruhig* aussieht, kann kein Test sagen.
+
+Die Gestaltung wurde am 2026-08-30 überarbeitet: zentrierter Container (max.
+1400 px), Kennzahlen als Karten mit Sparkline der letzten 60 Sekunden, Upstreams
+als Zeilen mit Statuspunkt und Latenz, Badges und Latenzschwellen im Protokoll,
+echte Leerzustände. Der eine Akzentton ist dabei durch die vier semantischen
+Farben aus B.6 ersetzt worden, dazu kommt `--brand` allein für den Schriftzug;
+Datenquellen und Endpunkte blieben unverändert.
 
 **Fallstricke:** Das ist die Phase, in der ein Agent am ehesten in generisches
 Dashboard-Design abrutscht. CLAUDE.md B.6 ist dafür da; bei jeder UI-Aufgabe explizit

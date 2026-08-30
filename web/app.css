@@ -1,35 +1,37 @@
 /* AlpenDNS — Web-UI.
  *
- * Bindend: CLAUDE.md B.6. Keine Gradients, keine Glassmorphism-Karten, keine
- * Emoji-Icons, keine animierten Zähler, keine bunten Badges, keine externen
- * Schriften, kein CDN. Drei statische Dateien, kein Framework, kein Build.
+ * Bindend: CLAUDE.md B.6. Keine Verläufe, keine Glassmorphism-Flächen, keine
+ * Emoji-Icons, keine animierten Zähler, keine externen Schriften, kein CDN.
+ * Drei statische Dateien, kein Framework, kein Build.
  *
- * Die Leitidee, aus der alles andere folgt: das hier ist kein Kachel-Dashboard,
- * sondern ein Live-Protokoll mit einer Statuszeile darüber. Deshalb füllt die
- * Seite genau einen Bildschirm und scrollt nicht — es scrollt das Protokoll.
- * Die drei Fragen aus B.6 stehen dadurch immer gleichzeitig da.
+ * Die Leitidee: ruhige Flächen statt Deko. Der Inhalt sitzt in einem zentrierten
+ * Container, die Seite füllt genau einen Bildschirm und scrollt nicht — es
+ * scrollt das Protokoll. Die drei Fragen aus B.6 stehen dadurch gleichzeitig da.
  *
  * Fünf Entscheidungen, jede mit Grund:
  *
- * 1. TYPOGRAFISCHE SKALA mit echten Sprüngen (11 · 13 · 15 · 24 · bis 34 px)
+ * 1. FARBE IST AUSSCHLIESSLICH SEMANTISCH. Es gibt genau vier Bedeutungen —
+ *    --danger (geblockt, ausgefallen), --success (aus dem Cache, gesunder
+ *    Upstream, erreichbarer Server), --warn (hohe Latenz), --muted (neutral,
+ *    ohne Aussage). Dazu --brand, das keinen Zustand meint, sondern den
+ *    Absender, und deshalb an genau einer Stelle steht: in der ersten Hälfte
+ *    des Schriftzugs. Alles andere ist Graustufe.
+ *
+ * 2. SPACING-SCALE AUF 8er-BASIS, als Variablen; der Name ist der Pixelwert,
+ *    damit niemand raten muss. Nur --s-4 ist eine halbe Stufe, für Abstände
+ *    innerhalb einer Textzeile. Ad-hoc-Pixelwerte im Regelwerk sind der Weg, auf
+ *    dem eine Oberfläche über Monate unruhig wird: jede einzelne Abweichung ist
+ *    begründbar, die Summe ist Willkür.
+ *
+ * 3. FLÄCHEN STATT LINIEN. Karten und Panels tragen dieselbe Behandlung —
+ *    1px Rahmen, 12px Radius, leicht abgesetzter Grund. Eine einzige Sorte
+ *    Container, nicht drei; verschachtelt wird sie nicht.
+ *
+ * 4. TYPOGRAFISCHE SKALA mit echten Sprüngen (11 · 13 · 15 · 17 · 32 · bis 34 px)
  *    statt "alles 14px". Der Sprung zwischen --t-figure und --t-lead ist der
  *    eigentliche Inhalt der Hierarchie: die Begründung einer Blockade ist
- *    wichtiger als jede Summe und ist deshalb das Größte auf der Seite.
- *    Zahlen tabular und rechtsbündig, damit Spalten beim Nachladen nicht
- *    zucken und Größenordnungen untereinander vergleichbar bleiben.
- *
- * 2. SPACING-SYSTEM aus sechs Stufen als Variablen. Ad-hoc-Pixelwerte im
- *    Regelwerk sind der Weg, auf dem eine Oberfläche über Monate unruhig wird:
- *    jede einzelne Abweichung ist begründbar, die Summe ist Willkür.
- *
- * 3. TRENNUNG ÜBER HAARLINIEN UND WEISSRAUM, nicht über Boxen. Es gibt keine
- *    Karte auf dieser Seite und damit auch keine Karte in einer Karte. Ein
- *    Rahmen um eine Zahl sagt nichts, was Abstand nicht besser sagt.
- *
- * 4. EIN AKZENTTON, und zwar Terrakotta — nicht das Blau, das jedes Framework
- *    mitliefert. Er markiert ausschließlich Geblocktes: Namen im Protokoll,
- *    den RCODE, den Strich am Zeilenanfang und den Namen in der Begründung.
- *    Nirgends sonst. Wo Farbe alles markiert, markiert sie nichts.
+ *    wichtiger als jede Summe. Zahlen tabular, damit Spalten beim Nachladen
+ *    nicht zucken und Größenordnungen untereinander vergleichbar bleiben.
  *
  * 5. DOMAINNAMEN IN MONOSPACE aus dem System-Stack. Ein Name ist Material,
  *    kein Fließtext; die Unterscheidung nimmt dem Auge die Arbeit ab, im
@@ -42,46 +44,64 @@
 
   /* Neutrale Graustufen, leicht warm — kalte Grautöne lassen eine Oberfläche
      nach Standardvorlage aussehen. */
-  --bg: #fcfcfb;
+  --bg: #fbfbfa;
   --raised: #ffffff;
   --line: #e6e4df;
   --line-strong: #d5d2cb;
   --text: #191917;
-  --muted: #6a6862;
   --faint: #9a978e;
+  --row-alt: #f7f6f4;
+  --row-hover: #efeeea;
 
-  /* Der eine Akzent. Nur Geblocktes. */
-  --accent: #a8412a;
+  /* Die vier Bedeutungen. Nur hierfür gibt es Farbe. */
+  --danger: #c0392b;
+  --success: #1a7f4b;
+  --warn: #9a6212;
+  --muted: #6a6862;
+  /* Dazu die Marke: kein Zustand, sondern die Absenderkennung. Sie steht
+     ausschließlich in der ersten Hälfte des Schriftzugs. */
+  --brand: #1d63d1;
 
-  /* 1 — Typografie */
+  /* 4 — Typografie */
   --t-micro: 0.6875rem;
   --t-small: 0.8125rem;
   --t-body: 0.9375rem;
-  --t-figure: 1.5rem;
+  --t-mark: 1.0625rem;
+  --t-figure: 2rem;
   --t-lead: clamp(1.35rem, 2.6vw, 2.125rem);
 
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
           "Liberation Mono", monospace;
 
-  /* 2 — Abstände */
-  --s-1: 0.25rem;
-  --s-2: 0.5rem;
-  --s-3: 0.75rem;
-  --s-4: 1rem;
-  --s-6: 1.5rem;
-  --s-8: 2rem;
+  /* 2 — Abstände, 8er-Basis; der Name ist der Pixelwert. */
+  --s-4: 0.25rem;
+  --s-8: 0.5rem;
+  --s-16: 1rem;
+  --s-24: 1.5rem;
+  --s-32: 2rem;
+  --s-48: 3rem;
+
+  /* 3 — Die eine Sorte Container */
+  --radius: 12px;
+  --page: 1400px;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #141412;
-    --raised: #1c1c19;
+    --bg: #131312;
+    --raised: #1b1b19;
     --line: #2e2d29;
     --line-strong: #3c3b36;
     --text: #eceae5;
-    --muted: #a3a098;
     --faint: #6e6b64;
-    --accent: #e08a68;
+    --row-alt: #201f1d;
+    --row-hover: #272622;
+
+    --danger: #ef6a52;
+    --success: #4cc98d;
+    --warn: #e0a355;
+    --muted: #a3a098;
+    --brand: #5c9dff;
   }
 }
 
@@ -108,7 +128,24 @@ body {
 .shell {
   height: 100dvh;
   display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+/* Der zentrierte Container. Trennlinien laufen darüber hinaus bis an den Rand,
+   der Inhalt tut es nicht. */
+.wrap {
+  width: 100%;
+  max-width: var(--page);
+  margin-inline: auto;
+  padding-inline: var(--s-32);
+}
+
+.board {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: var(--s-24);
+  padding-block: var(--s-24);
+  min-height: 0;
 }
 
 h1, h2 { margin: 0; }
@@ -127,14 +164,14 @@ h2 {
 .mark {
   display: flex;
   align-items: center;
-  gap: var(--s-3);
-  font-size: var(--t-body);
+  gap: var(--s-8);
+  font-size: var(--t-mark);
   font-weight: 400;
   letter-spacing: 0.01em;
 }
-/* Die zwei Hälften des Namens trennt das Gewicht, nicht die Farbe — Farbe ist
-   in dieser Oberfläche für Geblocktes reserviert. */
-.wordmark b { font-weight: 650; }
+/* Die zwei Hälften des Namens trennt Gewicht und Markenfarbe: "Alpen" trägt
+   den Absender, "DNS" bleibt Text. */
+.wordmark b { font-weight: 650; color: var(--brand); }
 .wordmark { color: var(--text); }
 
 .logo { width: 30px; height: 18px; flex: none; display: block; }
@@ -144,17 +181,17 @@ h2 {
 
 /* ── Kopfzeile ─────────────────────────────────────────────────────────── */
 
-.masthead {
+.masthead { border-bottom: 1px solid var(--line); }
+.masthead-inner {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--s-6);
+  gap: var(--s-24);
   flex-wrap: wrap;
-  padding: var(--s-4) var(--s-8);
-  border-bottom: 1px solid var(--line);
+  padding-block: var(--s-16);
 }
 
-.facts { display: flex; gap: var(--s-8); margin: 0; }
+.facts { display: flex; gap: var(--s-32); margin: 0; }
 .fact { display: flex; flex-direction: column; gap: 1px; }
 .facts dt {
   font-size: var(--t-micro);
@@ -164,54 +201,91 @@ h2 {
 }
 .facts dd { margin: 0; font-size: var(--t-small); color: var(--muted); }
 
-/* Der Punkt sagt genau eines: der Status ist gerade abrufbar. Gefüllt heißt ja,
-   hohl heißt nein — die Bedeutung liegt in der Form, nicht in einer Farbe. */
-.reach { display: inline-flex; align-items: center; gap: var(--s-2); }
+/* Der Punkt sagt genau eines: der Status ist gerade abrufbar. Grün wie beim
+   gesunden Upstream; veraltet er, wird er hohl und neutral. */
+.reach { display: inline-flex; align-items: center; gap: var(--s-8); }
 .dot {
   width: 7px;
   height: 7px;
   border-radius: 50%;
   flex: none;
-  background: var(--muted);
-  box-shadow: inset 0 0 0 1px var(--muted);
+  background: var(--success);
+  box-shadow: inset 0 0 0 1px var(--success);
 }
 .reach.is-stale .dot { background: transparent; box-shadow: inset 0 0 0 1px var(--faint); }
 
-/* ── Summen: der Rahmen ────────────────────────────────────────────────── */
+/* ── Die eine Sorte Container ──────────────────────────────────────────── */
 
-.figures {
+.panel, .card {
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.panel-head {
   display: flex;
   align-items: baseline;
-  gap: var(--s-8);
-  flex-wrap: wrap;
-  padding: var(--s-4) var(--s-8);
-  border-bottom: 1px solid var(--line);
+  gap: var(--s-16);
+  padding: var(--s-16) var(--s-16) var(--s-8);
 }
-.figure { display: flex; align-items: baseline; gap: var(--s-2); }
+
+/* ── Kennzahlen ────────────────────────────────────────────────────────── */
+
+.figures {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--s-16);
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+  padding: var(--s-16);
+  min-width: 0;
+}
 .value {
   font-size: var(--t-figure);
   font-weight: 450;
-  line-height: 1.1;
-  letter-spacing: -0.015em;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
 }
-.label { font-size: var(--t-small); color: var(--muted); }
-
-.upstreams {
-  margin: 0 0 0 auto;
+.value .trail {
   font-size: var(--t-small);
+  font-weight: 400;
+  letter-spacing: 0;
   color: var(--muted);
+  margin-left: var(--s-8);
 }
-.upstreams .sep { color: var(--faint); padding: 0 var(--s-2); }
-.upstreams .down { color: var(--text); font-weight: 550; }
+.label {
+  font-size: var(--t-micro);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--faint);
+}
+
+/* Die Sparkline: eine Linie, keine Achse, keine Legende. Sie sitzt am Fuß der
+   Karte, damit die vier Karten trotzdem eine Zeile bleiben. */
+.spark {
+  margin-top: auto;
+  padding-top: var(--s-16);
+  width: 100%;
+  height: 40px;
+  display: block;
+  overflow: visible;
+}
+.spark-line {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
 
 /* ── Begründung: das Größte auf der Seite ──────────────────────────────── */
 
-.why {
-  padding: var(--s-6) var(--s-8);
-  border-bottom: 1px solid var(--line-strong);
-  background: var(--raised);
-}
-.why h2 { margin-bottom: var(--s-3); }
+.why { padding: 0 var(--s-16) var(--s-16); }
+.why h2 { padding: var(--s-16) 0 var(--s-8); }
 
 .why .subject {
   display: block;
@@ -220,20 +294,20 @@ h2 {
   font-weight: 500;
   line-height: 1.15;
   letter-spacing: -0.02em;
-  color: var(--accent);
+  color: var(--danger);
   overflow-wrap: anywhere;
 }
 .why .context {
-  margin: var(--s-2) 0 0;
+  margin: var(--s-8) 0 0;
   font-size: var(--t-small);
   color: var(--muted);
 }
 
 /* Die Kette ist eine Aufzählung, keine Tabelle: die Reihenfolge ist die Aussage. */
-.chain { margin: var(--s-4) 0 0; padding: 0; list-style: none; }
+.chain { margin: var(--s-16) 0 0; padding: 0; list-style: none; counter-reset: step; }
 .chain li {
   position: relative;
-  padding: 0 0 0 var(--s-6);
+  padding: 0 0 0 var(--s-24);
   font-size: var(--t-small);
   color: var(--muted);
   line-height: 1.7;
@@ -247,31 +321,50 @@ h2 {
   color: var(--faint);
   font-variant-numeric: tabular-nums;
 }
-.chain { counter-reset: step; }
 /* Der letzte Schritt trägt die Entscheidung und darf sie zeigen. */
 .chain li:last-child { color: var(--text); }
 
-.idle { margin: 0; color: var(--faint); font-size: var(--t-small); }
+/* ── Leere Flächen sagen, warum sie leer sind ──────────────────────────── */
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-8);
+  padding: var(--s-32) var(--s-16);
+  text-align: center;
+  color: var(--faint);
+}
+.empty p { margin: 0; font-size: var(--t-small); max-width: 28ch; }
+/* Der Satz gehört in die Fläche, die er erklärt — also füllt er sie. */
+.log .empty { min-height: 100%; }
+/* Beide in dieselbe Zelle, nicht nur in dieselbe Zeile: sonst legt die
+   automatische Platzierung eine zweite Spalte an und quetscht das Panel. */
+.top-panel .empty, .top { grid-area: 2 / 1; }
+.empty-icon {
+  width: 28px;
+  height: 28px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.7;
+}
 
 /* ── Protokoll: der Inhalt ─────────────────────────────────────────────── */
 
-.stream {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  min-height: 0;
-}
-.stream-head {
-  display: flex;
-  align-items: baseline;
-  gap: var(--s-4);
-  padding: var(--s-4) var(--s-8) var(--s-2);
-}
+.stream { display: grid; min-height: 0; }
 
 .panes {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 15rem;
+  grid-template-columns: minmax(0, 1fr) 17rem;
+  gap: var(--s-16);
   min-height: 0;
 }
+
+.log-panel { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; }
 
 .log {
   min-height: 0;
@@ -279,7 +372,7 @@ h2 {
      sobald die erste Zeile über den Rand hinausläuft. */
   overflow-y: scroll;
   scrollbar-gutter: stable;
-  padding: 0 var(--s-4) var(--s-6) var(--s-8);
+  padding: 0 var(--s-8) var(--s-16) var(--s-16);
 }
 
 .log-table { width: 100%; border-collapse: collapse; }
@@ -287,25 +380,33 @@ h2 {
   position: sticky;
   top: 0;
   z-index: 1;
-  background: var(--bg);
+  background: var(--raised);
   text-align: left;
   font-size: var(--t-micro);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--faint);
-  padding: 0 var(--s-4) var(--s-2) 0;
+  padding: 0 var(--s-8) var(--s-8) 0;
   border-bottom: 1px solid var(--line);
 }
 .log-table td {
-  padding: var(--s-1) var(--s-4) var(--s-1) 0;
-  border-bottom: 1px solid var(--line);
+  padding: var(--s-4) var(--s-8);
   font-size: var(--t-small);
   /* Feste Zeilenhöhe: neue Zeilen schieben, aber nichts rechnet sich neu. */
   line-height: 1.7;
   white-space: nowrap;
 }
-.c-time, .c-ms { width: 1%; }
+.log-table td:first-child { padding-left: var(--s-4); border-radius: 4px 0 0 4px; }
+.log-table td:last-child { padding-right: var(--s-4); border-radius: 0 4px 4px 0; }
+
+/* Zebra, minimal: nur so viel, dass das Auge die Zeile hält. Der Grund sitzt auf
+   der Zelle, nicht auf der Zeile — sonst greifen die Radien oben nicht. */
+.log-table tbody td { transition: background-color 80ms ease; }
+.log-table tbody tr:nth-child(even) td { background: var(--row-alt); }
+.log-table tbody tr:hover td { background: var(--row-hover); }
+
+.c-time, .c-ms, .c-rcode { width: 1%; }
 .c-ms, td.c-ms { text-align: right; }
 .c-client { color: var(--muted); }
 .c-name { width: 99%; }
@@ -315,30 +416,71 @@ td.c-name {
   text-overflow: ellipsis;
   max-width: 0;
 }
-td.c-time, td.c-rcode { color: var(--muted); font-variant-numeric: tabular-nums; }
-
-/* Der Akzent, und nur hier: eine geblockte Zeile. Der Strich links trägt die
-   Aussage auch dann, wenn jemand Rot nicht von Grau unterscheiden kann. */
-.is-blocked td.c-name { color: var(--accent); }
-.is-blocked td.c-rcode { color: var(--accent); }
-.is-blocked td.c-time { box-shadow: inset 2px 0 0 var(--accent); padding-left: var(--s-2); }
-
+td.c-time { color: var(--muted); }
 .unnamed { color: var(--faint); font-family: system-ui, sans-serif; }
+
+/* Der Name einer geblockten Anfrage trägt dieselbe Bedeutung wie ihr Badge. */
+.is-blocked td.c-name { color: var(--danger); }
+
+/* Antwort als Badge. Die Farbe wiederholt nur, was der Text schon sagt —
+   wer sie nicht sieht, verliert nichts. */
+.badge {
+  display: inline-block;
+  padding: 0 var(--s-8);
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  font-size: var(--t-micro);
+  font-weight: 550;
+  letter-spacing: 0.04em;
+  line-height: 1.6;
+}
+.badge.is-muted { color: var(--muted); }
+.badge.is-blocked { color: var(--danger); border-color: var(--danger); }
+
+/* Latenz nach Schwelle: schnell, unauffällig, langsam. */
+.ms-fast { color: var(--success); }
+.ms-slow { color: var(--warn); }
+
+/* ── Upstreams ─────────────────────────────────────────────────────────── */
+
+.upstreams { margin: 0; padding: 0 var(--s-16) var(--s-16); list-style: none; }
+.upstreams li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-8);
+  font-size: var(--t-small);
+  line-height: 2;
+}
+.up-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Ohne eigene Farbe: sonst überschreibt diese Regel die Latenzklassen weiter
+   oben (gleiche Spezifität, später im Regelwerk) und die Schwellen wären tot. */
+.up-rtt { margin-left: auto; }
+.up-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+  align-self: center;
+}
+.up-dot.is-up { background: var(--success); }
+.up-dot.is-down { background: var(--danger); }
 
 /* ── Häufigste Namen ───────────────────────────────────────────────────── */
 
-.side {
+.side { display: grid; grid-template-rows: auto minmax(0, 1fr); gap: var(--s-16); min-height: 0; }
+.top-panel { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; }
+
+.top {
+  margin: 0;
+  padding: 0 var(--s-16) var(--s-16);
+  list-style: none;
   min-height: 0;
   overflow-y: auto;
-  padding: 0 var(--s-8) var(--s-6) var(--s-6);
-  border-left: 1px solid var(--line);
 }
-.side h2 { padding-bottom: var(--s-2); border-bottom: 1px solid var(--line); }
-.top { margin: var(--s-2) 0 0; padding: 0; list-style: none; }
 .top li {
   display: flex;
   justify-content: space-between;
-  gap: var(--s-3);
+  gap: var(--s-8);
   font-size: var(--t-small);
   line-height: 1.9;
 }
@@ -348,24 +490,24 @@ td.c-time, td.c-rcode { color: var(--muted); font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.top li.is-blocked .n { color: var(--accent); }
-.top .c { color: var(--faint); font-variant-numeric: tabular-nums; }
+.top li.is-blocked .n { color: var(--danger); }
+.top .c { color: var(--faint); }
 
 /* ── Hinweise, Anmeldung ───────────────────────────────────────────────── */
 
 .note { margin: 0; font-size: var(--t-small); color: var(--muted); }
-.error { color: var(--accent); font-size: var(--t-small); }
+.error { color: var(--danger); font-size: var(--t-small); }
 
 .login {
   max-width: 24rem;
   margin: 18vh auto;
-  padding: 0 var(--s-6);
+  padding: 0 var(--s-24);
   display: flex;
   flex-direction: column;
-  gap: var(--s-2);
+  gap: var(--s-8);
 }
-.login .mark { margin-bottom: var(--s-3); }
-.login .note { margin-bottom: var(--s-4); }
+.login .mark { margin-bottom: var(--s-8); }
+.login .note { margin-bottom: var(--s-16); }
 .login label {
   font-size: var(--t-micro);
   text-transform: uppercase;
@@ -375,14 +517,14 @@ td.c-time, td.c-rcode { color: var(--muted); font-variant-numeric: tabular-nums;
 
 input, button {
   font: inherit;
-  padding: var(--s-2) var(--s-3);
+  padding: var(--s-8) var(--s-16);
   border: 1px solid var(--line-strong);
-  border-radius: 4px;
+  border-radius: 8px;
   background: var(--raised);
   color: var(--text);
 }
 button { cursor: pointer; font-weight: 500; }
-/* Die einzige Übergangsregel der Seite. */
+/* Die zweite und letzte Übergangsregel der Seite. */
 input, button { transition: border-color 100ms ease; }
 input:hover, button:hover { border-color: var(--muted); }
 input:focus-visible, button:focus-visible {
@@ -402,12 +544,16 @@ code { font-family: var(--mono); font-size: 0.9em; color: var(--muted); }
   * { transition: none !important; animation: none !important; }
 }
 
-/* Schmale Fenster: die Nebenspalte weicht, das Protokoll bleibt. */
+/* Schmale Fenster: die Karten brechen um, die Nebenspalte rutscht unter das
+   Protokoll — und dann darf die Seite auch scrollen. */
 @media (max-width: 60rem) {
-  .masthead, .figures, .why, .stream-head { padding-left: var(--s-4); padding-right: var(--s-4); }
-  .log { padding-left: var(--s-4); padding-right: var(--s-2); }
+  .wrap { padding-inline: var(--s-16); }
+  .shell { height: auto; min-height: 100dvh; }
+  .board { grid-template-rows: none; }
+  .figures { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .panes { grid-template-columns: minmax(0, 1fr); }
-  .side { display: none; }
-  .facts { gap: var(--s-6); }
+  .log { max-height: 60vh; }
+  .side { grid-template-rows: none; }
+  .facts { gap: var(--s-24); }
   .c-client { display: none; }
 }
