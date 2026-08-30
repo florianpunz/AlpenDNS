@@ -169,7 +169,7 @@ ein Pi-hole im eigenen Netz.
 4. Parser für RPZ-Zonendateien → verify: Unit-Test mit RPZ-Beispiel
 5. Matcher, v1 als HashSet mit Suffix-Lookup, liefert RuleRef → verify: Property-Test Wildcard-Semantik; notexample.com matcht nie wegen example.com
 6. Allowlist mit Vorrang vor Blocklisten → verify: Integrationstest, Domain auf beiden Listen wird durchgelassen
-7. Block-Antwort synthetisieren (nxdomain / zero_ip / refused) → verify: je ein Test, RCODE und Antwortinhalt korrekt
+7. Block-Antwort synthetisieren (nxdomain / zero_ip / sinkhole) → verify: je ein Test, RCODE und Antwortinhalt korrekt
 8. Listen-Download mit ETag/If-Modified-Since, Cache auf Platte → verify: zweiter Abruf gegen lokalen HTTP-Fake liefert 304, keine Neuverarbeitung
 9. Atomarer Tausch per ArcSwap, kein Ausfall beim Update → verify: Lasttest während eines Updates, keine Fehlerantwort, keine Latenzspitze
 10. Erststart ohne erreichbare Liste bricht ab, späterer Ausfall nicht → verify: zwei Tests für beide Fälle

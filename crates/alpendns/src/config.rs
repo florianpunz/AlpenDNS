@@ -1114,6 +1114,28 @@ tls_name = "dns.quad9.net"
     }
 
     #[test]
+    fn the_removed_block_mode_says_what_applies_instead() {
+        // REFUSED schickte den Client zum nächsten Resolver seiner Liste. Wer
+        // es konfiguriert hatte, soll das lesen, statt "unknown variant".
+        let text = format!("{MINIMAL}\n[blocking]\nmode = \"refused\"\n");
+        let err = parse(&text).expect_err("refused ist weg").to_string();
+        assert!(err.contains("refused"), "{err}");
+        assert!(err.contains("nxdomain"), "{err}");
+    }
+
+    #[test]
+    fn the_remaining_block_modes_still_parse() {
+        for (text, expected) in [
+            ("nxdomain", crate::filter::block::BlockMode::Nxdomain),
+            ("zero_ip", crate::filter::block::BlockMode::ZeroIp),
+            ("sinkhole", crate::filter::block::BlockMode::Sinkhole),
+        ] {
+            let config = valid(&format!("{MINIMAL}\n[blocking]\nmode = \"{text}\"\n"));
+            assert_eq!(config.blocking.mode, expected);
+        }
+    }
+
+    #[test]
     fn a_removed_fanout_says_what_applies_instead() {
         // Nicht nur "unbekanntes Feld": wer fanout gesetzt hatte, soll lesen,
         // was der Server jetzt tut.
