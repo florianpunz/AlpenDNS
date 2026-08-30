@@ -9,8 +9,12 @@
 use std::fmt;
 
 /// Wie eine Zeile zu lesen ist.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
+///
+/// `adblock` und `rpz` gibt es nicht mehr. Beide Formate kennen **Ausnahmen**
+/// (`@@||name^` bzw. `rpz-passthru`), und beide Parser haben sie übersprungen:
+/// die Liste wurde geladen, aber schärfer als sie gemeint war
+/// ([ADR-0014](../../../../docs/adr/0014-adblock-und-rpz-parser-entfallen.md)).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Format {
     /// `0.0.0.0 ads.example.com` — das Format von /etc/hosts.
     Hosts,
@@ -18,10 +22,6 @@ pub enum Format {
     Domains,
     /// Wie `domains`, aber jeder Eintrag gilt auch für alle Subdomains.
     Wildcard,
-    /// Teilmenge der Adblock-Syntax: `||domain^`. Siehe [`parse_adblock`].
-    Adblock,
-    /// Response Policy Zone, Teilmenge. Siehe [`parse_rpz`].
-    Rpz,
 }
 
 impl fmt::Display for Format {
@@ -30,10 +30,37 @@ impl fmt::Display for Format {
             Self::Hosts => "hosts",
             Self::Domains => "domains",
             Self::Wildcard => "wildcard",
-            Self::Adblock => "adblock",
-            Self::Rpz => "rpz",
         };
         f.write_str(text)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Format {
+    /// Von Hand statt abgeleitet, damit ein entferntes Format sagt, woran es
+    /// lag und was an seine Stelle tritt.
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let text = <String as serde::Deserialize>::deserialize(deserializer)?;
+        match text.as_str() {
+            "hosts" => Ok(Self::Hosts),
+            "domains" => Ok(Self::Domains),
+            "wildcard" => Ok(Self::Wildcard),
+            "adblock" => Err(serde::de::Error::custom(
+                "format = \"adblock\" gibt es nicht mehr. Unterstützt war nur `||name^`; \
+                 die Ausnahmeregeln (`@@||name^`), mit denen solche Listen ihre eigenen \
+                 Fehlalarme zurücknehmen, wurden übersprungen — die Liste blockte also \
+                 mehr, als sie sollte. Viele Listen gibt es auch als `wildcard`; `||name^` \
+                 entspricht dort einer Zeile `name`.",
+            )),
+            "rpz" => Err(serde::de::Error::custom(
+                "format = \"rpz\" gibt es nicht mehr. Erkannt war nur die NXDOMAIN-Regel \
+                 (`CNAME .`); `rpz-passthru` — die Ausnahme — und alle Trigger außer dem \
+                 Namen wurden übersprungen. RPZ wird zudem per Zonentransfer verteilt, \
+                 nicht als Datei über HTTPS. Stattdessen: hosts, domains oder wildcard.",
+            )),
+            other => Err(serde::de::Error::custom(format!(
+                "unbekanntes Listenformat '{other}' — erlaubt sind hosts, domains, wildcard"
+            ))),
+        }
     }
 }
 
@@ -102,8 +129,8 @@ fn is_valid_label(label: &str) -> bool {
 
 /// Schneidet einen Kommentar ab und liefert den Rest ohne Rand-Leerzeichen.
 ///
-/// `#` gilt überall als Kommentar, `!` nur am Zeilenanfang (in Adblock-Listen
-/// ist das der Kommentarmarker).
+/// `#` gilt überall als Kommentar, `!` nur am Zeilenanfang — heruntergeladene
+/// Listen tragen ihren Kopf oft in dieser Schreibweise.
 fn strip_comment(line: &str) -> &str {
     let line = line.trim();
     if line.starts_with('!') {
@@ -143,8 +170,6 @@ pub fn parse(text: &str, format: Format) -> Parsed {
         Format::Hosts => parse_hosts(text),
         Format::Domains => parse_simple(text, Scope::Exact),
         Format::Wildcard => parse_simple(text, Scope::Suffix),
-        Format::Adblock => parse_adblock(text),
-        Format::Rpz => parse_rpz(text),
     }
 }
 
@@ -202,120 +227,6 @@ fn parse_simple(text: &str, scope: Scope) -> Parsed {
         }
         let candidate = line.strip_prefix("*.").unwrap_or(line);
         match normalize(candidate) {
-            Some(domain) => parsed.entries.push(Entry {
-                domain,
-                scope,
-                line: line_number(index),
-            }),
-            None => parsed.skipped = parsed.skipped.saturating_add(1),
-        }
-    }
-    parsed
-}
-
-/// Adblock-Syntax, **bewusst nur die Teilmenge `||domain^`**.
-///
-/// Unterstützt wird genau eine Form: `||example.com^` und `||example.com^$...`,
-/// beides als Suffix-Regel. Alles andere wird übersprungen, insbesondere:
-///
-/// * Ausnahmeregeln (`@@||example.com^`) — Allowlists sind eine eigene Liste,
-///   nicht eine Zeile mitten in einer Blockliste,
-/// * Element-Filter (`example.com##.ad`) — das ist Sache eines Browsers,
-/// * reguläre Ausdrücke (`/muster/`) und Teilstring-Regeln (`/ads/`) — sie
-///   passen nicht auf einen Domainnamen, sondern auf eine URL, die ein
-///   DNS-Resolver nie sieht,
-/// * Optionen, die den Geltungsbereich einschränken (`$third-party`) — sie
-///   nicht zu beachten würde mehr blocken als beabsichtigt.
-fn parse_adblock(text: &str) -> Parsed {
-    let mut parsed = Parsed::default();
-    for (index, line) in text.lines().enumerate() {
-        let line = strip_comment(line);
-        if line.is_empty() {
-            continue;
-        }
-        let Some(rest) = line.strip_prefix("||") else {
-            parsed.skipped = parsed.skipped.saturating_add(1);
-            continue;
-        };
-        // Alles ab `^` ist Trenner und Optionen.
-        let Some((domain, options)) = rest.split_once('^') else {
-            parsed.skipped = parsed.skipped.saturating_add(1);
-            continue;
-        };
-        // Hinter dem `^` darf nichts mehr stehen. Optionen wie `$third-party`
-        // schränken ein, worauf die Regel zutrifft; sie zu ignorieren würde
-        // mehr blocken als die Liste beabsichtigt.
-        if !options.is_empty() {
-            parsed.skipped = parsed.skipped.saturating_add(1);
-            continue;
-        }
-        match normalize(domain) {
-            Some(domain) => parsed.entries.push(Entry {
-                domain,
-                scope: Scope::Suffix,
-                line: line_number(index),
-            }),
-            None => parsed.skipped = parsed.skipped.saturating_add(1),
-        }
-    }
-    parsed
-}
-
-/// Response Policy Zone, **Teilmenge**.
-///
-/// Erkannt werden Zeilen der Form `<name> [ttl] [klasse] CNAME .`, also die
-/// NXDOMAIN-Regel aus RFC 8611 §2.1 — mit Abstand die häufigste. `$ORIGIN` wird
-/// beachtet und vom Namen abgeschnitten, weil der Zonenname der Policy nichts
-/// mit dem geblockten Namen zu tun hat.
-///
-/// Nicht unterstützt: alle anderen Policy-Aktionen (`*.rpz-passthru`,
-/// `rpz-drop`, `rpz-tcp-only`), die Trigger-Zonen `rpz-client-ip`, `rpz-ip`,
-/// `rpz-nsdname` und `rpz-nsip`, sowie mehrzeilige Records in Klammern.
-fn parse_rpz(text: &str) -> Parsed {
-    let mut parsed = Parsed::default();
-    let mut origin = String::new();
-    for (index, line) in text.lines().enumerate() {
-        let line = strip_comment(line);
-        if line.is_empty() {
-            continue;
-        }
-        if let Some(rest) = line.strip_prefix("$ORIGIN") {
-            origin = rest.trim().trim_matches('.').to_ascii_lowercase();
-            continue;
-        }
-        // Andere Direktiven interessieren uns nicht, sind aber kein Müll.
-        if line.starts_with('$') {
-            continue;
-        }
-        let tokens: Vec<&str> = line.split_whitespace().collect();
-        let Some(name) = tokens.first() else {
-            continue;
-        };
-        // Die Regel muss auf `CNAME .` enden, sonst ist es keine NXDOMAIN-Regel.
-        let is_nxdomain_rule = tokens.windows(2).any(|pair| {
-            pair.first()
-                .is_some_and(|t| t.eq_ignore_ascii_case("CNAME"))
-                && pair.get(1) == Some(&".")
-        });
-        if !is_nxdomain_rule {
-            parsed.skipped = parsed.skipped.saturating_add(1);
-            continue;
-        }
-
-        let (stripped, scope) = match name.strip_prefix("*.") {
-            Some(rest) => (rest, Scope::Suffix),
-            None => (*name, Scope::Exact),
-        };
-        // Relative Namen tragen die Policy-Zone als Suffix; sie gehört nicht dazu.
-        let without_origin = if origin.is_empty() {
-            stripped.trim_end_matches('.').to_owned()
-        } else {
-            let lower = stripped.trim_end_matches('.').to_ascii_lowercase();
-            lower
-                .strip_suffix(&format!(".{origin}"))
-                .map_or(lower.clone(), str::to_owned)
-        };
-        match normalize(&without_origin) {
             Some(domain) => parsed.entries.push(Entry {
                 domain,
                 scope,
@@ -468,13 +379,7 @@ mod tests {
 
     #[test]
     fn an_empty_file_yields_nothing_and_is_not_an_error() {
-        for format in [
-            Format::Hosts,
-            Format::Domains,
-            Format::Wildcard,
-            Format::Adblock,
-            Format::Rpz,
-        ] {
+        for format in [Format::Hosts, Format::Domains, Format::Wildcard] {
             let parsed = parse("", format);
             assert!(parsed.entries.is_empty(), "{format}");
             assert_eq!(parsed.skipped, 0, "{format}");
@@ -521,86 +426,39 @@ mod tests {
         assert_eq!(parsed.skipped, 1, "die !-Zeile gilt als Kommentar");
     }
 
-    // -- adblock -----------------------------------------------------------
+    // -- entfernte Formate -------------------------------------------------
 
     #[test]
-    fn adblock_accepts_the_documented_subset() {
-        let parsed = parse("||ads.example.com^\n", Format::Adblock);
-        assert_eq!(domains(&parsed), vec!["ads.example.com"]);
-        assert_eq!(parsed.entries.first().map(|e| e.scope), Some(Scope::Suffix));
-    }
-
-    /// Dieser Test *ist* die Dokumentation der Teilmenge (Roadmap, Schritt 3).
-    #[test]
-    fn adblock_ignores_everything_outside_the_subset() {
-        let text = concat!(
-            "! Kommentar\n",
-            "||gut.example^\n",               // unterstützt
-            "@@||ausnahme.example^\n",        // Ausnahmeregel: Allowlists sind eine eigene Liste
-            "||dritt.example^$third-party\n", // Optionen schränken ein: nicht raten
-            "example.com##.werbung\n",        // Element-Filter: Sache des Browsers
-            "/werbe-muster/\n",               // Regex auf URLs, die ein Resolver nie sieht
-            "|http://example.net|\n",         // URL-Regel
-            "||ohne-trenner\n",               // kein ^: nicht unser Format
-        );
-        let parsed = parse(text, Format::Adblock);
-        assert_eq!(
-            domains(&parsed),
-            vec!["gut.example"],
-            "es wurde mehr übernommen als die dokumentierte Teilmenge"
-        );
-        assert_eq!(
-            parsed.skipped, 6,
-            "je eine Zeile für @@, $-Option, ##, Regex, URL und fehlendes ^"
-        );
-    }
-
-    // -- rpz ---------------------------------------------------------------
-
-    #[test]
-    fn rpz_reads_nxdomain_rules_and_strips_the_origin() {
-        let text = concat!(
-            "$TTL 300\n",
-            "$ORIGIN rpz.example.\n",
-            "@ SOA ns.rpz.example. hostmaster.rpz.example. 1 12h 15m 30d 2h\n",
-            "ads.example.com.rpz.example. CNAME .\n",
-            "*.tracker.example.rpz.example. CNAME .\n",
-            "erlaubt.example.com.rpz.example. CNAME rpz-passthru.\n",
-        );
-        let parsed = parse(text, Format::Rpz);
-        assert_eq!(domains(&parsed), vec!["ads.example.com", "tracker.example"]);
-        assert_eq!(
-            parsed.entries.get(1).map(|e| e.scope),
-            Some(Scope::Suffix),
-            "*.name muss eine Suffix-Regel werden"
-        );
+    fn the_removed_formats_say_what_applies_instead() {
+        // Eine Konfiguration von gestern soll lesen, warum das Format weg ist,
+        // statt nur "unknown variant" zu bekommen.
+        for (removed, expected) in [("adblock", "wildcard"), ("rpz", "hosts")] {
+            let text = format!("format = \"{removed}\"\n");
+            let err = toml::from_str::<FormatHolder>(&text)
+                .expect_err("das Format ist entfernt")
+                .to_string();
+            assert!(err.contains(removed), "{err}");
+            assert!(err.contains(expected), "{err}");
+        }
     }
 
     #[test]
-    fn rpz_accepts_ttl_and_class_between_name_and_type() {
-        let text = "$ORIGIN rpz.example.\nads.example.com.rpz.example. 300 IN CNAME .\n";
-        assert_eq!(domains(&parse(text, Format::Rpz)), vec!["ads.example.com"]);
+    fn the_remaining_formats_still_parse() {
+        for (text, expected) in [
+            ("hosts", Format::Hosts),
+            ("domains", Format::Domains),
+            ("wildcard", Format::Wildcard),
+        ] {
+            let holder: FormatHolder =
+                toml::from_str(&format!("format = \"{text}\"\n")).expect("bekanntes Format");
+            assert_eq!(holder.format, expected);
+        }
     }
 
-    #[test]
-    fn rpz_ignores_policies_it_does_not_implement() {
-        let text = concat!(
-            "$ORIGIN rpz.example.\n",
-            "drop.example.com.rpz.example. CNAME rpz-drop.\n",
-            "8.0.0.0.127.rpz-ip.rpz.example. CNAME .\n",
-            "geblockt.example.com.rpz.example. CNAME .\n",
-        );
-        let parsed = parse(text, Format::Rpz);
-        assert!(domains(&parsed).contains(&"geblockt.example.com"));
-        assert!(
-            !domains(&parsed).contains(&"drop.example.com"),
-            "rpz-drop ist nicht umgesetzt und darf nicht als Block durchgehen"
-        );
-    }
-
-    #[test]
-    fn rpz_without_origin_takes_the_name_as_it_stands() {
-        let parsed = parse("ads.example.com. CNAME .\n", Format::Rpz);
-        assert_eq!(domains(&parsed), vec!["ads.example.com"]);
+    /// TOML kennt nur Tabellen auf oberster Ebene; das Format braucht deshalb
+    /// einen Schlüssel, unter dem es steht.
+    #[derive(Debug, serde::Deserialize)]
+    struct FormatHolder {
+        format: Format,
     }
 }

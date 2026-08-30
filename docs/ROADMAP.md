@@ -165,8 +165,8 @@ ein Pi-hole im eigenen Netz.
 ```
 1. Parser für Format hosts → verify: Unit-Tests inkl. Kommentaren, CRLF, IPv6-Zeilen, Müllzeilen
 2. Parser für domains und wildcard → verify: Unit-Tests, führende Punkte und *. werden korrekt normalisiert
-3. Parser für Adblock-Syntax (Teilmenge: ||domain^) → verify: Test dokumentiert explizit, welche Syntax unterstützt wird und welche ignoriert
-4. Parser für RPZ-Zonendateien → verify: Unit-Test mit RPZ-Beispiel
+3. ~~Parser für Adblock-Syntax~~ → in Phase 7 wieder entfernt, [ADR-0014](adr/0014-adblock-und-rpz-parser-entfallen.md)
+4. ~~Parser für RPZ-Zonendateien~~ → in Phase 7 wieder entfernt, [ADR-0014](adr/0014-adblock-und-rpz-parser-entfallen.md)
 5. Matcher, v1 als HashSet mit Suffix-Lookup, liefert RuleRef → verify: Property-Test Wildcard-Semantik; notexample.com matcht nie wegen example.com
 6. Allowlist mit Vorrang vor Blocklisten → verify: Integrationstest, Domain auf beiden Listen wird durchgelassen
 7. Block-Antwort synthetisieren (nxdomain / zero_ip / sinkhole) → verify: je ein Test, RCODE und Antwortinhalt korrekt
