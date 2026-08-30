@@ -288,11 +288,11 @@ GET  /                          → HTTP 200, die UI
   Zähler, Top-Domains, Ringpuffer, Datei — nach dem Query-Namen. In `none` und
   `aggregate` darf er nirgends stehen. Das ist der automatisierte Nachweis für
   das zentrale Versprechen des Projekts und läuft ab jetzt bei jedem `cargo test`.
-* **k-Anonymität:** die Schwelle prüft auf der *unteren* Schätzgrenze des
-  Count-Min-Sketch. Ein Sketch überschätzt; direkt gegen `k` zu prüfen ließe eine
-  einmal gefragte Domain durch, sobald genug andere auf dieselben Zähler fallen.
-  Der Fehler wächst mit dem Verkehr — die Struktur versagt damit zur sicheren
-  Seite, sie zeigt dann *weniger*.
+* **k-Anonymität:** zunächst über einen Count-Min-Sketch, dessen Schwelle auf der
+  *unteren* Schätzgrenze prüfte. In Phase 7 gemessen und ersetzt: die Fehlerschranke
+  wuchs so schnell mit dem Verkehr, dass bei einer Million Anfragen gar keine Domain
+  mehr in der Statistik erschien. Jetzt exakt gezählt, unter einem gesalzenen Hash
+  statt unter dem Namen ([ADR-0015](adr/0015-exakte-zaehlung-statt-sketch.md)).
 * **Entscheidungen zur Oberfläche** (zwei Listener, Token in der SSE-URL, UI ohne
   Build-Schritt, Prometheus von Hand):
   [ADR-0010](adr/0010-api-ui-und-metriken.md).

@@ -25,9 +25,13 @@ Begründung und Details: [ADR-0004](adr/0004-logging-default-aggregiert.md).
 die verräterischen. Übliche Query-Logs speichern sie mit Zeitstempel und Client-IP. Hier
 existieren sie nach der Beantwortung nicht mehr.
 
-**Grenze:** Ein Count-Min-Sketch überschätzt seltene Elemente gelegentlich. Die
-k-Schwelle muss auf der *unteren* Schätzgrenze prüfen, sonst leckt sie genau das, was sie
-schützen soll. Das ist ein Detail, das im Test explizit geprüft gehört.
+**Grenze, erledigt:** Umgesetzt war das zunächst mit einem Count-Min-Sketch, und der
+überschätzt seltene Elemente. Die k-Schwelle prüfte deshalb auf der *unteren*
+Schätzgrenze — korrekt, aber die Schranke wächst mit dem Verkehr: bei einer Million
+Anfragen lag sie bei 11 und damit über jedem üblichen `k`, sodass **keine** Domain mehr
+in der Statistik erschien. Gemessen in [BENCHMARKS.md](BENCHMARKS.md); seither wird exakt
+gezählt ([ADR-0015](adr/0015-exakte-zaehlung-statt-sketch.md)). Die Zusicherung ist
+dieselbe geblieben, nur hält sie jetzt auch bei Verkehr.
 
 ### P2 · Upstream-Splitting nach Zone `Aufwand M` `Neu ●` `Phase 3/7`
 

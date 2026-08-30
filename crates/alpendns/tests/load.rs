@@ -456,3 +456,60 @@ async fn cache_hit_latency_with_two_million_blocklist_entries() {
 
     harness.shutdown.cancel();
 }
+
+/// Wie viele verschiedene Namen die Zählstruktur zu halten hat.
+///
+/// 50 000 ist ein großzügiger Tag in einem Haushalt, 200 000 die Obergrenze,
+/// die `logging::counts` überhaupt zulässt.
+const DISTINCT_NAMES: [usize; 2] = [50_000, 200_000];
+
+/// Wie oft jeder Name gefragt wird. Realistischer als einmal je Name — und die
+/// Zahl, an der der abgelöste Count-Min-Sketch scheiterte: seine Fehlerschranke
+/// wuchs mit den Anfragen, nicht mit den Namen.
+const QUERIES_PER_NAME: usize = 5;
+
+/// Speicher und Zeit der Zählstruktur hinter der k-Schwelle (ADR-0015).
+///
+/// Die Vergleichszahlen des Count-Min-Sketch stehen in BENCHMARKS.md; sie wurden
+/// erhoben, bevor er entfernt wurde. Hier läuft nur noch, was übrig ist.
+#[test]
+#[ignore = "Lastmessung: braucht Minuten und viel Speicher"]
+fn counting_structure_memory_and_speed() {
+    for distinct in DISTINCT_NAMES {
+        let names: Vec<String> = (0..distinct).map(|i| format!("d{i}.example.com")).collect();
+
+        let before = resident_kib();
+        let mut counts = alpendns::logging::counts::Counts::new();
+        let started = Instant::now();
+        for _ in 0..QUERIES_PER_NAME {
+            for name in &names {
+                counts.add(name);
+            }
+        }
+        let add = started.elapsed();
+        let rss = resident_kib().saturating_sub(before);
+
+        let started = Instant::now();
+        let over_threshold = names.iter().filter(|name| counts.reaches(name, 5)).count();
+        let lookup = started.elapsed();
+        let tracked = counts.tracked();
+
+        let entries = distinct * QUERIES_PER_NAME;
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "Stichprobengrößen weit unter 2^53"
+        )]
+        let per = |d: Duration, n: usize| d.as_nanos() as f64 / n as f64;
+        println!("\n{distinct} verschiedene Namen, {entries} Anfragen");
+        println!("  Speicher     {rss:>8} KiB");
+        println!("  je Eintrag   {:>8.0} ns", per(add, entries));
+        println!("  je Abfrage   {:>8.0} ns", per(lookup, distinct));
+        println!("  gezählte Namen {tracked:>6}");
+        println!("  über Schwelle  {over_threshold:>6}");
+
+        assert_eq!(
+            over_threshold, distinct,
+            "exakt gezählt muss jeder fünfmal gefragte Name die Schwelle 5 erreichen"
+        );
+    }
+}

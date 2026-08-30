@@ -22,7 +22,7 @@ Vier Modi, Default `aggregate`:
 | Modus | Was gespeichert wird | Wofür |
 |---|---|---|
 | `none` | nur globale Zähler | Maximum an Zurückhaltung |
-| `aggregate` | Zähler + Domain-Häufigkeiten in einem Count-Min-Sketch; eine Domain erscheint erst ab `aggregate_k` Treffern (Default 5) in irgendeiner Ausgabe | Default |
+| `aggregate` | Zähler + Domain-Häufigkeiten in einer Tabelle ohne Namen; eine Domain erscheint erst ab `aggregate_k` Treffern (Default 5) in irgendeiner Ausgabe | Default |
 | `ring` | zusätzlich die letzten `ring_seconds` (Default 300) im RAM-Ringpuffer, nie auf Platte | Debugging |
 | `full` | zusätzlich strukturierte Zeilen auf Platte | bewusste Entscheidung des Betreibers |
 
@@ -38,7 +38,7 @@ versteckt.
 * Die Debugging-Erfahrung bleibt trotzdem gut, weil der Decision-Trace unabhängig vom
   Log-Modus existiert (siehe ARCHITECTURE.md §2) und im `ring`-Modus fünf Minuten lang
   im RAM abfragbar ist. Für "was ist gerade passiert" reicht das fast immer.
-* Mehr Implementierungsaufwand als ein simples Logfile: Count-Min-Sketch, Ringpuffer,
+* Mehr Implementierungsaufwand als ein simples Logfile: Zählertabelle, Ringpuffer,
   Schwellwertlogik.
 * Für den Fall, dass jemand echtes Query-Logging braucht (Firmenumfeld, Forensik), ist
   `full` da — als Entscheidung, die in der Konfigurationsdatei sichtbar ist und in der UI
@@ -49,3 +49,13 @@ versteckt.
 * **Logging per Default an, Retention kurz:** üblich, aber die Datei existiert trotzdem.
 * **Nur `none` und `full`:** einfacher, aber dann schaltet in der Praxis jeder `full` ein,
   weil er sonst nichts sieht — und lässt es an.
+
+---
+
+## Nachtrag, 2026-08-30: die Zählstruktur, nicht die Entscheidung
+
+Die vier Modi und der Default bleiben. Ausgetauscht ist nur, *womit* `aggregate`
+zählt: statt eines Count-Min-Sketch eine exakte Tabelle unter einem gesalzenen
+Hash. Der Sketch war bei realistischem Verkehr so ungenau, dass die
+Top-Domain-Ausgabe leer blieb. Zahlen und Begründung:
+[ADR-0015](0015-exakte-zaehlung-statt-sketch.md).

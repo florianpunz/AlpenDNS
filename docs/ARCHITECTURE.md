@@ -103,7 +103,7 @@ die Logging-Schicht:
 | `privacy.logging.mode` | Was mit dem Trace passiert |
 |---|---|
 | `none` | Zähler hochzählen, Trace verwerfen |
-| `aggregate` | Zähler + Domain landet in einem Count-Min-Sketch; erst ab `aggregate_k` Treffern taucht sie in Statistiken auf |
+| `aggregate` | Zähler + Häufigkeit unter einem gesalzenen Hash, exakt gezählt; erst ab `aggregate_k` Treffern taucht der Name in Statistiken auf ([ADR-0015](adr/0015-exakte-zaehlung-statt-sketch.md)) |
 | `ring` | zusätzlich für `ring_seconds` in einem RAM-Ringpuffer, nie auf Platte |
 | `full` | zusätzlich als strukturierte Zeile auf Platte |
 
