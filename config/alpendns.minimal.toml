@@ -1,7 +1,7 @@
 # AlpenDNS — lauffähige Minimalkonfiguration.
 #
 # Die vollständige Ziel-Konfiguration steht in alpendns.example.toml. Diese Datei
-# enthält nur die Schlüssel, die schon umgesetzt sind (Stand: Phase 2) — mehr
+# enthält nur die Schlüssel, die schon umgesetzt sind (Stand: Phase 7) — mehr
 # akzeptiert der Server auch nicht: unbekannte Schlüssel sind ein Startfehler,
 # kein Warning.
 #
@@ -45,14 +45,17 @@ dns0x20 = true
 
 [[upstream_pool]]
 name = "default"
-# fastest | round_robin | split_by_zone
+# split_by_zone ist die einzige Strategie und der Default; die Zeile steht nur
+# da, um sichtbar zu sein. Domains werden über einen beim Start zufällig
+# gezogenen Seed verteilt: derselbe Name geht immer zum selben Resolver, aber
+# jeder sieht nur einen Bruchteil — und nach einem Neustart einen anderen.
+# Siehe docs/FEATURES.md P2.
 #
-# split_by_zone verteilt Domains über einen beim Start zufällig gezogenen Seed:
-# derselbe Name geht immer zum selben Resolver, aber jeder sieht nur einen
-# Bruchteil — und nach einem Neustart einen anderen. Siehe docs/FEATURES.md P2.
+# fastest, round_robin und fanout gab es einmal. Sie sind entfernt, weil bei
+# allen dreien am Ende jeder Upstream alles sieht; wer sie noch in seiner
+# Konfiguration stehen hat, bekommt beim Start eine Meldung mit Begründung.
+# docs/adr/0011-eine-upstream-strategie.md, docs/adr/0012-fanout-entfaellt.md
 strategy = "split_by_zone"
-# Wie viele Resolver parallel gefragt werden. Mehr als einer kostet Privacy.
-fanout = 1
 
 # Klartext (udp://) ist hier nicht erlaubt und wird beim Start abgelehnt.
 # tls_name ist Pflicht: ohne ihn wird das Zertifikat gegen nichts geprüft.
@@ -77,10 +80,14 @@ tls_name = "dns.mullvad.net"
 # ---------------------------------------------------------------------------
 
 [blocking]
-# nxdomain | zero_ip | refused | sinkhole
+# nxdomain | zero_ip | sinkhole
 #
 # nxdomain ist der ruhigste Default: der Client gibt sofort auf, statt in einen
-# Timeout zu laufen (zero_ip) oder den nächsten Resolver zu fragen (refused).
+# Timeout zu laufen (zero_ip) oder am Zertifikat zu scheitern (sinkhole).
+#
+# refused ist entfernt — es schickte den Client zum nächsten Resolver seiner
+# Liste und hob damit die Filterung auf, während der Blockzähler weiter stieg.
+# docs/adr/0013-block-modus-refused-entfaellt.md
 mode = "nxdomain"
 sinkhole_ipv4 = "127.0.0.1"
 sinkhole_ipv6 = "::1"
@@ -95,6 +102,12 @@ cache_dir = "./lists"
 [[blocklist]]
 name = "stevenblack-unified"
 url = "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts"
+# hosts | domains | wildcard
+#
+# adblock und rpz sind entfernt: beide Parser verstanden nur den Blockteil ihres
+# Formats und übersprangen dessen Ausnahmeregeln, luden eine Liste also schärfer
+# als gemeint. Eine Adblock-Zeile `||name^` entspricht in einer wildcard-Liste
+# der Zeile `name`. docs/adr/0014-adblock-und-rpz-parser-entfallen.md
 format = "hosts"
 refresh = "24h"
 enabled = true
@@ -148,7 +161,9 @@ enabled = true
 [privacy.logging]
 # none      — nur Zähler, keine Namen
 # aggregate — zusätzlich Häufigkeiten; eine Domain erscheint erst ab
-#             aggregate_k Treffern in irgendeiner Ausgabe (Default)
+#             aggregate_k Treffern in irgendeiner Ausgabe (Default). Gezählt
+#             wird exakt, unter einem gesalzenen Hash statt unter dem Namen —
+#             darunter steht der Name nirgends.
 # ring      — zusätzlich die letzten ring_seconds im Arbeitsspeicher, nie auf
 #             Platte. Das ist der Modus, in dem die UI Namen zeigen kann.
 # full      — zusätzlich als Datei. Bewusste Entscheidung, kein Default.

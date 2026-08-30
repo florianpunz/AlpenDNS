@@ -1114,6 +1114,36 @@ tls_name = "dns.quad9.net"
     }
 
     #[test]
+    fn the_shipped_minimal_config_still_parses() {
+        // Ohne diesen Test treibt die ausgelieferte Konfiguration von der
+        // Implementierung weg, und es merkt erst der, der sie benutzt.
+        let config = valid(include_str!("../../../config/alpendns.minimal.toml"));
+        assert_eq!(
+            config.upstream_pool.first().expect("Pool").strategy,
+            Strategy::SplitByZone
+        );
+        assert_eq!(
+            config.blocking.mode,
+            crate::filter::block::BlockMode::Nxdomain
+        );
+        assert_eq!(
+            config.blocklist.first().expect("Blockliste").format,
+            crate::filter::parser::Format::Hosts
+        );
+    }
+
+    #[test]
+    fn the_removed_list_format_says_what_applies_instead() {
+        let text = format!(
+            "{MINIMAL}\n[[blocklist]]\nname = \"x\"\nurl = \"https://liste.example/l\"\n\
+             format = \"adblock\"\n"
+        );
+        let err = parse(&text).expect_err("adblock ist weg").to_string();
+        assert!(err.contains("adblock"), "{err}");
+        assert!(err.contains("wildcard"), "{err}");
+    }
+
+    #[test]
     fn the_removed_block_mode_says_what_applies_instead() {
         // REFUSED schickte den Client zum nächsten Resolver seiner Liste. Wer
         // es konfiguriert hatte, soll das lesen, statt "unknown variant".
