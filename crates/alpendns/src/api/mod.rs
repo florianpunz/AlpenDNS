@@ -24,8 +24,10 @@ use axum::routing::{delete, get};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 
-use crate::logging::{LoggedQuery, QueryLog, TopDomain};
+use crate::history::Bucket;
+use crate::logging::{LoggedQuery, QueryLog, TopReport};
 use crate::metrics::Snapshot;
+use crate::policy::Explanation;
 
 /// Was die API über den laufenden Server erfährt.
 ///
@@ -37,6 +39,25 @@ pub trait StatusSource: Send + Sync + 'static {
     fn grant(&self, domain: &str, ttl: Duration);
     fn revoke(&self, domain: &str);
     fn grants(&self) -> Vec<(String, Duration)>;
+    /// Die Zeitreihe der letzten 24 Stunden, ausschließlich aus Zählern.
+    fn history(&self) -> HistoryView;
+    /// Wertet einen Namen aus, ohne etwas zu verändern oder zu speichern.
+    ///
+    /// `client` ist der konfigurierte Name eines Clients; ohne Angabe wird aus
+    /// Sicht der Loopback-Adresse ausgewertet — dieselbe Regel wie bei
+    /// `alpendns policy test`.
+    fn explain(&self, domain: &str, client: Option<&str>) -> Result<Explanation, String>;
+}
+
+/// Die Zeitreihe, wie die API sie ausliefert.
+#[derive(Debug, Clone, Serialize)]
+pub struct HistoryView {
+    /// Breite eines Eimers in Sekunden.
+    pub bucket_seconds: u64,
+    /// Namen der Upstream-Spalten, passend zu [`Bucket::upstreams`].
+    pub upstreams: Vec<String>,
+    /// Ältester Eimer zuerst.
+    pub buckets: Vec<Bucket>,
 }
 
 /// Eine geladene Liste.
@@ -85,6 +106,8 @@ pub fn router(state: ApiState) -> Router {
     Router::new()
         .route("/api/status", get(status))
         .route("/api/top", get(top))
+        .route("/api/history", get(history))
+        .route("/api/explain", get(explain))
         .route("/api/recent", get(recent))
         .route("/api/lists", get(lists))
         .route("/api/policies", get(policies))
@@ -178,6 +201,15 @@ struct Status {
     version: &'static str,
     uptime_seconds: u64,
     logging_mode: String,
+    /// Ab wie vielen Treffern ein Name überhaupt genannt werden darf.
+    aggregate_k: u32,
+    /// Ob der Log-Modus auf die Platte schreibt. Die UI sagt es dem Betreiber
+    /// ins Gesicht, statt "nur im RAM" zu behaupten und danebenzuliegen.
+    persists_to_disk: bool,
+    /// Geblockte Anfragen je Grund.
+    block_reasons: Vec<ReasonInfo>,
+    /// Wie oft die Privacy-Mechanismen gegriffen haben.
+    privacy: PrivacyInfo,
     queries: u64,
     blocked: u64,
     block_rate: f64,
@@ -188,8 +220,24 @@ struct Status {
 }
 
 #[derive(Debug, Serialize)]
+struct ReasonInfo {
+    reason: &'static str,
+    count: u64,
+}
+
+#[derive(Debug, Serialize)]
+struct PrivacyInfo {
+    ecs_stripped: u64,
+    padded: u64,
+    case_randomized: u64,
+    cookies: u64,
+}
+
+#[derive(Debug, Serialize)]
 struct UpstreamInfo {
     name: String,
+    /// `dot`, `doh` oder `doq` — womit dieser Upstream gefragt wird.
+    transport: &'static str,
     ok: u64,
     failed: u64,
     rtt_ms: Option<f64>,
@@ -208,7 +256,24 @@ async fn status(State(state): State<ApiState>) -> Json<Status> {
     Json(Status {
         version: env!("CARGO_PKG_VERSION"),
         uptime_seconds: snapshot.uptime.as_secs(),
-        logging_mode: format!("{:?}", state.log.mode()).to_lowercase(),
+        logging_mode: state.log.mode().as_str().to_owned(),
+        aggregate_k: state.log.aggregate_k(),
+        persists_to_disk: state.log.writes_to_disk(),
+        block_reasons: snapshot
+            .log
+            .by_reason
+            .iter()
+            .map(|(reason, count)| ReasonInfo {
+                reason: reason.as_str(),
+                count: *count,
+            })
+            .collect(),
+        privacy: PrivacyInfo {
+            ecs_stripped: snapshot.privacy.ecs_stripped,
+            padded: snapshot.privacy.padded,
+            case_randomized: snapshot.privacy.randomized,
+            cookies: snapshot.privacy.cookies,
+        },
         queries: snapshot.log.queries,
         blocked: snapshot.log.blocked,
         block_rate,
@@ -220,6 +285,7 @@ async fn status(State(state): State<ApiState>) -> Json<Status> {
             .iter()
             .map(|upstream| UpstreamInfo {
                 name: upstream.name.clone(),
+                transport: upstream.scheme,
                 ok: upstream.successes,
                 failed: upstream.failures,
                 rtt_ms: upstream.rtt.map(|rtt| rtt.as_secs_f64() * 1000.0),
@@ -229,8 +295,39 @@ async fn status(State(state): State<ApiState>) -> Json<Status> {
     })
 }
 
-async fn top(State(state): State<ApiState>, Query(limit): Query<Limit>) -> Json<Vec<TopDomain>> {
-    Json(state.log.top_domains(limit.get()))
+/// Die Häufigkeitsliste — und die Summe dessen, was sie verschweigt.
+///
+/// Ausgeliefert werden ausschließlich Namen über der k-Schwelle; alles darunter
+/// erscheint als eine Zahl ohne Namen (ADR-0004). Die Auswahl trifft der
+/// Server, nicht die UI: eine Filterung im Browser wäre keine.
+async fn top(State(state): State<ApiState>, Query(limit): Query<Limit>) -> Json<TopReport> {
+    Json(state.log.top(limit.get()))
+}
+
+async fn history(State(state): State<ApiState>) -> Json<HistoryView> {
+    Json(state.source.history())
+}
+
+#[derive(Debug, Deserialize)]
+struct ExplainRequest {
+    domain: String,
+    client: Option<String>,
+}
+
+/// Die Entscheidungskette für einen Namen, auf Anfrage.
+///
+/// Dieselbe Auswertung wie `alpendns policy test`, nur über HTTP: der Klick auf
+/// eine Zeile im Protokoll fragt hier nach. Es wird nichts gespeichert und
+/// nichts gezählt — der Name kommt vom Aufrufer und geht an ihn zurück.
+async fn explain(
+    State(state): State<ApiState>,
+    Query(request): Query<ExplainRequest>,
+) -> Result<Json<Explanation>, (StatusCode, Json<ApiError>)> {
+    state
+        .source
+        .explain(&request.domain, request.client.as_deref())
+        .map(Json)
+        .map_err(|error| (StatusCode::BAD_REQUEST, Json(ApiError { error })))
 }
 
 async fn recent(
@@ -411,6 +508,16 @@ mod tests {
         fn revoke(&self, _domain: &str) {}
         fn grants(&self) -> Vec<(String, Duration)> {
             Vec::new()
+        }
+        fn history(&self) -> HistoryView {
+            HistoryView {
+                bucket_seconds: 300,
+                upstreams: Vec::new(),
+                buckets: Vec::new(),
+            }
+        }
+        fn explain(&self, _domain: &str, _client: Option<&str>) -> Result<Explanation, String> {
+            unimplemented!("nicht benutzt")
         }
     }
 }

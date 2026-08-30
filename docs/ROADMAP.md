@@ -283,6 +283,16 @@ GET  /                          → HTTP 200, die UI
 /metrics ohne Token             → alpendns_queries_total 3, keine Namen
 ```
 
+Am 2026-08-30 dazugekommen und ebenfalls gegen den laufenden Server geprüft:
+
+```
+/api/top                        → {"threshold":5,"domains":[{"name":"ads.example.com","count":6,…}],
+                                   "below_threshold_queries":1,"below_threshold_names":1}
+/api/history                    → {"bucket_seconds":300,"upstreams":["quad9","mullvad"],"buckets":[…]}
+                                   — nur Zähler, kein Feld für einen Namen
+/api/explain?domain=…           → dieselbe Kette wie `alpendns policy test`
+```
+
 * **Der wichtigste Test** ist `no_query_name_leaves_the_process_in_the_quiet_modes`:
   er fährt eine Anfrage durch und greppt alles, was der Prozess ausgeben kann —
   Zähler, Top-Domains, Ringpuffer, Datei — nach dem Query-Namen. In `none` und
@@ -335,12 +345,52 @@ Details zu jedem Punkt in [FEATURES.md](FEATURES.md).
 **Abnahme:** Punkt 6 ist der wichtigste — er ist der automatisierte Beweis für das
 zentrale Versprechen des Projekts und muss dauerhaft in CI laufen.
 
+**Stand 2026-08-30 — Punkte 2 und 5 sind in der Oberfläche angekommen.** Die UI ist
+entlang ADR-0004 ausgebaut worden, Leitsatz "alles zeigen, nichts merken":
+
+* Der Privacy-Streifen im Kopf nennt dauerhaft Modus, k-Schwelle und ob etwas auf
+  der Platte landet. Die letzte Angabe kommt aus dem laufenden Prozess
+  (`QueryLog::writes_to_disk`), nicht aus einer Annahme — im Modus `full` steht
+  dort "schreibt auf Platte".
+* Zwei Kurven über 24 Stunden (Anfragen gegen geblockt, Cache-Trefferquote) aus
+  `crate::history`: 288 Eimer à fünf Minuten im RAM, gespeist aus dem
+  Zähler-Snapshot alle 30 Sekunden. Keine neue Persistenz; ein Neustart setzt die
+  Reihe zurück. Die Struktur nimmt nur `Sample` entgegen und hat damit kein Feld,
+  in das je ein Name passen würde.
+* Punkt 2 sichtbar: die Aufteilung über die Zeit als gestapelte Fläche je Upstream,
+  dazu der Transport-Mix und die Privacy-Zähler (ECS entfernt, Padding, 0x20,
+  Cookies). Gezählt wird die *Wirkung* — `strip_ecs` zählt nur, wenn wirklich eine
+  Option entfernt wurde, sonst zeigte die Zahl bloß, dass ein Schalter an ist.
+* Punkt 5 vollständig: `/api/top` liefert Namen ausschließlich über der Schwelle
+  und daneben die Summe dessen, was darunter bleibt (`below_threshold_queries`,
+  `below_threshold_names`). Ohne diese Summe sähe ein Server mit viel seltenem
+  Verkehr aus wie einer ohne Verkehr.
+* Neues Panel "Block-Gründe" über `logging::BlockReason`, abgeleitet aus dem Trace.
+  Kategorien heute: Blockliste, Regex-Regel, Zeitplan, ohne Zuordnung. **Die
+  Heuristiken DGA, Tunneling und Rebinding fehlen darin, weil es sie noch nicht
+  gibt** — sie sind Phase 8, Punkte 2 bis 4. Die Aufzählung nimmt sie dann ohne
+  Umbau von Zählern, API oder UI auf.
+* Ein Klick auf eine Protokollzeile fragt `/api/explain` und bekommt dieselbe
+  Auswertung wie `alpendns policy test`: beide rufen `policy::explain` auf, damit
+  Kommandozeile und UI nicht verschiedene Antworten auf dieselbe Frage geben.
+* Alle Zähler im deutschen Zahlenformat (`de-AT`).
+
+Dazu zwei neue Tests, die die Grenze festhalten: `every_label_key_comes_from_a_closed_set`
+nagelt die Prometheus-Label-Schlüssel auf eine Positivliste fest (bisher waren nur
+drei Schreibweisen verboten, eine vierte wäre durchgerutscht), und
+`no_metric_label_carries_a_domain_or_client_name` fährt in allen vier Log-Modi
+echten Verkehr durch und greppt die gerenderte Metrik nach Query- und Client-Namen.
+
 ---
 
 ## Phase 8 — Heuristik ohne Cloud · ~4–5 Abende
 
 **Ziel:** Erkennung von Mustern, die keine Liste kennt. Alles lokal, alles erklärbar,
 alles per Default nur `flag`.
+
+**Vorarbeit ist da:** `logging::BlockReason` und das UI-Panel "Block-Gründe"
+existieren seit Phase 7. Ein neuer Detektor braucht dort je eine Variante plus
+ihren Schritt im Trace — Zähler, Metrik-Label und Diagramm ziehen automatisch mit.
 
 ```
 1. Framework: Detektor-Trait, Score 0.0–1.0 + Begründung, Aktion aus der Config → verify: Dummy-Detektor läuft durch die Pipeline und landet im Trace

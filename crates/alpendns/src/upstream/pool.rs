@@ -53,14 +53,19 @@ struct Health {
 #[derive(Debug)]
 pub struct Upstream<B> {
     name: String,
+    /// `dot`, `doh`, `doq` — woher die Verschlüsselung kommt. Steht hier und
+    /// nicht neben dem Pool, weil sonst zwei Listen parallel gepflegt werden
+    /// müssten, die auseinanderlaufen können.
+    scheme: &'static str,
     backend: B,
     health: Health,
 }
 
 impl<B> Upstream<B> {
-    pub const fn new(name: String, backend: B) -> Self {
+    pub const fn new(name: String, scheme: &'static str, backend: B) -> Self {
         Self {
             name,
+            scheme,
             backend,
             health: Health {
                 ewma_micros: AtomicU64::new(0),
@@ -77,6 +82,8 @@ impl<B> Upstream<B> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UpstreamStats {
     pub name: String,
+    /// Der Transport, über den dieser Upstream gefragt wird.
+    pub scheme: &'static str,
     pub successes: u64,
     pub failures: u64,
     /// Gleitendes Mittel der Antwortzeit, sofern schon einmal gemessen.
@@ -122,6 +129,7 @@ impl<B: ResolveBackend, C: Clock> Pool<B, C> {
                 let micros = upstream.health.ewma_micros.load(Ordering::Relaxed);
                 UpstreamStats {
                     name: upstream.name.clone(),
+                    scheme: upstream.scheme,
                     successes: upstream.health.successes.load(Ordering::Relaxed),
                     failures: upstream.health.failures.load(Ordering::Relaxed),
                     rtt: (micros > 0).then(|| Duration::from_micros(micros)),
@@ -367,7 +375,7 @@ mod tests {
         let upstreams = fakes
             .iter()
             .enumerate()
-            .map(|(i, fake)| Upstream::new(format!("fake{i}"), Arc::clone(fake)))
+            .map(|(i, fake)| Upstream::new(format!("fake{i}"), "dot", Arc::clone(fake)))
             .collect();
         Pool::with_seed(upstreams, Strategy::SplitByZone, clock, seed)
     }

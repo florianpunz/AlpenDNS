@@ -62,6 +62,14 @@
      ausschließlich in der ersten Hälfte des Schriftzugs. */
   --brand: #1d63d1;
 
+  /* Vier Graustufen für gestapelte Flächen. Sie bedeuten nichts — sie trennen
+     nur benachbarte Bänder voneinander, damit die Legende zuordenbar bleibt.
+     Vier Upstreams mit vier Farben wären vier Bedeutungen, die es nicht gibt. */
+  --band-1: #cbc8c1;
+  --band-2: #ddd9d2;
+  --band-3: #eeebe5;
+  --band-4: #f6f4ef;
+
   /* 4 — Typografie */
   --t-micro: 0.6875rem;
   --t-small: 0.8125rem;
@@ -102,6 +110,10 @@
     --warn: #e0a355;
     --muted: #a3a098;
     --brand: #5c9dff;
+    --band-1: #55534d;
+    --band-2: #423f3a;
+    --band-3: #332f2b;
+    --band-4: #262320;
   }
 }
 
@@ -142,7 +154,7 @@ body {
 
 .board {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   gap: var(--s-24);
   padding-block: var(--s-24);
   min-height: 0;
@@ -180,6 +192,26 @@ h2 {
 .logo .snow { fill: var(--bg); }
 
 /* ── Kopfzeile ─────────────────────────────────────────────────────────── */
+
+/* Der Privacy-Streifen. Er steht neben dem Namen, weil er zur Identität des
+   Servers gehört und nicht zu seinen Messwerten: was dieser Server sich merkt,
+   ist eine Daueraussage (ADR-0004). Kein Kasten, keine Farbe — drei Angaben,
+   durch Haarlinien getrennt. */
+.privacy {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  font-size: var(--t-micro);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+.privacy-item { padding-inline: var(--s-8); border-left: 1px solid var(--line-strong); }
+.privacy-item:first-child { padding-left: 0; border-left: 0; }
+/* Schreibt der Server auf die Platte, ist das keine Warnung im Sinne von
+   "kaputt", aber die einzige Angabe hier, die jemand übersehen darf. */
+.privacy-item.is-persisting { color: var(--warn); }
 
 .masthead { border-bottom: 1px solid var(--line); }
 .masthead-inner {
@@ -282,10 +314,133 @@ h2 {
   stroke-linecap: round;
 }
 
+/* ── Kurven aus Zählern ────────────────────────────────────────────────── */
+
+/* Ein Diagramm ist hier ein <path>, dessen d das Skript setzt — keine
+   Bibliothek, kein createElementNS (B.6). Die Höhe steht fest, damit die
+   Nebenspalte auf einen Bildschirm passt. */
+.chart { margin: 0; padding: 0 var(--s-16) var(--s-8); }
+.chart figcaption {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--s-8);
+  font-size: var(--t-micro);
+  color: var(--faint);
+  padding-bottom: var(--s-4);
+}
+.key { display: inline-flex; align-items: center; gap: var(--s-4); }
+.swatch {
+  width: 8px;
+  height: 2px;
+  display: inline-block;
+  margin-left: var(--s-4);
+}
+.sw-total { background: var(--muted); }
+.sw-blocked { background: var(--danger); }
+.sw-cache { background: var(--success); }
+
+.graph {
+  width: 100%;
+  height: 52px;
+  display: block;
+  overflow: visible;
+}
+.graph-area { height: 44px; }
+
+.line-total, .line-blocked, .line-cache {
+  fill: none;
+  stroke-width: 1;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.line-total { stroke: var(--muted); }
+.line-blocked { stroke: var(--danger); }
+.line-cache { stroke: var(--success); }
+
+/* Die Zeitachse hat zwei Beschriftungen. Mehr sagt bei fünf Minuten je Punkt
+   nichts, was die Kurve nicht schon zeigt. */
+.axis {
+  display: flex;
+  justify-content: space-between;
+  margin: 0;
+  padding: 0 var(--s-16) var(--s-16);
+  font-size: var(--t-micro);
+  color: var(--faint);
+}
+
+/* Gestapelte Flächen: die Reihenfolge der Bänder ist die der Legende. */
+.band { stroke: none; }
+.band-1 { fill: var(--band-1); }
+.band-2 { fill: var(--band-2); }
+.band-3 { fill: var(--band-3); }
+.band-4 { fill: var(--band-4); }
+
+/* ── Block-Gründe ──────────────────────────────────────────────────────── */
+
+/* Ein Balken statt vier Zahlen: gefragt ist der Anteil, nicht der Absolutwert.
+   Die Segmente sind Graustufen — dass es um Geblocktes geht, sagt die
+   Überschrift, und Farbe wiederholt hier nichts. */
+.bar {
+  display: flex;
+  height: 10px;
+  margin: 0 var(--s-16);
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--row-alt);
+}
+.bar span { display: block; height: 100%; }
+.bar .band-1 { background: var(--band-1); }
+.bar .band-2 { background: var(--band-2); }
+.bar .band-3 { background: var(--band-3); }
+.bar .band-4 { background: var(--band-4); }
+
+.legend {
+  margin: var(--s-8) 0 0;
+  padding: 0 var(--s-16) var(--s-16);
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 var(--s-16);
+}
+.legend li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-8);
+  font-size: var(--t-small);
+  line-height: 1.8;
+}
+.legend .swatch { width: 8px; height: 8px; border-radius: 2px; margin-left: 0; flex: none; }
+.legend .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.legend .c { margin-left: auto; color: var(--faint); }
+
+/* ── Privacy-Zähler ────────────────────────────────────────────────────── */
+
+/* Was die Privacy-Schicht tatsächlich getan hat, nicht was eingestellt ist.
+   Vier kleine Werte in einer Reihe, unter den Upstreams: sie gehören zu dem,
+   was auf dem Weg nach draußen mit einer Anfrage passiert. */
+.counters {
+  margin: 0;
+  padding: var(--s-8) var(--s-16) var(--s-16);
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--s-8);
+  border-top: 1px solid var(--line);
+}
+.counters dt {
+  font-size: var(--t-micro);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.counters dd { margin: 0; font-size: var(--t-small); }
+
 /* ── Begründung: das Größte auf der Seite ──────────────────────────────── */
 
-.why { padding: 0 var(--s-16) var(--s-16); }
-.why h2 { padding: var(--s-16) 0 var(--s-8); }
+.why { padding-bottom: var(--s-16); }
+.why #why-body { padding: 0 var(--s-16); }
 
 .why .subject {
   display: block;
@@ -359,7 +514,15 @@ h2 {
 
 .panes {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 17rem;
+  grid-template-columns: minmax(0, 1fr) 19rem;
+  gap: var(--s-16);
+  min-height: 0;
+}
+
+/* Links: die Begründung oben, das Protokoll darunter — es bekommt den Rest. */
+.column {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   gap: var(--s-16);
   min-height: 0;
 }
@@ -422,6 +585,12 @@ td.c-time { color: var(--muted); }
 /* Der Name einer geblockten Anfrage trägt dieselbe Bedeutung wie ihr Badge. */
 .is-blocked td.c-name { color: var(--danger); }
 
+/* Anklickbar ist eine Zeile nur, wenn es einen Namen zu erklären gibt — in den
+   leisen Modi gibt es keinen, und dann sieht die Zeile auch nicht klickbar aus. */
+.log-table tr.askable { cursor: pointer; }
+.log-table tr.askable:focus-visible { outline: 2px solid var(--text); outline-offset: -2px; }
+.log-table tr.is-asked td { background: var(--row-hover); }
+
 /* Antwort als Badge. Die Farbe wiederholt nur, was der Text schon sagt —
    wer sie nicht sieht, verliert nichts. */
 .badge {
@@ -467,7 +636,17 @@ td.c-time { color: var(--muted); }
 
 /* ── Häufigste Namen ───────────────────────────────────────────────────── */
 
-.side { display: grid; grid-template-rows: auto minmax(0, 1fr); gap: var(--s-16); min-height: 0; }
+/* Rechts vier Panels. Auf einem üblichen Bildschirm passen sie; auf einem
+   niedrigen bekommt die Spalte einen eigenen Rollbalken, statt das Layout
+   zu sprengen. Die Seite selbst scrollt weiterhin nicht. */
+.side {
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+  gap: var(--s-16);
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
 .top-panel { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; }
 
 .top {
@@ -552,8 +731,10 @@ code { font-family: var(--mono); font-size: 0.9em; color: var(--muted); }
   .board { grid-template-rows: none; }
   .figures { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .panes { grid-template-columns: minmax(0, 1fr); }
+  .column { grid-template-rows: none; }
   .log { max-height: 60vh; }
-  .side { grid-template-rows: none; }
+  .side { grid-template-rows: none; overflow-y: visible; }
+  .counters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .facts { gap: var(--s-24); }
   .c-client { display: none; }
 }

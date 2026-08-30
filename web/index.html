@@ -31,7 +31,9 @@
 
 <div id="app" class="shell" hidden>
 
-  <!-- Der Rahmen: wer hier läuft, seit wann, und was er sich merkt. -->
+  <!-- Der Rahmen: wer hier läuft, seit wann, und was er sich merkt. Der
+       Privacy-Streifen steht neben dem Namen und nicht in einem Dialog: der
+       aktive Modus ist eine Daueraussage, keine Einstellung (ADR-0004). -->
   <header class="masthead">
     <div class="wrap masthead-inner">
       <h1 class="mark">
@@ -42,12 +44,18 @@
         </svg>
         <span class="wordmark"><b>Alpen</b>DNS</span>
       </h1>
+
+      <p class="privacy" id="privacy">
+        <span class="privacy-item" id="p-mode">–</span>
+        <span class="privacy-item" id="p-k">–</span>
+        <span class="privacy-item" id="p-store">–</span>
+      </p>
+
       <dl class="facts">
         <div class="fact"><dt>Version</dt><dd id="version">–</dd></div>
         <div class="fact"><dt>Läuft</dt>
           <dd class="reach" id="reach"><span class="dot" aria-hidden="true"></span><span id="uptime">–</span></dd>
         </div>
-        <div class="fact"><dt>Logging</dt><dd id="mode">–</dd></div>
       </dl>
     </div>
   </header>
@@ -84,59 +92,151 @@
       </div>
     </section>
 
-    <!-- Frage 3, und der wertvollste Teil der Seite: die größte Schrift. -->
-    <section class="why panel" aria-labelledby="h-why" aria-live="polite">
-      <h2 id="h-why">Warum wurde das geblockt?</h2>
-      <div id="why-body" hidden></div>
-      <div class="empty" id="why-empty">
-        <svg class="empty-icon" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M12 3l7 3v5c0 4.4-2.9 8.4-7 9.7C7.9 19.4 5 15.4 5 11V6l7-3z"/>
-        </svg>
-        <p>Seit diese Seite offen ist, wurde nichts geblockt.</p>
-      </div>
-    </section>
-
-    <!-- Frage 2, und der Inhalt: der Strom. Er scrollt, die Seite nicht. -->
     <section class="stream" aria-labelledby="h-live">
       <div class="panes">
 
-        <div class="panel log-panel">
-          <div class="panel-head">
-            <h2 id="h-live">Was gerade passiert</h2>
-            <p class="note" id="live-note" hidden></p>
-          </div>
-          <div class="log" id="log-scroll" tabindex="0">
-            <table class="log-table" id="log-table">
-              <caption class="sr-only">Die jüngsten Anfragen</caption>
-              <thead>
-                <tr>
-                  <th class="c-time">Zeit</th>
-                  <th class="c-name">Name</th>
-                  <th class="c-client">Client</th>
-                  <th class="c-rcode">Antwort</th>
-                  <th class="c-ms">ms</th>
-                </tr>
-              </thead>
-              <tbody id="log"></tbody>
-            </table>
-            <div class="empty" id="log-empty">
+        <div class="column">
+
+          <!-- Frage 3, und der wertvollste Teil der Seite: die größte Schrift. -->
+          <section class="why panel" aria-labelledby="h-why" aria-live="polite">
+            <div class="panel-head">
+              <h2 id="h-why">Warum wurde das geblockt?</h2>
+              <p class="note" id="why-source" hidden></p>
+            </div>
+            <div id="why-body" hidden></div>
+            <div class="empty" id="why-empty">
               <svg class="empty-icon" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M3 12h4l3-7 4 14 3-7h4"/>
+                <path d="M12 3l7 3v5c0 4.4-2.9 8.4-7 9.7C7.9 19.4 5 15.4 5 11V6l7-3z"/>
               </svg>
-              <p>Noch keine Anfrage beantwortet. Neue erscheinen hier von selbst.</p>
+              <p>Seit diese Seite offen ist, wurde nichts geblockt. Eine Zeile im
+              Protokoll anklicken fragt die Entscheidungskette ab.</p>
+            </div>
+          </section>
+
+          <!-- Frage 2, und der Inhalt: der Strom. Er scrollt, die Seite nicht. -->
+          <div class="panel log-panel">
+            <div class="panel-head">
+              <h2 id="h-live">Was gerade passiert</h2>
+              <p class="note" id="live-note">flüchtig · nichts davon wird gespeichert</p>
+            </div>
+            <div class="log" id="log-scroll" tabindex="0">
+              <table class="log-table" id="log-table">
+                <caption class="sr-only">Die jüngsten Anfragen</caption>
+                <thead>
+                  <tr>
+                    <th class="c-time">Zeit</th>
+                    <th class="c-name">Name</th>
+                    <th class="c-client">Client</th>
+                    <th class="c-rcode">Antwort</th>
+                    <th class="c-ms">ms</th>
+                  </tr>
+                </thead>
+                <tbody id="log"></tbody>
+              </table>
+              <div class="empty" id="log-empty">
+                <svg class="empty-icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M3 12h4l3-7 4 14 3-7h4"/>
+                </svg>
+                <p>Noch keine Anfrage beantwortet. Neue erscheinen hier von selbst.</p>
+              </div>
             </div>
           </div>
+
         </div>
 
         <aside class="side">
 
-          <section class="panel">
-            <div class="panel-head"><h2 id="h-up">Upstreams</h2></div>
-            <ul class="upstreams" id="upstreams" aria-labelledby="h-up"></ul>
+          <!-- Zwei Kurven aus Zählern. Was sie zeigen können, ist "wie viel";
+               "was" steht in keiner Zeitreihe (ADR-0004). -->
+          <section class="panel" aria-labelledby="h-day">
+            <div class="panel-head">
+              <h2 id="h-day">Letzte 24 Stunden</h2>
+              <p class="note">nur Zähler</p>
+            </div>
+
+            <figure class="chart" id="chart-traffic">
+              <figcaption>
+                <span>Anfragen</span>
+                <span class="key">
+                  <span class="swatch sw-total" aria-hidden="true"></span>gesamt
+                  <span class="swatch sw-blocked" aria-hidden="true"></span>geblockt
+                </span>
+              </figcaption>
+              <svg class="graph" viewBox="0 0 240 52" preserveAspectRatio="none"
+                   role="img" aria-label="Anfragen und geblockte Anfragen der letzten 24 Stunden">
+                <path id="day-queries" class="line-total" vector-effect="non-scaling-stroke" d=""/>
+                <path id="day-blocked" class="line-blocked" vector-effect="non-scaling-stroke" d=""/>
+              </svg>
+            </figure>
+
+            <figure class="chart" id="chart-cache">
+              <figcaption>
+                <span>Cache-Trefferquote</span>
+                <span class="key"><span class="swatch sw-cache" aria-hidden="true"></span>Treffer</span>
+              </figcaption>
+              <svg class="graph" viewBox="0 0 240 52" preserveAspectRatio="none"
+                   role="img" aria-label="Cache-Trefferquote der letzten 24 Stunden">
+                <path id="day-cache" class="line-cache" vector-effect="non-scaling-stroke" d=""/>
+              </svg>
+            </figure>
+
+            <p class="axis"><span>vor 24 h</span><span>jetzt</span></p>
+
+            <div class="empty" id="day-empty">
+              <svg class="empty-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 19h16M4 19V5M8 15l4-5 3 3 4-6"/>
+              </svg>
+              <p>Die Zeitreihe beginnt beim Start und liegt nur im Arbeitsspeicher.
+              Nach fünf Minuten steht hier der erste Punkt.</p>
+            </div>
           </section>
 
-          <section class="panel top-panel">
-            <div class="panel-head"><h2 id="h-top">Häufigste Namen</h2></div>
+          <!-- Wer hat welchen Teil der Namen gesehen — die eigentliche Frage
+               beim Aufteilen auf mehrere Resolver. -->
+          <section class="panel" aria-labelledby="h-up">
+            <div class="panel-head">
+              <h2 id="h-up">Upstreams</h2>
+              <p class="note" id="up-note"></p>
+            </div>
+
+            <figure class="chart" id="chart-split">
+              <figcaption><span>Aufteilung über 24 h</span></figcaption>
+              <svg class="graph graph-area" viewBox="0 0 240 44" preserveAspectRatio="none"
+                   role="img" aria-label="Anteil der Upstreams über die letzten 24 Stunden">
+                <path id="split-1" class="band band-1" d=""/>
+                <path id="split-2" class="band band-2" d=""/>
+                <path id="split-3" class="band band-3" d=""/>
+                <path id="split-4" class="band band-4" d=""/>
+              </svg>
+            </figure>
+
+            <ul class="upstreams" id="upstreams" aria-labelledby="h-up"></ul>
+
+            <dl class="counters" aria-label="Privacy-Zähler">
+              <div><dt>ECS entfernt</dt><dd id="pc-ecs">–</dd></div>
+              <div><dt>Padding</dt><dd id="pc-pad">–</dd></div>
+              <div><dt>0x20</dt><dd id="pc-case">–</dd></div>
+              <div><dt>Cookies</dt><dd id="pc-cookie">–</dd></div>
+            </dl>
+          </section>
+
+          <section class="panel" aria-labelledby="h-reasons">
+            <div class="panel-head"><h2 id="h-reasons">Block-Gründe</h2></div>
+            <div class="bar" id="reason-bar" hidden></div>
+            <ul class="legend" id="reason-legend"></ul>
+            <div class="empty" id="reason-empty">
+              <svg class="empty-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M5 12h14M12 5v14"/>
+              </svg>
+              <p>Noch nichts geblockt. Sobald eine Regel greift, steht hier, welche.</p>
+            </div>
+          </section>
+
+          <section class="panel top-panel" aria-labelledby="h-top">
+            <div class="panel-head">
+              <h2 id="h-top">Häufigste Namen</h2>
+              <p class="note" id="top-hidden"></p>
+            </div>
             <ol class="top" id="top" aria-labelledby="h-top"></ol>
             <div class="empty" id="top-empty">
               <svg class="empty-icon" viewBox="0 0 24 24" aria-hidden="true">

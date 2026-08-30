@@ -2,17 +2,18 @@
 
 use std::path::PathBuf;
 use std::process::ExitCode;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
-use alpendns::api::{ApiState, ListInfo, PolicyInfo, StatusSource};
+use alpendns::api::{ApiState, HistoryView, ListInfo, PolicyInfo, StatusSource};
 use alpendns::caching::CachingBackend;
 use alpendns::clock::{SystemClock, SystemWallClock};
 use alpendns::config::{Config, ListConfig};
 use alpendns::filter::Lists;
 use alpendns::filter::source::{ListSpec, Loader, Source};
+use alpendns::history::{History, Sample};
 use alpendns::logging::QueryLog;
-use alpendns::policy::{Blueprint, Engine, PolicyBackend};
+use alpendns::policy::{Blueprint, Engine, Explanation, PolicyBackend};
 use alpendns::privacy;
 use alpendns::router::ZoneRouter;
 use alpendns::server::Server;
@@ -160,6 +161,19 @@ fn run() -> anyhow::Result<()> {
                 .collect(),
         })
         .collect();
+    // Client-Name → Adresse, solange die Konfiguration noch vollständig ist.
+    // Ausgewertet wird mit der ersten Adresse eines Clients — dieselbe Wahl wie
+    // bei `alpendns policy test`, damit UI und Kommandozeile dasselbe sagen.
+    let client_addrs: std::collections::HashMap<String, std::net::IpAddr> = config
+        .client
+        .iter()
+        .filter_map(|entry| {
+            let address = entry.matches.ip.first()?;
+            let net = alpendns::config::parse_net(address).ok()?;
+            Some((entry.name.clone(), net.addr()))
+        })
+        .collect();
+
     let server_config = config.server;
     let cache_config = config.cache;
     let privacy_config = config.privacy;
@@ -186,6 +200,7 @@ fn run() -> anyhow::Result<()> {
         .map(|resolver| {
             Upstream::new(
                 resolver.name.clone(),
+                resolver.addr.scheme(),
                 Transport::new(
                     resolver.addr.clone(),
                     // Die Validierung stellt sicher, dass hier ein Name steht.
@@ -327,6 +342,7 @@ fn run() -> anyhow::Result<()> {
         // API und Metriken sind zwei Listener, weil sie verschiedene Zielgruppen
         // haben: die API zeigt Namen und braucht einen Token, die Metriken
         // enthalten keine und werden von einem Scraper ohne Token abgeholt.
+        let history = Arc::new(Mutex::new(History::new(std::time::Instant::now())));
         let source: Arc<dyn StatusSource> = Arc::new(Runtime {
             cache: Arc::clone(&cache),
             pool: Arc::clone(&pool),
@@ -336,7 +352,14 @@ fn run() -> anyhow::Result<()> {
             policies: policy_infos.clone(),
             blocking_mode: blocking_config.mode,
             started: std::time::Instant::now(),
+            history: Arc::clone(&history),
+            client_addrs: client_addrs.clone(),
         });
+        tokio::spawn(sample_history(
+            Arc::clone(&source),
+            history,
+            shutdown.clone(),
+        ));
 
         if api_config.enabled {
             let token = read_or_create_token(&api_config.token_file)?;
@@ -519,6 +542,12 @@ struct Runtime {
     policies: Vec<PolicyInfo>,
     blocking_mode: alpendns::filter::block::BlockMode,
     started: std::time::Instant,
+    /// Die Zeitreihe der letzten 24 Stunden. Hinter einem Mutex, aber außerhalb
+    /// des Anfragepfads: hier schreibt nur der Sampler alle 30 Sekunden.
+    history: Arc<Mutex<History>>,
+    /// Client-Name → erste konfigurierte Adresse, für `/api/explain`.
+    /// Dieselbe Auswahl wie bei `alpendns policy test`.
+    client_addrs: std::collections::HashMap<String, std::net::IpAddr>,
 }
 
 impl StatusSource for Runtime {
@@ -533,6 +562,9 @@ impl StatusSource for Runtime {
             blocking_mode: self.blocking_mode,
             logging_mode: self.log.mode(),
             list_formats: count_formats(&self.lists),
+            privacy: alpendns::privacy::counters(),
+            aggregate_k: self.log.aggregate_k(),
+            below_threshold_queries: self.log.top(0).below_threshold_queries,
         }
     }
 
@@ -554,6 +586,72 @@ impl StatusSource for Runtime {
 
     fn grants(&self) -> Vec<(String, Duration)> {
         self.engine.temporary().active()
+    }
+
+    fn history(&self) -> HistoryView {
+        let history = self.history.lock().unwrap_or_else(PoisonError::into_inner);
+        HistoryView {
+            bucket_seconds: history.bucket_seconds(),
+            upstreams: history.upstreams().to_vec(),
+            buckets: history.buckets(),
+        }
+    }
+
+    fn explain(&self, domain: &str, client: Option<&str>) -> Result<Explanation, String> {
+        let peer = match client {
+            None => std::net::IpAddr::from([127, 0, 0, 1]),
+            Some(name) => *self
+                .client_addrs
+                .get(name)
+                .ok_or_else(|| format!("kein Client namens '{name}'"))?,
+        };
+        alpendns::policy::explain(&self.engine, domain, peer)
+    }
+}
+
+/// Schreibt alle 30 Sekunden den Zählerstand in die Zeitreihe.
+///
+/// Gemessen wird der Snapshot, nicht die einzelne Anfrage: die Zeitreihe kann
+/// dadurch gar keinen Namen sehen, auch nicht versehentlich. 30 Sekunden sind
+/// zehnmal feiner als ein Eimer — genug, dass ein Neustart des Samplers oder
+/// ein verpasster Tick die Kurve nicht sichtbar verbiegt.
+const SAMPLE_INTERVAL: Duration = Duration::from_secs(30);
+
+async fn sample_history(
+    source: Arc<dyn StatusSource>,
+    history: Arc<Mutex<History>>,
+    shutdown: CancellationToken,
+) {
+    let mut ticker = tokio::time::interval(SAMPLE_INTERVAL);
+    loop {
+        tokio::select! {
+            () = shutdown.cancelled() => return,
+            _ = ticker.tick() => {}
+        }
+        let snapshot = source.snapshot();
+        let names: Vec<String> = snapshot
+            .upstreams
+            .iter()
+            .map(|upstream| upstream.name.clone())
+            .collect();
+        let sample = Sample {
+            queries: snapshot.log.queries,
+            blocked: snapshot.log.blocked,
+            cache_hits: snapshot
+                .cache
+                .hits
+                .saturating_add(snapshot.cache.stale_hits),
+            cache_misses: snapshot.cache.misses,
+            upstreams: snapshot
+                .upstreams
+                .iter()
+                .map(|upstream| upstream.successes)
+                .collect(),
+        };
+        history
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .observe(sample, &names, std::time::Instant::now());
     }
 }
 
@@ -656,22 +754,25 @@ fn policy_test(path: &std::path::Path, domain: &str, client: Option<&str>) -> an
         SystemWallClock,
     );
 
-    let name = hickory_proto::rr::Name::from_str_relaxed(domain)
-        .map_err(|e| anyhow::anyhow!("'{domain}' ist kein gültiger Domainname: {e}"))?;
-    let mut ctx = alpendns::trace::Ctx::new(std::net::SocketAddr::new(peer, 0));
-    let decision = engine.evaluate(&name, peer, &mut ctx);
+    // Dieselbe Auswertung, die `/api/explain` benutzt — sonst könnten
+    // Kommandozeile und UI verschiedene Antworten auf dieselbe Frage geben.
+    let explanation =
+        alpendns::policy::explain(&engine, domain, peer).map_err(anyhow::Error::msg)?;
 
     println!("Domain:   {domain}");
     println!("Client:   {} ({peer})", client.unwrap_or("(default)"));
     println!(
         "Verdikt:  {}",
-        match decision {
-            alpendns::policy::Decision::Block => "GEBLOCKT",
-            alpendns::policy::Decision::Allow => "durchgelassen",
+        if explanation.blocked {
+            "GEBLOCKT"
+        } else {
+            "durchgelassen"
         }
     );
     println!("\nBegründung:");
-    println!("{}", ctx.explain());
+    for (index, step) in explanation.steps.iter().enumerate() {
+        println!("  {}. {step}", index.saturating_add(1));
+    }
     Ok(())
 }
 

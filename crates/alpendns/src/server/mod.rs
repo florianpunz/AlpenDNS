@@ -17,7 +17,7 @@ use tokio_util::task::TaskTracker;
 
 use crate::config::ServerConfig;
 use crate::dns;
-use crate::logging::{QueryEvent, QueryLog};
+use crate::logging::{BlockReason, QueryEvent, QueryLog};
 use crate::resolve::ResolveBackend;
 use crate::trace::{Ctx, Step};
 
@@ -177,15 +177,19 @@ fn build_event(request: &Message, response: &Message, ctx: &Ctx) -> QueryEvent {
         .unwrap_or_else(|| Arc::from("unbekannt"));
     let query = request.queries.first();
 
+    let blocked = steps
+        .iter()
+        .any(|step| matches!(step, Step::Synthesized { .. }));
+
     QueryEvent {
         name: query.map_or_else(String::new, |q| {
             q.name().to_ascii().trim_end_matches('.').to_owned()
         }),
         query_type: query.map_or_else(String::new, |q| q.query_type().to_string()),
         client,
-        blocked: steps
-            .iter()
-            .any(|step| matches!(step, Step::Synthesized { .. })),
+        blocked,
+        // Der Grund kommt aus dem Trace, nicht aus einer zweiten Buchführung.
+        reason: blocked.then(|| BlockReason::from_steps(steps)),
         rcode: response.metadata.response_code,
         why: steps.iter().map(ToString::to_string).collect(),
         elapsed: ctx.elapsed(),

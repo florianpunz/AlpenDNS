@@ -10,6 +10,8 @@
 //! | 0x20 | nur Klartext | schützt gegen Off-Path-Spoofing, das es auf einer TLS-Verbindung nicht gibt |
 //! | Cookies | nur Klartext | dito (RFC 7873) |
 
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use hickory_proto::op::{Edns, Message};
 use hickory_proto::rr::Name;
 use hickory_proto::rr::rdata::opt::{EdnsCode, EdnsOption};
@@ -47,14 +49,66 @@ pub const PADDING_BLOCK: usize = 128;
 /// Länge eines Client-Cookies nach RFC 7873 §4.
 pub const CLIENT_COOKIE_LEN: usize = 8;
 
+/// Wie oft ein Mechanismus tatsächlich gegriffen hat.
+///
+/// Die Zähler stehen prozessweit und nicht in [`Settings`]: `Settings` ist
+/// `Copy` und liegt als Kopie in jedem Transport, ein Zähler darin würde also
+/// je Transport getrennt zählen. Ein `Arc` durch alle Kopien zu fädeln wäre
+/// Aufwand für eine Handvoll Additionen. Atomare Zähler sind kein Mutex im
+/// Anfragepfad (B.3 Regel 5) und blockieren niemanden.
+///
+/// Gezählt wird **die Wirkung, nicht die Einstellung**: `strip_ecs` zählt nur,
+/// wenn wirklich eine ECS-Option entfernt wurde. Sonst zeigte die Zahl bloß,
+/// dass ein Schalter an ist — das steht schon in der Konfiguration.
+#[derive(Debug, Default)]
+pub struct Counters {
+    /// Anfragen, aus denen eine ECS-Option entfernt wurde.
+    pub ecs_stripped: AtomicU64,
+    /// Anfragen, die auf Blockgröße aufgefüllt wurden.
+    pub padded: AtomicU64,
+    /// Anfragen mit gewürfelter Groß-/Kleinschreibung (0x20).
+    pub randomized: AtomicU64,
+    /// Anfragen mit gesetztem DNS-Cookie.
+    pub cookies: AtomicU64,
+}
+
+/// Momentaufnahme der Zähler, für Metriken und API.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CounterSnapshot {
+    pub ecs_stripped: u64,
+    pub padded: u64,
+    pub randomized: u64,
+    pub cookies: u64,
+}
+
+static COUNTERS: Counters = Counters {
+    ecs_stripped: AtomicU64::new(0),
+    padded: AtomicU64::new(0),
+    randomized: AtomicU64::new(0),
+    cookies: AtomicU64::new(0),
+};
+
+/// Der aktuelle Stand aller Privacy-Zähler.
+pub fn counters() -> CounterSnapshot {
+    CounterSnapshot {
+        ecs_stripped: COUNTERS.ecs_stripped.load(Ordering::Relaxed),
+        padded: COUNTERS.padded.load(Ordering::Relaxed),
+        randomized: COUNTERS.randomized.load(Ordering::Relaxed),
+        cookies: COUNTERS.cookies.load(Ordering::Relaxed),
+    }
+}
+
 /// Entfernt EDNS Client Subnet aus einer Anfrage.
 ///
 /// ECS verrät dem Upstream, aus welchem Subnetz der Client kommt, damit er
 /// geografisch passende Antworten geben kann. Für einen Heimanschluss ist der
 /// Nutzen gering und der Preis hoch: das Subnetz identifiziert den Haushalt.
 pub fn strip_ecs(message: &mut Message) {
-    if let Some(edns) = message.edns.as_mut() {
+    if let Some(edns) = message.edns.as_mut()
+        && edns.option(EdnsCode::Subnet).is_some()
+    {
         edns.options_mut().remove(EdnsCode::Subnet);
+        COUNTERS.ecs_stripped.fetch_add(1, Ordering::Relaxed);
     }
 }
 
@@ -86,6 +140,7 @@ pub fn pad_to_block(message: &mut Message, block: usize) -> Result<(), hickory_p
             u16::from(EdnsCode::Padding),
             vec![0; fill],
         ));
+        COUNTERS.padded.fetch_add(1, Ordering::Relaxed);
     }
     Ok(())
 }
@@ -118,6 +173,7 @@ pub fn randomize_case(name: &Name) -> Name {
         |_| name.clone(),
         |mut built| {
             built.set_fqdn(name.is_fqdn());
+            COUNTERS.randomized.fetch_add(1, Ordering::Relaxed);
             built
         },
     )
@@ -160,6 +216,7 @@ pub fn set_cookie(message: &mut Message, client: &[u8; CLIENT_COOKIE_LEN], serve
     if let Some(edns) = message.edns.as_mut() {
         edns.options_mut()
             .insert(EdnsOption::Unknown(u16::from(EdnsCode::Cookie), value));
+        COUNTERS.cookies.fetch_add(1, Ordering::Relaxed);
     }
 }
 

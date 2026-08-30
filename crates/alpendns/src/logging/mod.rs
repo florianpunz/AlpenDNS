@@ -29,6 +29,8 @@ use serde::Deserialize;
 use counts::Counts;
 use ring::Ring;
 
+use crate::trace::Step;
+
 /// Wie viel eine Anfrage hinterlässt.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -66,6 +68,63 @@ impl Mode {
     }
 }
 
+/// Woran eine Anfrage gescheitert ist.
+///
+/// Abgeleitet aus dem Decision-Trace, nicht getrennt mitgeführt: der Trace ist
+/// die Quelle der Wahrheit dafür, warum eine Antwort so ausfiel
+/// (ARCHITECTURE.md §2). Eine zweite Buchführung daneben liefe irgendwann
+/// auseinander.
+///
+/// Die Aufzählung ist bewusst offen für Phase 8: die Heuristiken aus
+/// `alpendns-detect` (DGA, Tunneling, Rebinding) bekommen dann je eine
+/// Variante, ohne dass Zähler, API oder UI sich ändern müssen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BlockReason {
+    /// Eine Blockliste hat den Namen enthalten.
+    Blocklist,
+    /// Eine Regex-Regel der Policy hat gepasst.
+    Regex,
+    /// Ein Zeitplan war aktiv.
+    Schedule,
+    /// Geblockt, aber kein Schritt sagt warum. Sollte nicht vorkommen und wird
+    /// deshalb sichtbar gezählt statt stillschweigend einem Grund zugeschlagen.
+    Other,
+}
+
+impl BlockReason {
+    /// Alle Gründe. Wie [`Mode::ALL`] gibt die Metrik jeden aus, auch mit Wert
+    /// null — sonst verschwindet eine Kategorie aus der Ausgabe, sobald sie
+    /// gerade nicht vorkommt, und ein Diagramm darüber bekommt Lücken.
+    pub const ALL: [Self; 4] = [Self::Blocklist, Self::Regex, Self::Schedule, Self::Other];
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Blocklist => "blocklist",
+            Self::Regex => "regex",
+            Self::Schedule => "schedule",
+            Self::Other => "other",
+        }
+    }
+
+    /// Der Grund, den ein Trace nennt.
+    ///
+    /// Es gewinnt der zuletzt eingetragene passende Schritt: die Kette wird von
+    /// außen nach innen aufgebaut, und der letzte Treffer ist der, der die
+    /// Entscheidung tatsächlich herbeigeführt hat.
+    pub fn from_steps(steps: &[Step]) -> Self {
+        steps
+            .iter()
+            .rev()
+            .find_map(|step| match step {
+                Step::BlocklistHit { .. } => Some(Self::Blocklist),
+                Step::RegexHit { .. } => Some(Self::Regex),
+                Step::ScheduleHit { .. } => Some(Self::Schedule),
+                _ => None,
+            })
+            .unwrap_or(Self::Other)
+    }
+}
+
 /// Was über eine beantwortete Anfrage bekannt ist.
 #[derive(Debug, Clone)]
 pub struct QueryEvent {
@@ -73,6 +132,8 @@ pub struct QueryEvent {
     pub query_type: String,
     pub client: Arc<str>,
     pub blocked: bool,
+    /// Nur gesetzt, wenn `blocked`.
+    pub reason: Option<BlockReason>,
     pub rcode: ResponseCode,
     /// Die Begründungskette, schon als Text.
     pub why: Vec<String>,
@@ -119,6 +180,8 @@ struct Counters {
     blocked: AtomicU64,
     /// Nach RCODE, indiziert über die niederwertigen vier Bit.
     by_rcode: [AtomicU64; 16],
+    /// Nach Block-Grund, in der Reihenfolge von [`BlockReason::ALL`].
+    by_reason: [AtomicU64; BlockReason::ALL.len()],
 }
 
 /// Momentaufnahme der Zähler.
@@ -127,6 +190,8 @@ pub struct LogStats {
     pub queries: u64,
     pub blocked: u64,
     pub by_rcode: Vec<(String, u64)>,
+    /// Geblockte Anfragen je Grund. Enthält jeden Grund, auch mit Wert null.
+    pub by_reason: Vec<(BlockReason, u64)>,
     /// Namen im Ringpuffer. In `none` und `aggregate` immer 0.
     pub ring_entries: usize,
 }
@@ -137,6 +202,25 @@ pub struct TopDomain {
     pub name: String,
     pub count: u32,
     pub blocked: bool,
+}
+
+/// Die Häufigkeitsliste samt dem, was sie verschweigt.
+///
+/// Die verschwiegenen Anfragen werden **als Summe** ausgewiesen, nicht
+/// weggelassen. Sonst ergäbe die Liste ein falsches Bild vom Verkehr: bei einem
+/// frisch gestarteten Server steht fast alles unter der Schwelle, und eine
+/// Ansicht, die das nicht sagt, sieht aus wie ein Server ohne Verkehr. Die
+/// Summe verrät nichts über einzelne Namen — genau darin besteht der Handel
+/// (ADR-0004).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct TopReport {
+    /// Die k-Schwelle, ab der ein Name überhaupt genannt werden darf.
+    pub threshold: u32,
+    pub domains: Vec<TopDomain>,
+    /// Anfragen auf Namen, die die Schwelle nicht erreicht haben.
+    pub below_threshold_queries: u64,
+    /// Wie viele verschiedene Namen das sind.
+    pub below_threshold_names: usize,
 }
 
 /// Nimmt Anfragen entgegen und behält davon, was der Modus zulässt.
@@ -196,11 +280,31 @@ impl QueryLog {
         self.mode
     }
 
+    /// Die k-Schwelle dieser Instanz.
+    pub const fn aggregate_k(&self) -> u32 {
+        self.aggregate_k
+    }
+
+    /// Ob Anfragen auf die Platte geschrieben werden.
+    ///
+    /// Die UI behauptet "Daten nur im RAM" — diese Behauptung muss aus dem
+    /// laufenden Prozess kommen und nicht aus der Annahme, dass schon niemand
+    /// `full` eingeschaltet haben wird.
+    pub const fn writes_to_disk(&self) -> bool {
+        self.file.is_some()
+    }
+
     /// Nimmt eine beantwortete Anfrage auf.
     pub fn record(&self, event: &QueryEvent) {
         self.counters.queries.fetch_add(1, Ordering::Relaxed);
         if event.blocked {
             self.counters.blocked.fetch_add(1, Ordering::Relaxed);
+            let reason = event.reason.unwrap_or(BlockReason::Other);
+            if let Some(index) = BlockReason::ALL.iter().position(|&r| r == reason)
+                && let Some(counter) = self.counters.by_reason.get(index)
+            {
+                counter.fetch_add(1, Ordering::Relaxed);
+            }
         }
         let rcode = usize::from(u16::from(event.rcode) & 0x0f);
         if let Some(counter) = self.counters.by_rcode.get(rcode) {
@@ -305,10 +409,23 @@ impl QueryLog {
                 })
             })
             .collect();
+        let by_reason = BlockReason::ALL
+            .iter()
+            .enumerate()
+            .map(|(index, &reason)| {
+                let value = self
+                    .counters
+                    .by_reason
+                    .get(index)
+                    .map_or(0, |counter| counter.load(Ordering::Relaxed));
+                (reason, value)
+            })
+            .collect();
         LogStats {
             queries: self.counters.queries.load(Ordering::Relaxed),
             blocked: self.counters.blocked.load(Ordering::Relaxed),
             by_rcode,
+            by_reason,
             ring_entries: self
                 .ring
                 .lock()
@@ -319,13 +436,26 @@ impl QueryLog {
 
     /// Die häufigsten Domains — ausschließlich solche über der k-Schwelle.
     pub fn top_domains(&self, limit: usize) -> Vec<TopDomain> {
+        self.top(limit).domains
+    }
+
+    /// Die Häufigkeitsliste mit der Summe dessen, was unter der Schwelle bleibt.
+    pub fn top(&self, limit: usize) -> TopReport {
         if self.mode == Mode::None {
-            return Vec::new();
+            // Ohne Zählung gibt es auch nichts zu verschweigen.
+            return TopReport {
+                threshold: self.aggregate_k,
+                domains: Vec::new(),
+                below_threshold_queries: 0,
+                below_threshold_names: 0,
+            };
         }
-        let mut found: Vec<TopDomain> = self
+
+        let reportable = self
             .reportable
             .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+            .unwrap_or_else(PoisonError::into_inner);
+        let mut found: Vec<TopDomain> = reportable
             .iter()
             .map(|(name, entry)| TopDomain {
                 name: name.clone(),
@@ -333,9 +463,20 @@ impl QueryLog {
                 blocked: entry.blocked,
             })
             .collect();
+        let named_queries: u64 = found.iter().map(|entry| u64::from(entry.count)).sum();
+        let named_names = found.len();
+        drop(reportable);
+
         found.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.name.cmp(&b.name)));
         found.truncate(limit);
-        found
+
+        let counts = self.counts.lock().unwrap_or_else(PoisonError::into_inner);
+        TopReport {
+            threshold: self.aggregate_k,
+            domains: found,
+            below_threshold_queries: counts.total().saturating_sub(named_queries),
+            below_threshold_names: counts.tracked().saturating_sub(named_names),
+        }
     }
 
     /// Die jüngsten Anfragen. Leer in `none` und `aggregate`.
@@ -347,5 +488,47 @@ impl QueryLog {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .recent(Instant::now(), limit)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_block_reason_comes_from_the_last_matching_step() {
+        // Die Kette wird von außen nach innen aufgebaut; entschieden hat der
+        // letzte Treffer. Eine Anfrage, die erst an einer Regex hängen bleibt
+        // und dann auf einer Liste steht, ist ein Listentreffer.
+        let steps = [
+            Step::RegexHit {
+                policy: Arc::from("kinder"),
+                pattern: Arc::from("^ads"),
+            },
+            Step::BlocklistHit {
+                list: Arc::from("stevenblack"),
+                line: 7,
+                matched: "ads.example.com".to_owned(),
+            },
+        ];
+        assert_eq!(BlockReason::from_steps(&steps), BlockReason::Blocklist);
+    }
+
+    #[test]
+    fn a_block_without_a_named_step_is_counted_as_other() {
+        // Lieber sichtbar in einer Restkategorie als still einem Grund
+        // zugeschlagen, der es nicht war.
+        let steps = [Step::PolicyApplied {
+            policy: Arc::from("default"),
+        }];
+        assert_eq!(BlockReason::from_steps(&steps), BlockReason::Other);
+    }
+
+    #[test]
+    fn every_reason_has_a_stable_name() {
+        // Die Namen stehen in Metrik-Labels und in der UI; sie sind Teil der
+        // Schnittstelle, nicht bloß Debug-Ausgabe.
+        let names: Vec<&str> = BlockReason::ALL.iter().map(|r| r.as_str()).collect();
+        assert_eq!(names, ["blocklist", "regex", "schedule", "other"]);
     }
 }

@@ -14,6 +14,7 @@ use crate::cache::Stats as CacheStats;
 use crate::filter::block::BlockMode;
 use crate::logging::{LogStats, Mode as LogMode};
 use crate::policy::PolicyStats;
+use crate::privacy::CounterSnapshot as PrivacyCounters;
 use crate::upstream::pool::UpstreamStats;
 
 /// Alles, was der Endpunkt ausgibt.
@@ -31,6 +32,12 @@ pub struct Snapshot {
     pub logging_mode: LogMode,
     /// Wie viele geladene Listen je Format, absteigend nach Häufigkeit.
     pub list_formats: Vec<(String, u64)>,
+    /// Wie oft die Privacy-Mechanismen tatsächlich gegriffen haben.
+    pub privacy: PrivacyCounters,
+    /// Die k-Schwelle aus der Konfiguration.
+    pub aggregate_k: u32,
+    /// Anfragen auf Namen unterhalb der k-Schwelle.
+    pub below_threshold_queries: u64,
 }
 
 /// Maskiert, was in einem Label-Wert nicht vorkommen darf.
@@ -172,6 +179,62 @@ pub fn render(snapshot: &Snapshot) -> String {
         );
     }
 
+    let _ = writeln!(
+        out,
+        "# HELP alpendns_blocked_by_reason_total Geblockte Anfragen je Grund"
+    );
+    let _ = writeln!(out, "# TYPE alpendns_blocked_by_reason_total counter");
+    for (reason, value) in &snapshot.log.by_reason {
+        let _ = writeln!(
+            out,
+            "alpendns_blocked_by_reason_total{{reason=\"{}\"}} {value}",
+            reason.as_str()
+        );
+    }
+
+    // Die Wirkung der Privacy-Schicht, nicht ihre Einstellung. Ohne diese
+    // Zähler ist "ECS wird entfernt" eine Behauptung in der Konfiguration;
+    // mit ihnen ist es eine Zahl, die im Betrieb steigt.
+    counter(
+        &mut out,
+        "alpendns_privacy_ecs_stripped_total",
+        "Anfragen, aus denen eine ECS-Option entfernt wurde",
+        snapshot.privacy.ecs_stripped,
+    );
+    counter(
+        &mut out,
+        "alpendns_privacy_padded_total",
+        "Anfragen, die auf Blockgröße aufgefüllt wurden",
+        snapshot.privacy.padded,
+    );
+    counter(
+        &mut out,
+        "alpendns_privacy_case_randomized_total",
+        "Anfragen mit gewürfelter Groß-/Kleinschreibung (0x20)",
+        snapshot.privacy.randomized,
+    );
+    counter(
+        &mut out,
+        "alpendns_privacy_cookies_total",
+        "Anfragen mit gesetztem DNS-Cookie",
+        snapshot.privacy.cookies,
+    );
+
+    // Die k-Schwelle gehört in die Metrik, weil sonst niemand nachvollziehen
+    // kann, wie viel eine Häufigkeitsliste verschweigt.
+    gauge(
+        &mut out,
+        "alpendns_aggregate_k",
+        "Ab wie vielen Treffern ein Name überhaupt genannt werden darf",
+        f64::from(snapshot.aggregate_k),
+    );
+    counter(
+        &mut out,
+        "alpendns_queries_below_threshold_total",
+        "Anfragen auf Namen, die die k-Schwelle nicht erreicht haben",
+        snapshot.below_threshold_queries,
+    );
+
     let _ = writeln!(out, "# HELP alpendns_lists Geladene Listen je Format");
     let _ = writeln!(out, "# TYPE alpendns_lists gauge");
     for (format, count) in &snapshot.list_formats {
@@ -195,6 +258,20 @@ pub fn render(snapshot: &Snapshot) -> String {
             upstream.successes
         );
     }
+    let _ = writeln!(
+        out,
+        "# HELP alpendns_upstream_transport 1 je Upstream beim benutzten Transport"
+    );
+    let _ = writeln!(out, "# TYPE alpendns_upstream_transport gauge");
+    for upstream in &snapshot.upstreams {
+        let _ = writeln!(
+            out,
+            "alpendns_upstream_transport{{resolver=\"{}\",transport=\"{}\"}} 1",
+            escape(&upstream.name),
+            upstream.scheme
+        );
+    }
+
     let _ = writeln!(
         out,
         "# HELP alpendns_upstream_failures_total Fehlgeschlagene Anfragen je Upstream"
@@ -243,6 +320,7 @@ pub fn render(snapshot: &Snapshot) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::logging::BlockReason;
     use std::time::Duration;
 
     fn snapshot() -> Snapshot {
@@ -251,6 +329,12 @@ mod tests {
                 queries: 100,
                 blocked: 12,
                 by_rcode: vec![("NoError".to_owned(), 88), ("NXDomain".to_owned(), 12)],
+                by_reason: vec![
+                    (BlockReason::Blocklist, 9),
+                    (BlockReason::Regex, 2),
+                    (BlockReason::Schedule, 1),
+                    (BlockReason::Other, 0),
+                ],
                 ring_entries: 0,
             },
             cache: CacheStats {
@@ -268,6 +352,7 @@ mod tests {
             },
             upstreams: vec![UpstreamStats {
                 name: "quad9".to_owned(),
+                scheme: "dot",
                 successes: 38,
                 failures: 1,
                 rtt: Some(Duration::from_millis(34)),
@@ -277,6 +362,14 @@ mod tests {
             blocking_mode: BlockMode::Nxdomain,
             logging_mode: LogMode::Aggregate,
             list_formats: vec![("hosts".to_owned(), 2), ("wildcard".to_owned(), 1)],
+            privacy: PrivacyCounters {
+                ecs_stripped: 7,
+                padded: 38,
+                randomized: 38,
+                cookies: 0,
+            },
+            aggregate_k: 5,
+            below_threshold_queries: 21,
         }
     }
 
@@ -334,6 +427,12 @@ mod tests {
             "alpendns_logging_mode{mode=\"full\"} 0",
             "alpendns_lists{format=\"hosts\"} 2",
             "alpendns_lists{format=\"wildcard\"} 1",
+            "alpendns_blocked_by_reason_total{reason=\"blocklist\"} 9",
+            "alpendns_blocked_by_reason_total{reason=\"other\"} 0",
+            "alpendns_privacy_ecs_stripped_total 7",
+            "alpendns_queries_below_threshold_total 21",
+            "alpendns_aggregate_k 5",
+            "alpendns_upstream_transport{resolver=\"quad9\",transport=\"dot\"} 1",
         ] {
             assert!(text.contains(expected), "fehlt: {expected}\n{text}");
         }
@@ -374,6 +473,7 @@ mod tests {
         let mut snapshot = snapshot();
         snapshot.upstreams = vec![UpstreamStats {
             name: r#"boes"er\name"#.to_owned(),
+            scheme: "doh",
             successes: 1,
             failures: 0,
             rtt: None,
@@ -384,14 +484,19 @@ mod tests {
             text.contains(r#"resolver="boes\"er\\name""#),
             "Anführungszeichen im Label nicht maskiert:\n{text}"
         );
-        // Jede Zeile muss weiterhin genau zwei unmaskierte Anführungszeichen haben.
+        // Jede Zeile muss weiterhin je Label genau zwei unmaskierte
+        // Anführungszeichen haben — sonst hat ein Wert die Klammer gesprengt.
         for line in text.lines().filter(|l| l.contains("resolver=")) {
+            let labels = line
+                .split_once('{')
+                .and_then(|(_, rest)| rest.rsplit_once('}'))
+                .map_or(0, |(inside, _)| inside.split(',').count());
             let unescaped = line
                 .replace(r#"\""#, "")
                 .replace(r"\\", "")
                 .matches('"')
                 .count();
-            assert_eq!(unescaped, 2, "{line}");
+            assert_eq!(unescaped, labels * 2, "{line}");
         }
     }
 
@@ -405,6 +510,70 @@ mod tests {
                 !line.contains("domain=") && !line.contains("name=\"") && !line.contains("qname"),
                 "verdächtiges Label in '{line}'"
             );
+        }
+    }
+
+    /// Die Label-Schlüssel stehen abschließend fest.
+    ///
+    /// Der Test davor verbietet drei Schreibweisen und wäre mit einer vierten zu
+    /// umgehen. Dieser dreht die Richtung um: erlaubt ist, was hier steht, und
+    /// jedes neue Label muss durch diese Liste. Jeder Eintrag stammt aus einer
+    /// geschlossenen Menge — Aufzählung oder Konfigurationswert —, keiner aus
+    /// einer Anfrage. Ein Client oder eine Domain kann daher nicht als
+    /// Label-Schlüssel auftauchen, egal wer was fragt.
+    #[test]
+    fn every_label_key_comes_from_a_closed_set() {
+        const ALLOWED: [&str; 7] = [
+            "version",   // Konstante aus dem Build
+            "rcode",     // Aufzählung des Protokolls
+            "mode",      // Aufzählung aus der Konfiguration
+            "format",    // Aufzählung der Listenformate
+            "reason",    // BlockReason::ALL
+            "resolver",  // Name aus der Konfiguration
+            "transport", // Aufzählung der Transporte
+        ];
+        let text = render(&snapshot());
+        for line in text.lines().filter(|l| !l.starts_with('#')) {
+            let Some((_, rest)) = line.split_once('{') else {
+                continue;
+            };
+            let Some((inside, _)) = rest.rsplit_once('}') else {
+                continue;
+            };
+            for pair in inside.split(',') {
+                let key = pair.split('=').next().unwrap_or(pair);
+                assert!(
+                    ALLOWED.contains(&key),
+                    "unbekannter Label-Schlüssel '{key}' in '{line}'"
+                );
+            }
+        }
+    }
+
+    /// Kein Label-Wert sieht aus wie ein Domainname oder eine Adresse.
+    ///
+    /// Die Ergänzung zum Test darüber: der prüft die Schlüssel, dieser die
+    /// Werte. Ein Resolver darf "quad9" heißen, aber nichts in dieser Ausgabe
+    /// darf die Form eines abgefragten Namens oder einer Client-Adresse haben.
+    #[test]
+    fn no_label_value_looks_like_a_name_or_an_address() {
+        let text = render(&snapshot());
+        for line in text.lines().filter(|l| !l.starts_with('#')) {
+            for value in line.split('"').skip(1).step_by(2) {
+                // Die Version ist die einzige Stelle, an der Punkte legitim
+                // sind: "0.0.1" ist kein Name.
+                if line.starts_with("alpendns_build_info") {
+                    continue;
+                }
+                assert!(
+                    value.parse::<std::net::IpAddr>().is_err(),
+                    "Adresse als Label-Wert in '{line}'"
+                );
+                assert!(
+                    !value.contains('.'),
+                    "punktierter Name als Label-Wert in '{line}'"
+                );
+            }
         }
     }
 }

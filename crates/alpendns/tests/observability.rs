@@ -5,19 +5,25 @@
 //! (ADR-0004, B.1 Regel 3).
 
 // Testcode darf panicken, siehe B.1 und clippy.toml.
-#![allow(clippy::expect_used, clippy::indexing_slicing, clippy::panic)]
+#![allow(
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::panic,
+    clippy::integer_division
+)]
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use alpendns::api::{ApiState, ListInfo, PolicyInfo, StatusSource};
+use alpendns::api::{ApiState, HistoryView, ListInfo, PolicyInfo, StatusSource};
 use alpendns::cache::Stats as CacheStats;
 use alpendns::config::LoggingConfig;
-use alpendns::logging::{Mode, QueryEvent, QueryLog};
+use alpendns::history::{History, Sample};
+use alpendns::logging::{BlockReason, Mode, QueryEvent, QueryLog};
 use alpendns::metrics::Snapshot;
-use alpendns::policy::PolicyStats;
+use alpendns::policy::{Explanation, PolicyStats};
 use alpendns::upstream::pool::UpstreamStats;
 use hickory_proto::op::ResponseCode;
 
@@ -60,6 +66,7 @@ fn event(name: &str, blocked: bool) -> QueryEvent {
         query_type: "A".to_owned(),
         client: Arc::from("kids-tablet"),
         blocked,
+        reason: blocked.then_some(BlockReason::Blocklist),
         rcode: if blocked {
             ResponseCode::NXDomain
         } else {
@@ -240,6 +247,7 @@ impl StatusSource for Fake {
             },
             upstreams: vec![UpstreamStats {
                 name: "quad9".to_owned(),
+                scheme: "dot",
                 successes: 4,
                 failures: 0,
                 rtt: Some(Duration::from_millis(34)),
@@ -249,6 +257,9 @@ impl StatusSource for Fake {
             blocking_mode: alpendns::filter::block::BlockMode::Nxdomain,
             logging_mode: self.log.mode(),
             list_formats: vec![("hosts".to_owned(), 1)],
+            privacy: alpendns::privacy::counters(),
+            aggregate_k: self.log.aggregate_k(),
+            below_threshold_queries: self.log.top(0).below_threshold_queries,
         }
     }
     fn lists(&self) -> Vec<ListInfo> {
@@ -282,6 +293,38 @@ impl StatusSource for Fake {
     }
     fn grants(&self) -> Vec<(String, Duration)> {
         self.granted.lock().expect("Lock").clone()
+    }
+    fn history(&self) -> HistoryView {
+        let now = std::time::Instant::now();
+        let mut history = History::new(now);
+        history.observe(sample(0), &["quad9".to_owned()], now);
+        history.observe(sample(10), &["quad9".to_owned()], now);
+        HistoryView {
+            bucket_seconds: history.bucket_seconds(),
+            upstreams: history.upstreams().to_vec(),
+            buckets: history.buckets(),
+        }
+    }
+    fn explain(&self, domain: &str, client: Option<&str>) -> Result<Explanation, String> {
+        if domain.is_empty() {
+            return Err("leerer Name".to_owned());
+        }
+        Ok(Explanation {
+            domain: domain.to_owned(),
+            client: client.unwrap_or("default").to_owned(),
+            blocked: true,
+            steps: vec![format!("Blockliste 'test' Zeile 1: '{domain}'")],
+        })
+    }
+}
+
+fn sample(queries: u64) -> Sample {
+    Sample {
+        queries,
+        blocked: queries / 2,
+        cache_hits: queries,
+        cache_misses: 0,
+        upstreams: vec![queries],
     }
 }
 
@@ -351,6 +394,8 @@ async fn every_api_endpoint_refuses_without_a_token() {
     for path in [
         "/api/status",
         "/api/top",
+        "/api/history",
+        "/api/explain?domain=x.example",
         "/api/recent",
         "/api/lists",
         "/api/policies",
@@ -385,6 +430,8 @@ async fn every_api_endpoint_answers_with_a_token() {
     for path in [
         "/api/status",
         "/api/top",
+        "/api/history",
+        "/api/explain?domain=x.example",
         "/api/recent",
         "/api/lists",
         "/api/policies",
@@ -556,4 +603,156 @@ async fn the_metrics_endpoint_needs_no_token_and_names_nothing() {
         !text.contains(SECRET),
         "der Metrik-Endpunkt nennt einen Query-Namen:\n{text}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Metriken
+// ---------------------------------------------------------------------------
+
+/// Kein Prometheus-Label trägt einen Domain- oder Client-Namen.
+///
+/// Der Unterschied zu den Tests in `metrics.rs`: dort steht eine gebaute
+/// Momentaufnahme, hier läuft echter Verkehr durch das Query-Log, bevor die
+/// Ausgabe gerendert wird. Prometheus behält jede Zeitreihe für immer — ein
+/// Name in einem Label wäre ein Query-Log, das keine Retention kennt und das
+/// niemand als solches erkennt.
+#[tokio::test]
+async fn no_metric_label_carries_a_domain_or_client_name() {
+    for mode in [Mode::None, Mode::Aggregate, Mode::Ring, Mode::Full] {
+        let dir = TempDir::new("metrics-leak");
+        let log = Arc::new(QueryLog::new(&config(mode, dir.0.join("q.jsonl"))).expect("QueryLog"));
+        let source = Fake {
+            log: Arc::clone(&log),
+            granted: std::sync::Mutex::new(Vec::new()),
+        };
+
+        // Genug Treffer, um auch die k-Schwelle zu überschreiten: gerade der
+        // häufige Name ist der, den eine Statistik gern ausplaudert.
+        for _ in 0..50 {
+            log.record(&event(SECRET, true));
+        }
+        log.record(&event("einmalig.example.org", false));
+
+        let text = alpendns::metrics::render(&source.snapshot());
+        assert!(
+            !text.contains(SECRET),
+            "im Modus {mode:?} steht der Query-Name in den Metriken:\n{text}"
+        );
+        assert!(
+            !text.contains("einmalig.example.org"),
+            "im Modus {mode:?} steht ein seltener Name in den Metriken:\n{text}"
+        );
+        assert!(
+            !text.contains("kids-tablet"),
+            "im Modus {mode:?} steht der Client-Name in den Metriken:\n{text}"
+        );
+
+        // Der Puls muss trotzdem in der Ausgabe stehen, sonst prüft der Test
+        // bloß, dass die Datei leer ist.
+        assert!(text.contains("alpendns_queries_total 51"), "{text}");
+        assert!(
+            text.contains("alpendns_blocked_by_reason_total{reason=\"blocklist\"} 50"),
+            "{text}"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// k-Schwelle in der API
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn the_top_list_aggregates_everything_below_the_threshold() {
+    // ADR-0004: was unter der Schwelle bleibt, verschwindet nicht — es wird zu
+    // einer Zahl ohne Namen. Sonst sähe ein Server mit viel seltenem Verkehr
+    // aus wie einer ohne Verkehr.
+    let (api, _dir) = start_api(Mode::Aggregate).await;
+
+    for _ in 0..12 {
+        api.source.log.record(&event("haeufig.example.com", false));
+    }
+    // Drei verschiedene Namen mit je zwei Treffern: alle unter k = 5.
+    for index in 0..3 {
+        for _ in 0..2 {
+            api.source
+                .log
+                .record(&event(&format!("selten{index}.example.com"), false));
+        }
+    }
+
+    let body: serde_json::Value = api.get("/api/top").await.json().await.expect("JSON");
+    assert_eq!(body["threshold"], 5);
+    assert_eq!(body["domains"][0]["name"], "haeufig.example.com");
+    assert_eq!(body["domains"][0]["count"], 12);
+    assert_eq!(body["domains"][1], serde_json::Value::Null, "{body}");
+    assert_eq!(body["below_threshold_queries"], 6);
+    assert_eq!(body["below_threshold_names"], 3);
+
+    let text = body.to_string();
+    for index in 0..3 {
+        assert!(
+            !text.contains(&format!("selten{index}")),
+            "ein Name unter der Schwelle wurde ausgeliefert: {text}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn the_status_endpoint_states_what_the_server_keeps() {
+    // Der Privacy-Badge im Kopf der UI lebt von diesen drei Feldern.
+    let (api, _dir) = start_api(Mode::Aggregate).await;
+    let body: serde_json::Value = api.get("/api/status").await.json().await.expect("JSON");
+    assert_eq!(body["logging_mode"], "aggregate");
+    assert_eq!(body["aggregate_k"], 5);
+    assert_eq!(body["persists_to_disk"], false);
+    assert_eq!(body["upstreams"][0]["transport"], "dot");
+    assert!(body["block_reasons"].is_array(), "{body}");
+    assert!(body["privacy"]["ecs_stripped"].is_u64(), "{body}");
+}
+
+#[tokio::test]
+async fn the_full_mode_admits_that_it_writes_to_disk() {
+    // Die UI darf nicht "nur im RAM" behaupten, während eine Datei mitläuft.
+    let (api, _dir) = start_api(Mode::Full).await;
+    let body: serde_json::Value = api.get("/api/status").await.json().await.expect("JSON");
+    assert_eq!(body["persists_to_disk"], true);
+}
+
+#[tokio::test]
+async fn the_history_is_made_of_counters_only() {
+    let (api, _dir) = start_api(Mode::Ring).await;
+    api.source.log.record(&event(SECRET, true));
+
+    let response = api.get("/api/history").await;
+    let text = response.text().await.expect("Text");
+    assert!(!text.contains(SECRET), "Name in der Zeitreihe: {text}");
+    let body: serde_json::Value = serde_json::from_str(&text).expect("JSON");
+    assert_eq!(body["bucket_seconds"], 300);
+    assert_eq!(body["upstreams"][0], "quad9");
+    assert!(body["buckets"][0]["queries"].is_u64(), "{body}");
+}
+
+#[tokio::test]
+async fn a_row_can_be_explained_over_the_api() {
+    // Punkt 6: der Klick auf eine Zeile fragt dieselbe Auswertung wie
+    // `alpendns policy test`.
+    let (api, _dir) = start_api(Mode::Ring).await;
+    let body: serde_json::Value = api
+        .get("/api/explain?domain=ads.example.com&client=kids-tablet")
+        .await
+        .json()
+        .await
+        .expect("JSON");
+    assert_eq!(body["domain"], "ads.example.com");
+    assert_eq!(body["client"], "kids-tablet");
+    assert_eq!(body["blocked"], true);
+    assert!(
+        body["steps"][0]
+            .as_str()
+            .is_some_and(|s| s.contains("Blockliste")),
+        "{body}"
+    );
+
+    let response = api.get("/api/explain?domain=").await;
+    assert_eq!(response.status(), reqwest::StatusCode::BAD_REQUEST);
 }

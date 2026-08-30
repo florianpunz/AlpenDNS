@@ -69,6 +69,52 @@ pub enum Decision {
     Block,
 }
 
+/// Eine Auswertung samt ihrer Begründungskette, für Menschen.
+///
+/// Erzeugt von [`explain`] und benutzt von genau zwei Aufrufern: `alpendns
+/// policy test` auf der Kommandozeile und `/api/explain` für den Klick auf eine
+/// Zeile im Protokoll. Beide sollen dieselbe Antwort geben — deshalb ist es
+/// eine Funktion und nicht zweimal dieselbe Schleife.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct Explanation {
+    pub domain: String,
+    pub client: String,
+    pub blocked: bool,
+    /// Ein Schritt je Zeile, in der Reihenfolge der Entscheidung.
+    pub steps: Vec<String>,
+}
+
+/// Wertet einen Namen aus und gibt die Begründung zurück, ohne etwas zu ändern.
+///
+/// Die Auswertung ist eine Simulation: sie zählt in keiner Statistik mit und
+/// hinterlässt nichts. Der Name kommt vom Aufrufer und geht an ihn zurück —
+/// gespeichert wird er nirgends, auch nicht in den leisen Log-Modi.
+pub fn explain<C: Clock, W: WallClock>(
+    engine: &Engine<C, W>,
+    domain: &str,
+    peer: IpAddr,
+) -> Result<Explanation, String> {
+    let name = Name::from_str_relaxed(domain)
+        .map_err(|error| format!("'{domain}' ist kein gültiger Domainname: {error}"))?;
+    let mut ctx = Ctx::new(std::net::SocketAddr::new(peer, 0));
+    let decision = engine.evaluate(&name, peer, &mut ctx);
+    let client = ctx
+        .steps()
+        .iter()
+        .find_map(|step| match step {
+            Step::ClientMatched { client, .. } => Some(client.to_string()),
+            _ => None,
+        })
+        .unwrap_or_else(|| "unbekannt".to_owned());
+
+    Ok(Explanation {
+        domain: domain.to_owned(),
+        client,
+        blocked: decision == Decision::Block,
+        steps: ctx.steps().iter().map(ToString::to_string).collect(),
+    })
+}
+
 #[derive(Debug, Default)]
 struct Counters {
     blocked: AtomicU64,

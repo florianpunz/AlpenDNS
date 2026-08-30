@@ -294,6 +294,10 @@ Linear/Vercel-Dashboards, nicht an bunten Admin-Templates.
   verschachtelt: keine Karte in einer Karte.
 * Kennzahlen als Karten: die Zahl groß und tabular, das Label darunter klein und
   in Versalien.
+* **Gestapelte Flächen und Balken benutzen eine Graustufen-Rampe** (`--band-1`
+  bis `--band-4`), keine Farbe: vier Upstreams mit vier Farben wären vier
+  Bedeutungen, die es nicht gibt. Die Bänder trennen nur benachbarte Flächen;
+  welches zu wem gehört, sagt die Legende daneben.
 * Grafiken werden als SVG in die Seite eingebettet, nicht als Datei geladen —
   eine Route weniger und keine Seite, die ohne Netz halb aussieht. Das gilt auch
   für Diagramme: die Sparkline ist ein `<path>`, dessen `d` das Skript setzt.

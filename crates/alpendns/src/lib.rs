@@ -12,6 +12,7 @@ pub mod clock;
 pub mod config;
 pub mod dns;
 pub mod filter;
+pub mod history;
 pub mod logging;
 pub mod metrics;
 pub mod policy;

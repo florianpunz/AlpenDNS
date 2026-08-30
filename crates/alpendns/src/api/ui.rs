@@ -128,7 +128,12 @@ mod tests {
                         ".error",
                         ".ms-",
                         ".up-dot",
-                        ".dot"
+                        ".dot",
+                        ".line-blocked", // geblockt, als Kurve
+                        ".line-cache",   // Cache-Treffer, als Kurve
+                        ".sw-blocked",   // dieselbe Bedeutung in der Legende
+                        ".sw-cache",
+                        ".is-persisting", // schreibt auf Platte
                     ]
                     .iter()
                     .any(|allowed| selector.contains(allowed)),
@@ -202,10 +207,10 @@ mod tests {
         // Kein leeres Rechteck: Zeichen plus ein Satz, warum hier nichts steht.
         assert_eq!(
             INDEX.matches("class=\"empty\"").count(),
-            3,
+            5,
             "nicht jede leere Fläche erklärt sich"
         );
-        assert_eq!(INDEX.matches("class=\"empty-icon\"").count(), 3);
+        assert_eq!(INDEX.matches("class=\"empty-icon\"").count(), 5);
     }
 
     #[test]
@@ -287,6 +292,129 @@ mod tests {
         assert!(
             STYLE.contains("scrollbar-gutter: stable"),
             "ohne reservierte Bahn springt das Layout beim ersten Überlauf"
+        );
+    }
+
+    /// Der aktive Log-Modus steht dauerhaft auf der Seite (ADR-0004).
+    ///
+    /// Drei Angaben, nicht eine: der Modus allein sagt nichts darüber, ab wann
+    /// ein Name genannt wird und ob etwas auf der Platte landet.
+    #[test]
+    fn the_privacy_strip_states_mode_threshold_and_storage() {
+        for id in ["id=\"p-mode\"", "id=\"p-k\"", "id=\"p-store\""] {
+            assert!(INDEX.contains(id), "im Privacy-Streifen fehlt {id}");
+        }
+        assert!(
+            SCRIPT.contains("status.aggregate_k"),
+            "die k-Schwelle wird nicht angezeigt"
+        );
+        // "Daten nur im RAM" darf keine Behauptung sein, sondern muss aus dem
+        // laufenden Prozess kommen — sonst steht sie auch im Modus full da.
+        assert!(
+            SCRIPT.contains("status.persists_to_disk"),
+            "die Aussage über die Platte kommt nicht vom Server"
+        );
+        assert!(SCRIPT.contains("Daten nur im RAM"));
+        assert!(SCRIPT.contains("schreibt auf Platte"));
+    }
+
+    /// Der Live-Strom ist als flüchtig gekennzeichnet.
+    #[test]
+    fn the_live_stream_says_that_it_keeps_nothing() {
+        assert!(
+            INDEX.contains("flüchtig"),
+            "keine Kennzeichnung am Protokoll"
+        );
+        assert!(
+            SCRIPT.contains("flüchtig"),
+            "die Kennzeichnung folgt nicht dem Modus"
+        );
+    }
+
+    /// Jede Kurve dieser Seite kommt aus Zählern.
+    ///
+    /// Der Test fixiert die Quelle, nicht das Aussehen: die Zeitreihe wird von
+    /// `/api/history` geholt, und dieser Endpunkt liefert per Konstruktion nur
+    /// Summen. Ein Diagramm, das aus `/api/recent` gezeichnet würde, wäre eine
+    /// Namensauswertung mit anderem Anstrich.
+    #[test]
+    fn the_time_series_is_drawn_from_counters_only() {
+        assert!(SCRIPT.contains("api(\"/api/history\")"), "keine Zeitreihe");
+        for field in ["bucket.queries", "bucket.blocked", "bucket.cache_hits"] {
+            assert!(SCRIPT.contains(field), "die Kurve benutzt {field} nicht");
+        }
+        // Alle Pfade laufen über setPath; kein Diagrammpaket, kein Namensraum.
+        assert!(SCRIPT.contains("path.setAttribute(\"d\""));
+        assert!(!SCRIPT.contains("createElementNS"));
+        for id in ["id=\"day-queries\"", "id=\"day-cache\"", "id=\"split-1\""] {
+            assert!(INDEX.contains(id), "das <path> für {id} fehlt im HTML");
+        }
+    }
+
+    /// Die Aufteilung auf die Upstreams wird über Graustufen unterschieden.
+    ///
+    /// Vier Upstreams mit vier Farben wären vier Bedeutungen, die es laut B.6
+    /// nicht gibt. Die Bänder trennen nur benachbarte Flächen; welches Band zu
+    /// welchem Resolver gehört, sagt die Legende.
+    #[test]
+    fn stacked_areas_use_a_neutral_ramp_instead_of_colour() {
+        for band in ["--band-1:", "--band-2:", "--band-3:", "--band-4:"] {
+            assert_eq!(
+                STYLE.matches(band).count(),
+                2,
+                "{band} fehlt in einem der beiden Schemata"
+            );
+        }
+        for colour in ["var(--danger)", "var(--success)", "var(--warn)"] {
+            assert!(
+                !STYLE.contains(&format!(".band-1 {{ fill: {colour}")),
+                "ein Band trägt eine Bedeutung, die es nicht hat"
+            );
+        }
+    }
+
+    /// Zahlen stehen im deutschen Format.
+    #[test]
+    fn numbers_are_formatted_in_german() {
+        assert!(
+            SCRIPT.contains("const LOCALE = \"de-AT\";"),
+            "kein festgelegtes Zahlenformat"
+        );
+        // Jede Zahl, die jemand liest, geht durch die drei Hilfsfunktionen.
+        // `toFixed` erzeugt einen Dezimalpunkt und keine Tausendertrennung —
+        // in einer Koordinate ist das richtig, in einer Anzeige falsch.
+        for line in SCRIPT.lines().filter(|line| line.contains("toFixed")) {
+            assert!(
+                !line.contains("textContent"),
+                "eine angezeigte Zahl geht an der Formatierung vorbei:\n{line}"
+            );
+        }
+        for helper in ["const thousands =", "const percent =", "const decimal ="] {
+            assert!(SCRIPT.contains(helper), "{helper} fehlt");
+        }
+    }
+
+    /// Ein Klick auf eine Zeile fragt dieselbe Auswertung wie die
+    /// Kommandozeile.
+    #[test]
+    fn a_log_row_can_ask_for_its_decision_chain() {
+        assert!(
+            SCRIPT.contains("/api/explain?"),
+            "kein Aufruf der Auswertung"
+        );
+        assert!(
+            SCRIPT.contains("tr.classList.add(\"askable\")"),
+            "die Zeile zeigt nicht, dass sie anklickbar ist"
+        );
+        // Ohne Namen gibt es nichts zu erklären; dann darf die Zeile auch nicht
+        // so aussehen, als ließe sich etwas anklicken.
+        assert!(
+            SCRIPT.contains("if (event.name) {"),
+            "auch namenlose Zeilen wären anklickbar"
+        );
+        assert!(
+            STYLE.contains(".log-table tr.askable:focus-visible"),
+            "die Zeile ist mit der Tastatur nicht erreichbar"
         );
     }
 
