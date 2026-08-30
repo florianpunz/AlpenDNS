@@ -407,21 +407,38 @@ pub struct UpstreamPool {
 }
 
 /// Wie ein Resolver aus dem Pool ausgewählt wird.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
-#[serde(rename_all = "snake_case", deny_unknown_fields)]
+///
+/// Es gibt nur noch eine Strategie. `fastest` und `round_robin` sind entfernt,
+/// weil beide dazu führen, dass am Ende jeder Upstream alles sieht
+/// ([ADR-0011](../../../docs/adr/0011-eine-upstream-strategie.md)).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Strategy {
-    /// Niedrigste gemessene Antwortzeit (gleitender Durchschnitt).
-    /// Schnell — aber ein Resolver sieht am Ende fast alles.
-    Fastest,
-    /// Gleichmäßig reihum. Verteilt die Last, aber jeder Upstream lernt
-    /// mit der Zeit trotzdem alles.
-    RoundRobin,
     /// Der Upstream wird über `hash(seed, registrierbare Domain)` bestimmt.
     /// Derselbe Name geht immer zum selben Resolver — der Cache bleibt
     /// wirksam — aber jeder sieht nur einen Bruchteil der Domains, und
     /// welchen, ist nach jedem Neustart anders. Siehe FEATURES.md P2.
     #[default]
     SplitByZone,
+}
+
+impl<'de> Deserialize<'de> for Strategy {
+    /// Von Hand statt abgeleitet, damit eine entfernte Strategie in der
+    /// Konfiguration sagt, was stattdessen gilt — `unknown variant` allein
+    /// erklärt nicht, warum sie weg ist.
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let text = String::deserialize(deserializer)?;
+        match text.as_str() {
+            "split_by_zone" => Ok(Self::SplitByZone),
+            "fastest" | "round_robin" => Err(serde::de::Error::custom(format!(
+                "strategy = \"{text}\" gibt es nicht mehr; es gilt split_by_zone. \
+                 Bei beiden entfernten Strategien sieht am Ende jeder Upstream alles \
+                 (ARCHITECTURE.md §5). Schlüssel entfernen oder auf split_by_zone setzen."
+            ))),
+            other => Err(serde::de::Error::custom(format!(
+                "unbekannte Strategie '{other}' — erlaubt ist split_by_zone"
+            ))),
+        }
+    }
 }
 
 /// Ein einzelner Upstream-Resolver.
@@ -1077,19 +1094,30 @@ tls_name = "dns.quad9.net"
 
     #[test]
     fn strategy_is_parsed_from_snake_case() {
-        for (text, expected) in [
-            ("fastest", Strategy::Fastest),
-            ("round_robin", Strategy::RoundRobin),
-            ("split_by_zone", Strategy::SplitByZone),
-        ] {
-            let config = valid(&MINIMAL.replace(
+        let config = valid(&MINIMAL.replace(
+            "name = \"default\"",
+            "name = \"default\"\nstrategy = \"split_by_zone\"",
+        ));
+        assert_eq!(
+            config.upstream_pool.first().expect("Pool").strategy,
+            Strategy::SplitByZone
+        );
+    }
+
+    #[test]
+    fn a_removed_strategy_says_what_applies_instead() {
+        // Eine Konfiguration von gestern soll nicht mit "unknown variant"
+        // abbrechen, sondern sagen, was jetzt gilt.
+        for removed in ["fastest", "round_robin"] {
+            let text = MINIMAL.replace(
                 "name = \"default\"",
-                &format!("name = \"default\"\nstrategy = \"{text}\""),
-            ));
-            assert_eq!(
-                config.upstream_pool.first().expect("Pool").strategy,
-                expected
+                &format!("name = \"default\"\nstrategy = \"{removed}\""),
             );
+            let err = parse(&text)
+                .expect_err("{removed} muss abgelehnt werden")
+                .to_string();
+            assert!(err.contains(removed), "{err}");
+            assert!(err.contains("split_by_zone"), "{err}");
         }
     }
 

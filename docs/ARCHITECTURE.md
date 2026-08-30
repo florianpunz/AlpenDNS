@@ -159,16 +159,18 @@ Kein Lock im heißen Pfad.
 
 ## 5. Upstream-Auswahl
 
-Ein Pool ist eine Liste von Resolvern plus eine Strategie:
+Ein Pool ist eine Liste von Resolvern plus eine Strategie — und es gibt nur noch eine:
 
-* `fastest` — EWMA der RTT, klassisch, schnell, aber ein Resolver sieht am Ende fast alles.
-* `round_robin` — verteilt, aber derselbe Name geht mal hierhin, mal dorthin; jeder
-  Upstream lernt trotzdem irgendwann alles.
-* `split_by_zone` — **der interessante Fall.** Der Upstream wird über
-  `hash(registrable_domain) % n` bestimmt, mit einem beim Start zufällig gezogenen
-  Seed. Folgen: derselbe Name geht immer zum selben Resolver (Cache bleibt wirksam),
-  aber jeder Resolver sieht nur ~1/n deiner Domains, und welches Drittel er sieht,
-  ist bei jedem Neustart anders. Details und Grenzen: [FEATURES.md](FEATURES.md), P2.
+* `split_by_zone` — Der Upstream wird über `hash(registrable_domain) % n` bestimmt,
+  mit einem beim Start zufällig gezogenen Seed. Folgen: derselbe Name geht immer zum
+  selben Resolver (Cache bleibt wirksam), aber jeder Resolver sieht nur ~1/n deiner
+  Domains, und welches Drittel er sieht, ist bei jedem Neustart anders. Details und
+  Grenzen: [FEATURES.md](FEATURES.md), P2.
+
+**Entfernt:** `fastest` (EWMA der RTT) und `round_robin`. Beide sind klassisch und
+beide laufen darauf hinaus, dass am Ende jeder Upstream alles gesehen hat — genau das,
+wogegen dieses Projekt antritt. Sie standen zwei Absätze über ihrer eigenen Widerlegung.
+Begründung: [ADR-0011](adr/0011-eine-upstream-strategie.md).
 
 Health-Checking: passiv über Fehlerraten und Timeouts, nicht über aktive Probes — aktive
 Probes sind selbst wieder ein Signal.

@@ -4,7 +4,6 @@
 //! ist [`super::pool::Pool`].
 
 use std::hash::{Hash as _, Hasher as _};
-use std::time::Duration;
 
 use hickory_proto::rr::Name;
 
@@ -48,21 +47,10 @@ pub fn zone_index(seed: u64, name: &Name, count: usize) -> usize {
     usize::try_from(hasher.finish() % count as u64).unwrap_or(0)
 }
 
-/// Reihenfolge nach gemessener Antwortzeit, schnellste zuerst.
-///
-/// Upstreams ohne Messung kommen vor den gemessenen: ein neuer oder gerade
-/// erholter Upstream soll eine Chance bekommen, statt hinter einem langsamen zu
-/// verhungern, der einmal geantwortet hat.
-pub fn by_latency(latencies: &[Option<Duration>]) -> Vec<usize> {
-    let mut order: Vec<usize> = (0..latencies.len()).collect();
-    order.sort_by_key(|&i| match latencies.get(i) {
-        Some(Some(rtt)) => (1_u8, *rtt),
-        _ => (0_u8, Duration::ZERO),
-    });
-    order
-}
-
 /// Reihenfolge reihum, beginnend beim `start`-ten Eintrag.
+///
+/// Keine Strategie für sich — nur die Hilfsfunktion, die [`by_zone`] die
+/// Ausweichwege hinter den zuständigen Upstream hängt.
 pub fn round_robin(start: usize, count: usize) -> Vec<usize> {
     if count == 0 {
         return Vec::new();
@@ -166,26 +154,6 @@ mod tests {
     fn a_single_upstream_is_always_index_zero() {
         assert_eq!(zone_index(1, &name("example.com."), 1), 0);
         assert_eq!(zone_index(1, &name("example.com."), 0), 0);
-    }
-
-    #[test]
-    fn latency_order_puts_the_fastest_first() {
-        let order = by_latency(&[
-            Some(Duration::from_millis(50)),
-            Some(Duration::from_millis(10)),
-            Some(Duration::from_millis(30)),
-        ]);
-        assert_eq!(order, vec![1, 2, 0]);
-    }
-
-    #[test]
-    fn unmeasured_upstreams_are_tried_first() {
-        let order = by_latency(&[Some(Duration::from_millis(10)), None]);
-        assert_eq!(
-            order,
-            vec![1, 0],
-            "der ungemessene muss eine Chance bekommen"
-        );
     }
 
     #[test]

@@ -11,7 +11,7 @@
 //! jemand wohnt, auch wenn gerade niemand surft.
 
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use futures_util::StreamExt as _;
@@ -96,7 +96,6 @@ pub struct Pool<B, C> {
     /// Beim Start zufällig gezogen. Bestimmt bei `split_by_zone`, welcher
     /// Upstream welche Domains sieht — nach jedem Neustart anders.
     seed: u64,
-    next: AtomicUsize,
     clock: C,
 }
 
@@ -107,7 +106,6 @@ impl<B: ResolveBackend, C: Clock> Pool<B, C> {
             strategy,
             fanout: fanout.max(1),
             seed: rand::random(),
-            next: AtomicUsize::new(0),
             clock,
         }
     }
@@ -152,21 +150,6 @@ impl<B: ResolveBackend, C: Clock> Pool<B, C> {
     fn order(&self, question: Option<&Name>) -> Vec<usize> {
         let count = self.upstreams.len();
         let base = match self.strategy {
-            Strategy::Fastest => {
-                let latencies: Vec<Option<Duration>> = self
-                    .upstreams
-                    .iter()
-                    .map(|u| {
-                        let micros = u.health.ewma_micros.load(Ordering::Relaxed);
-                        (micros > 0).then(|| Duration::from_micros(micros))
-                    })
-                    .collect();
-                strategy::by_latency(&latencies)
-            }
-            Strategy::RoundRobin => {
-                let start = self.next.fetch_add(1, Ordering::Relaxed);
-                strategy::round_robin(start, count)
-            }
             Strategy::SplitByZone => match question {
                 Some(name) => strategy::by_zone(self.seed, name, count),
                 // Ohne Frage gibt es nichts zu verteilen.
@@ -333,6 +316,7 @@ mod tests {
     use hickory_proto::op::{MessageType, OpCode, Query};
     use hickory_proto::rr::RecordType;
     use std::sync::Arc;
+    use std::sync::atomic::AtomicUsize;
 
     /// Ein Upstream, der auf Kommando antwortet, schweigt oder trödelt.
     #[derive(Debug)]
@@ -400,15 +384,28 @@ mod tests {
 
     fn pool_of(
         fakes: &[Arc<Fake>],
-        strategy: Strategy,
         clock: Arc<TestClock>,
+        seed: u64,
     ) -> Pool<Arc<Fake>, Arc<TestClock>> {
         let upstreams = fakes
             .iter()
             .enumerate()
             .map(|(i, fake)| Upstream::new(format!("fake{i}"), Arc::clone(fake)))
             .collect();
-        Pool::with_seed(upstreams, strategy, 1, clock, 0x5eed)
+        Pool::with_seed(upstreams, Strategy::SplitByZone, 1, clock, seed)
+    }
+
+    /// Ein Seed, bei dem `name` beim Upstream `target` landet.
+    ///
+    /// Seit `split_by_zone` die einzige Strategie ist, steht die Reihenfolge
+    /// nicht mehr frei: wer zuerst gefragt wird, hängt am Seed. Tests zur
+    /// Ausfallerkennung brauchen aber einen bekannten Ersten, sonst prüfen sie
+    /// je nach Hash mal das eine und mal das andere.
+    fn seed_starting_at(name: &str, count: usize, target: usize) -> u64 {
+        let name = Name::from_ascii(name).expect("gültiger Name");
+        (0..1000)
+            .find(|&seed| strategy::zone_index(seed, &name, count) == target)
+            .expect("unter tausend Seeds ist einer dabei")
     }
 
     #[tokio::test]
@@ -420,8 +417,8 @@ mod tests {
         let clock = Arc::new(TestClock::new());
         let pool = pool_of(
             &[Arc::clone(&dead), Arc::clone(&alive)],
-            Strategy::RoundRobin,
             Arc::clone(&clock),
+            seed_starting_at("example.com.", 2, 0),
         );
 
         // Genug Anfragen, dass der tote Upstream die Schwelle reißt.
@@ -458,8 +455,8 @@ mod tests {
         let clock = Arc::new(TestClock::new());
         let pool = pool_of(
             &[Arc::clone(&flaky), Arc::clone(&alive)],
-            Strategy::RoundRobin,
             Arc::clone(&clock),
+            seed_starting_at("example.com.", 2, 0),
         );
 
         for _ in 0..6 {
@@ -492,7 +489,7 @@ mod tests {
         // wird trotzdem gefragt statt sofort aufzugeben.
         let dead = Fake::broken();
         let clock = Arc::new(TestClock::new());
-        let pool = pool_of(&[Arc::clone(&dead)], Strategy::RoundRobin, clock);
+        let pool = pool_of(&[Arc::clone(&dead)], clock, 0x5eed);
 
         for _ in 0..5 {
             assert!(
@@ -509,42 +506,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn fastest_strategy_settles_on_the_quick_upstream() {
-        // Echte Uhr, weil hier echte Latenzen gemessen werden.
-        let slow = Fake::new(40);
-        let quick = Fake::new(1);
-        let upstreams = vec![
-            Upstream::new("slow".to_owned(), Arc::clone(&slow)),
-            Upstream::new("quick".to_owned(), Arc::clone(&quick)),
-        ];
-        let pool = Pool::new(upstreams, Strategy::Fastest, 1, SystemClock);
-
-        // Zwei Anfragen zum Einmessen, danach sollte der schnelle gewinnen.
-        for _ in 0..2 {
-            pool.resolve(&question("example.com."), &ctx())
-                .await
-                .expect("beantwortet");
-        }
-        let slow_after_warmup = slow.calls();
-        for _ in 0..10 {
-            pool.resolve(&question("example.com."), &ctx())
-                .await
-                .expect("beantwortet");
-        }
-
-        assert_eq!(
-            slow.calls(),
-            slow_after_warmup,
-            "der langsame Upstream wurde weiter gefragt"
-        );
-        assert!(quick.calls() >= 10);
-    }
-
-    #[tokio::test]
     async fn split_by_zone_sends_a_domain_to_the_same_upstream_every_time() {
         let fakes: Vec<Arc<Fake>> = (0..3).map(|_| Fake::new(0)).collect();
         let clock = Arc::new(TestClock::new());
-        let pool = pool_of(&fakes, Strategy::SplitByZone, clock);
+        let pool = pool_of(&fakes, clock, 0x5eed);
 
         for _ in 0..12 {
             pool.resolve(&question("www.example.com."), &ctx())
@@ -565,7 +530,7 @@ mod tests {
     async fn split_by_zone_falls_back_when_the_responsible_upstream_fails() {
         let fakes: Vec<Arc<Fake>> = (0..3).map(|_| Fake::new(0)).collect();
         let clock = Arc::new(TestClock::new());
-        let pool = pool_of(&fakes, Strategy::SplitByZone, clock);
+        let pool = pool_of(&fakes, clock, 0x5eed);
 
         // Herausfinden, wer zuständig ist, und ihn kaputt machen.
         pool.resolve(&question("www.example.com."), &ctx())
@@ -590,27 +555,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn round_robin_spreads_the_load() {
-        let fakes: Vec<Arc<Fake>> = (0..3).map(|_| Fake::new(0)).collect();
-        let clock = Arc::new(TestClock::new());
-        let pool = pool_of(&fakes, Strategy::RoundRobin, clock);
-
-        for _ in 0..9 {
-            pool.resolve(&question("example.com."), &ctx())
-                .await
-                .expect("beantwortet");
-        }
-        for (i, fake) in fakes.iter().enumerate() {
-            assert_eq!(
-                fake.calls(),
-                3,
-                "Upstream {i} bekam {} Anfragen",
-                fake.calls()
-            );
-        }
-    }
-
-    #[tokio::test]
     async fn fanout_two_asks_both_and_takes_the_first_answer() {
         let slow = Fake::new(40);
         let quick = Fake::new(1);
@@ -618,7 +562,7 @@ mod tests {
             Upstream::new("slow".to_owned(), Arc::clone(&slow)),
             Upstream::new("quick".to_owned(), Arc::clone(&quick)),
         ];
-        let pool = Pool::with_seed(upstreams, Strategy::RoundRobin, 2, SystemClock, 1);
+        let pool = Pool::with_seed(upstreams, Strategy::SplitByZone, 2, SystemClock, 1);
 
         pool.resolve(&question("example.com."), &ctx())
             .await
@@ -631,7 +575,7 @@ mod tests {
     #[tokio::test]
     async fn an_empty_pool_reports_that_nobody_is_left() {
         let clock = Arc::new(TestClock::new());
-        let pool: Pool<Arc<Fake>, Arc<TestClock>> = pool_of(&[], Strategy::RoundRobin, clock);
+        let pool: Pool<Arc<Fake>, Arc<TestClock>> = pool_of(&[], clock, 0x5eed);
         assert!(matches!(
             pool.resolve(&question("example.com."), &ctx()).await,
             Err(ResolveError::NoUpstreamLeft)
