@@ -39,6 +39,11 @@ pub trait StatusSource: Send + Sync + 'static {
     fn grant(&self, domain: &str, ttl: Duration);
     fn revoke(&self, domain: &str);
     fn grants(&self) -> Vec<(String, Duration)>;
+    /// Der Gegenpart zu [`Self::grant`]: eine befristete Sperre. Sitzt hinter
+    /// dem Knopf neben einer auffälligen Anfrage (Phase 8, Schritt 7).
+    fn deny(&self, domain: &str, ttl: Duration);
+    fn undeny(&self, domain: &str);
+    fn denials(&self) -> Vec<(String, Duration)>;
     /// Die Zeitreihe der letzten 24 Stunden, ausschließlich aus Zählern.
     fn history(&self) -> HistoryView;
     /// Wertet einen Namen aus, ohne etwas zu verändern oder zu speichern.
@@ -113,6 +118,9 @@ pub fn router(state: ApiState) -> Router {
         .route("/api/policies", get(policies))
         .route("/api/allow", get(grants).post(grant))
         .route("/api/allow/{domain}", delete(revoke))
+        .route("/api/deny", get(denials).post(deny))
+        .route("/api/deny/{domain}", delete(undeny))
+        .route("/api/flagged", get(flagged))
         .route("/api/events", get(events))
         // Die UI selbst braucht keinen Token: sie ist eine statische Datei und
         // fragt ihn beim ersten Aufruf ab, um ihn dann mitzuschicken.
@@ -212,6 +220,8 @@ struct Status {
     privacy: PrivacyInfo,
     /// Was die eigene DNSSEC-Prüfung ergeben hat.
     dnssec: DnssecInfo,
+    /// Die Heuristiken: was eingestellt ist und was sie gefunden haben.
+    detectors: Vec<DetectorInfo>,
     queries: u64,
     blocked: u64,
     block_rate: f64,
@@ -247,6 +257,17 @@ struct DnssecInfo {
     /// nicht in einem Untermenü.
     bogus: u64,
     indeterminate: u64,
+}
+
+/// Ein Detektor, wie ihn die Oberfläche zeigt.
+#[derive(Debug, Serialize)]
+struct DetectorInfo {
+    name: &'static str,
+    label: &'static str,
+    /// `off`, `log`, `flag` oder `block`.
+    action: &'static str,
+    /// Funde oberhalb der Schwelle, seit dem Start.
+    found: u64,
 }
 
 #[derive(Debug, Serialize)]
@@ -297,6 +318,26 @@ async fn status(State(state): State<ApiState>) -> Json<Status> {
             bogus: snapshot.dnssec.bogus,
             indeterminate: snapshot.dnssec.indeterminate,
         },
+        detectors: crate::detect::Detector::ALL
+            .iter()
+            .map(|detector| DetectorInfo {
+                name: detector.as_str(),
+                label: detector.label(),
+                action: snapshot
+                    .detectors
+                    .iter()
+                    .find_map(|(known, action)| (known == detector).then_some(action.as_str()))
+                    // Nicht eingehängt heißt aus — etwa der Typosquat-Wächter
+                    // ohne Schutzliste. Die UI soll das zeigen und nicht einen
+                    // Detektor behaupten, der nichts finden kann.
+                    .unwrap_or("off"),
+                found: snapshot
+                    .detections
+                    .iter()
+                    .find_map(|(known, count)| (known == detector).then_some(*count))
+                    .unwrap_or(0),
+            })
+            .collect(),
         queries: snapshot.log.queries,
         blocked: snapshot.log.blocked,
         block_rate,
@@ -403,10 +444,10 @@ const fn default_grant_seconds() -> u64 {
 /// sonst ist "befristet" nur ein anderes Wort für "vergessen".
 const MAX_GRANT: Duration = Duration::from_secs(24 * 60 * 60);
 
-async fn grant(
-    State(state): State<ApiState>,
-    Json(request): Json<GrantRequest>,
-) -> Result<Json<GrantInfo>, (StatusCode, Json<ApiError>)> {
+/// Prüft Domain und Frist. Freigabe und Sperre benutzen dieselbe Prüfung —
+/// zwei Kopien liefen irgendwann auseinander, und eine davon ließe dann etwas
+/// durch, das die andere ablehnt.
+fn parse_grant(request: &GrantRequest) -> Result<(String, Duration), (StatusCode, Json<ApiError>)> {
     let domain = request.domain.trim().trim_matches('.').to_ascii_lowercase();
     if domain.is_empty() || domain.contains(char::is_whitespace) {
         return Err((
@@ -425,7 +466,14 @@ async fn grant(
             }),
         ));
     }
+    Ok((domain, ttl))
+}
 
+async fn grant(
+    State(state): State<ApiState>,
+    Json(request): Json<GrantRequest>,
+) -> Result<Json<GrantInfo>, (StatusCode, Json<ApiError>)> {
+    let (domain, ttl) = parse_grant(&request)?;
     state.source.grant(&domain, ttl);
     // Kein Query-Name ins Log: eine Freigabe ist eine Konfigurationsänderung,
     // aber der Name darin ist derselbe, den B.1 Regel 3 schützt.
@@ -439,6 +487,59 @@ async fn grant(
 async fn revoke(State(state): State<ApiState>, Path(domain): Path<String>) -> StatusCode {
     state.source.revoke(&domain);
     StatusCode::NO_CONTENT
+}
+
+async fn denials(State(state): State<ApiState>) -> Json<Vec<GrantInfo>> {
+    Json(
+        state
+            .source
+            .denials()
+            .into_iter()
+            .map(|(domain, remaining)| GrantInfo {
+                domain,
+                remaining_seconds: remaining.as_secs(),
+            })
+            .collect(),
+    )
+}
+
+/// Der Gegenpart zur Freigabe: eine Domain für eine Weile sperren.
+///
+/// Dieselbe Frist und dieselbe Obergrenze wie bei der Freigabe, aus demselben
+/// Grund: eine Sperre, die nie abläuft, gehört in eine Blockliste, wo man sie
+/// wiederfindet. Was hier steht, ist eine Reaktion auf etwas, das gerade
+/// aufgefallen ist.
+async fn deny(
+    State(state): State<ApiState>,
+    Json(request): Json<GrantRequest>,
+) -> Result<Json<GrantInfo>, (StatusCode, Json<ApiError>)> {
+    let (domain, ttl) = parse_grant(&request)?;
+    state.source.deny(&domain, ttl);
+    // Kein Query-Name im Log, aus demselben Grund wie bei der Freigabe.
+    tracing::info!(seconds = ttl.as_secs(), "befristete Sperre gesetzt");
+    Ok(Json(GrantInfo {
+        domain,
+        remaining_seconds: ttl.as_secs(),
+    }))
+}
+
+async fn undeny(State(state): State<ApiState>, Path(domain): Path<String>) -> StatusCode {
+    state.source.undeny(&domain);
+    StatusCode::NO_CONTENT
+}
+
+/// Die auffälligen Anfragen aus dem Ringpuffer.
+///
+/// **Derselbe Puffer wie `/api/recent`, und das ist der Punkt.** Eine zweite
+/// Ablage nur für geflaggte Anfragen wäre ein Query-Log unter anderem Namen,
+/// das die Zusicherungen aus ADR-0004 umginge: in den Modi `none` und
+/// `aggregate` gibt der Ringpuffer nichts heraus, und damit gibt auch dieser
+/// Endpunkt nichts heraus. Was hier fehlt, fehlt aus Absicht.
+async fn flagged(
+    State(state): State<ApiState>,
+    Query(limit): Query<Limit>,
+) -> Json<Vec<LoggedQuery>> {
+    Json(state.log.flagged(limit.get()))
 }
 
 /// Live-Strom der Anfragen.
@@ -530,6 +631,11 @@ mod tests {
         fn grant(&self, _domain: &str, _ttl: Duration) {}
         fn revoke(&self, _domain: &str) {}
         fn grants(&self) -> Vec<(String, Duration)> {
+            Vec::new()
+        }
+        fn deny(&self, _domain: &str, _ttl: Duration) {}
+        fn undeny(&self, _domain: &str) {}
+        fn denials(&self) -> Vec<(String, Duration)> {
             Vec::new()
         }
         fn history(&self) -> HistoryView {

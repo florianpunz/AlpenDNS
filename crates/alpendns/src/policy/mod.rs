@@ -33,7 +33,7 @@ use crate::trace::{Ctx, Step};
 use clients::Clients;
 use rules::RegexRules;
 use schedule::Schedule;
-use temporary::TemporaryAllows;
+use temporary::Temporary;
 
 /// Was für einen Client gilt.
 #[derive(Debug)]
@@ -89,7 +89,7 @@ pub struct Explanation {
 /// Die Auswertung ist eine Simulation: sie zählt in keiner Statistik mit und
 /// hinterlässt nichts. Der Name kommt vom Aufrufer und geht an ihn zurück —
 /// gespeichert wird er nirgends, auch nicht in den leisen Log-Modi.
-pub fn explain<C: Clock, W: WallClock>(
+pub fn explain<C: Clock + Clone, W: WallClock>(
     engine: &Engine<C, W>,
     domain: &str,
     peer: IpAddr,
@@ -138,7 +138,11 @@ pub struct Engine<C, W> {
     /// `ArcSwap` statt `RwLock`: Anfragen lesen ohne Lock, ein Listen-Update
     /// tauscht den Zeiger atomar (ARCHITECTURE.md §3).
     set: ArcSwap<PolicySet>,
-    temporary: TemporaryAllows<C>,
+    temporary: Temporary<C>,
+    /// Der Gegenpart: befristete Sperren, gesetzt über die API.
+    denied: Temporary<C>,
+    /// Die Heuristiken aus Phase 8. Leer, wenn alle abgeschaltet sind.
+    detectors: crate::detect::Detectors,
     wall: W,
     mode: BlockMode,
     sinkhole_v4: std::net::Ipv4Addr,
@@ -147,11 +151,13 @@ pub struct Engine<C, W> {
     counters: Counters,
 }
 
-impl<C: Clock, W: WallClock> Engine<C, W> {
+impl<C: Clock + Clone, W: WallClock> Engine<C, W> {
     pub fn new(set: PolicySet, entries: usize, config: &BlockingConfig, clock: C, wall: W) -> Self {
         Self {
             set: ArcSwap::from_pointee(set),
-            temporary: TemporaryAllows::new(clock),
+            temporary: Temporary::new(clock.clone()),
+            denied: Temporary::new(clock),
+            detectors: crate::detect::Detectors::new(),
             wall,
             mode: config.mode,
             sinkhole_v4: config.sinkhole_ipv4,
@@ -168,7 +174,23 @@ impl<C: Clock, W: WallClock> Engine<C, W> {
     }
 
     /// Zugriff auf die befristeten Freigaben — für die CLI und ab Phase 6 die API.
-    pub const fn temporary(&self) -> &TemporaryAllows<C> {
+    /// Hängt die Heuristiken ein. Nur beim Aufbau, nicht im Betrieb.
+    #[must_use]
+    pub fn with_detectors(mut self, detectors: crate::detect::Detectors) -> Self {
+        self.detectors = detectors;
+        self
+    }
+
+    /// Was die Konfiguration über die Detektoren sagt — für Status und Metrik.
+    pub fn detectors(&self) -> Vec<(crate::detect::Detector, crate::detect::Action)> {
+        self.detectors.configured()
+    }
+
+    pub const fn denied(&self) -> &Temporary<C> {
+        &self.denied
+    }
+
+    pub const fn temporary(&self) -> &Temporary<C> {
         &self.temporary
     }
 
@@ -179,6 +201,22 @@ impl<C: Clock, W: WallClock> Engine<C, W> {
     /// keinen Zweck hätte: sie ist das Mittel, einen Fehlalarm einer fremden
     /// Liste zu übersteuern.
     pub fn evaluate(&self, name: &Name, peer: IpAddr, ctx: &mut Ctx) -> Decision {
+        self.evaluate_typed(name, hickory_proto::rr::RecordType::A, peer, ctx)
+    }
+
+    /// Wie [`Self::evaluate`], aber mit dem Anfragetyp.
+    ///
+    /// Den braucht die Tunneling-Erkennung: der Anteil an TXT- und
+    /// NULL-Anfragen je Zone ist eines ihrer fünf Signale (FEATURES.md D2).
+    /// `evaluate` ohne Typ bleibt für `policy test` und `/api/explain`, wo es
+    /// keine echte Anfrage gibt.
+    pub fn evaluate_typed(
+        &self,
+        name: &Name,
+        query_type: hickory_proto::rr::RecordType,
+        peer: IpAddr,
+        ctx: &mut Ctx,
+    ) -> Decision {
         let set = self.set.load();
         let identity = set.clients.identify(peer);
         ctx.record(Step::ClientMatched {
@@ -199,6 +237,15 @@ impl<C: Clock, W: WallClock> Engine<C, W> {
             ctx.record(Step::TemporaryAllow { remaining });
             self.counters.allowed.fetch_add(1, Ordering::Relaxed);
             return Decision::Allow;
+        }
+
+        // Die Sperre steht nach der Freigabe und vor den Listen: sie ist eine
+        // ausdrückliche Anordnung eines Menschen und soll eine fremde Liste
+        // übersteuern können — aber die Freigabe, die ebenfalls von einem
+        // Menschen kommt, gewinnt gegen sie.
+        if let Some(remaining) = self.denied.check(&query) {
+            ctx.record(Step::TemporaryDeny { remaining });
+            return self.block(ctx);
         }
 
         let allowlisted = policy
@@ -236,8 +283,8 @@ impl<C: Clock, W: WallClock> Engine<C, W> {
             return self.block(ctx);
         }
 
-        // Der Zeitplan steht zuletzt: wer bis hierher gekommen ist, steht auf
-        // keiner Allowlist — und genau das ist die Bedingung von
+        // Der Zeitplan steht vor den Heuristiken: wer bis hierher gekommen ist,
+        // steht auf keiner Allowlist — und genau das ist die Bedingung von
         // `block_all_except_allowlist`.
         if let Some(active) = schedule::first_active(&policy.schedules, &self.wall.now()) {
             ctx.record(Step::ScheduleHit {
@@ -247,11 +294,61 @@ impl<C: Clock, W: WallClock> Engine<C, W> {
             return self.block(ctx);
         }
 
+        // Die Heuristiken stehen ganz zuletzt (ARCHITECTURE.md §1). Sie sind
+        // das unschärfste Mittel im Haus, und alles, was eine klare Regel
+        // entscheiden kann, soll vorher entschieden sein — sonst stünde im
+        // Trace ein Score, wo eine Zeile aus einer Liste hingehört.
+        if self.inspect(&query, query_type, ctx) == Decision::Block {
+            return self.block(ctx);
+        }
+
         self.counters.passed.fetch_add(1, Ordering::Relaxed);
         Decision::Allow
     }
 
+    /// Lässt die Namens-Detektoren laufen und trägt jeden Fund in den Trace.
+    ///
+    /// Gibt `Block` zurück, sobald einer davon auf `block` steht. Eingetragen
+    /// werden **alle** Funde, auch die bloß gemeldeten: der Trace bildet ab,
+    /// was passiert ist, und "frisch registriert *und* algorithmisch erzeugt"
+    /// ist eine andere Aussage als jeder Teil für sich.
+    fn inspect(
+        &self,
+        name: &str,
+        query_type: hickory_proto::rr::RecordType,
+        ctx: &mut Ctx,
+    ) -> Decision {
+        if self.detectors.is_empty() {
+            return Decision::Allow;
+        }
+        let findings = self
+            .detectors
+            .inspect_name(&crate::detect::Observation { name, query_type });
+        record_findings(&findings, ctx)
+    }
+
+    /// Prüft die Antwort — heute nur der Rebinding-Schutz.
+    ///
+    /// Läuft in [`PolicyBackend`] nach dem inneren Backend, weil es die Antwort
+    /// braucht (ARCHITECTURE.md §1, Schicht 5).
+    pub fn inspect_answer(&self, name: &str, response: &Message, ctx: &mut Ctx) -> Decision {
+        if self.detectors.is_empty() {
+            return Decision::Allow;
+        }
+        let findings = self.detectors.inspect_answer(name, response);
+        let decision = record_findings(&findings, ctx);
+        if decision == Decision::Block {
+            ctx.record(Step::Synthesized { mode: self.mode });
+            self.counters.blocked.fetch_add(1, Ordering::Relaxed);
+        }
+        decision
+    }
+
     fn block(&self, ctx: &mut Ctx) -> Decision {
+        Self::record_block(self, ctx)
+    }
+
+    fn record_block(&self, ctx: &mut Ctx) -> Decision {
         ctx.record(Step::Synthesized { mode: self.mode });
         self.counters.blocked.fetch_add(1, Ordering::Relaxed);
         Decision::Block
@@ -462,7 +559,7 @@ fn build_schedule(entry: &crate::config::ScheduleEntry) -> Result<Schedule, Conf
 }
 
 /// Lädt die Listen regelmäßig neu und tauscht den Regelstand aus.
-pub async fn run_updater<C: Clock, W: WallClock>(
+pub async fn run_updater<C: Clock + Clone, W: WallClock>(
     engine: Arc<Engine<C, W>>,
     blueprint: Arc<Blueprint>,
     lists: Arc<Lists>,
@@ -499,13 +596,13 @@ pub struct PolicyBackend<B, C, W> {
     inner: B,
 }
 
-impl<B: ResolveBackend, C: Clock, W: WallClock> PolicyBackend<B, C, W> {
+impl<B: ResolveBackend, C: Clock + Clone, W: WallClock> PolicyBackend<B, C, W> {
     pub const fn new(engine: Arc<Engine<C, W>>, inner: B) -> Self {
         Self { engine, inner }
     }
 }
 
-impl<B: ResolveBackend, C: Clock, W: WallClock> ResolveBackend for PolicyBackend<B, C, W> {
+impl<B: ResolveBackend, C: Clock + Clone, W: WallClock> ResolveBackend for PolicyBackend<B, C, W> {
     fn resolve(
         &self,
         request: &Message,
@@ -514,10 +611,14 @@ impl<B: ResolveBackend, C: Clock, W: WallClock> ResolveBackend for PolicyBackend
         // Die Adresse vorher herausziehen: `evaluate` braucht den Kontext
         // exklusiv, und `ctx.peer` im selben Ausdruck wäre ein zweiter Zugriff.
         let peer = ctx.peer.ip();
-        let decision = request
-            .queries
-            .first()
-            .map(|query| self.engine.evaluate(query.name(), peer, ctx));
+        let question = request.queries.first();
+        let decision = question.map(|query| {
+            self.engine
+                .evaluate_typed(query.name(), query.query_type(), peer, ctx)
+        });
+        // Für den Rebinding-Schutz weiter unten, bevor der Borrow endet.
+        let asked =
+            question.map(|query| query.name().to_ascii().trim_end_matches('.').to_lowercase());
 
         async move {
             if decision == Some(Decision::Block) {
@@ -527,8 +628,42 @@ impl<B: ResolveBackend, C: Clock, W: WallClock> ResolveBackend for PolicyBackend
                 tracing::debug!("geblockt");
                 return Ok(self.engine.block_response(request));
             }
-            self.inner.resolve(request, ctx).await
+
+            let response = self.inner.resolve(request, ctx).await?;
+
+            // Post-Processing (ARCHITECTURE.md §1, Schicht 5): erst hier gibt
+            // es eine Antwort, die der Rebinding-Schutz ansehen kann.
+            if let Some(name) = asked
+                && self.engine.inspect_answer(&name, &response, ctx) == Decision::Block
+            {
+                tracing::debug!("Antwort verworfen: private Adresse für einen öffentlichen Namen");
+                return Ok(self.engine.block_response(request));
+            }
+            Ok(response)
         }
+    }
+}
+
+/// Trägt alle Funde in den Trace und sagt, ob einer davon blockt.
+fn record_findings(
+    findings: &[(crate::detect::Finding, crate::detect::Action)],
+    ctx: &mut Ctx,
+) -> Decision {
+    let mut blocked = false;
+    for (finding, action) in findings {
+        crate::detect::record(finding.detector);
+        ctx.record(Step::Detected {
+            detector: finding.detector,
+            score: finding.score,
+            reason: Arc::clone(&finding.reason),
+            action: *action,
+        });
+        blocked |= action.blocks();
+    }
+    if blocked {
+        Decision::Block
+    } else {
+        Decision::Allow
     }
 }
 
@@ -542,6 +677,8 @@ pub fn deciding_step(steps: &[Step]) -> Option<&Step> {
                 | Step::RegexHit { .. }
                 | Step::ScheduleHit { .. }
                 | Step::TemporaryAllow { .. }
+                | Step::TemporaryDeny { .. }
+                | Step::Detected { .. }
         )
     })
 }

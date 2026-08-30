@@ -1,9 +1,14 @@
-//! Befristete Freigaben.
+//! Befristete Freigaben — und seit Phase 8 auch befristete Sperren.
 //!
 //! Der praktische Fall: eine Seite ist geblockt, jemand braucht sie *jetzt*, und
 //! niemand will dafür eine Liste bearbeiten und den Dienst neu laden. Eine
 //! Freigabe gilt für eine Weile und verschwindet dann von selbst — das ist der
 //! Unterschied zu einer Allowlist, die man anlegt und nie wieder aufräumt.
+//!
+//! Der Gegenpart kam mit den Heuristiken dazu: neben einer auffälligen Anfrage
+//! steht in der Oberfläche ein Knopf zum Sperren. Beides ist dieselbe Struktur
+//! mit derselben Frist — sie zweimal zu schreiben wäre die Sorte Verdopplung,
+//! bei der die eine Hälfte später anders aufräumt als die andere.
 //!
 //! Die Frist läuft über [`Clock`] und damit über monotone Zeit: eine
 //! verstellte Systemuhr verlängert keine Freigabe.
@@ -14,14 +19,15 @@ use std::time::{Duration, Instant};
 
 use crate::clock::Clock;
 
-/// Freigaben, die von selbst ablaufen.
+/// Einträge, die von selbst ablaufen. Zweimal benutzt: für Freigaben und für
+/// Sperren.
 #[derive(Debug)]
-pub struct TemporaryAllows<C> {
+pub struct Temporary<C> {
     entries: Mutex<HashMap<String, Instant>>,
     clock: C,
 }
 
-impl<C: Clock> TemporaryAllows<C> {
+impl<C: Clock> Temporary<C> {
     pub fn new(clock: C) -> Self {
         Self {
             entries: Mutex::new(HashMap::new()),
@@ -29,7 +35,7 @@ impl<C: Clock> TemporaryAllows<C> {
         }
     }
 
-    /// Gibt eine Domain und alles darunter für `ttl` frei.
+    /// Trägt eine Domain und alles darunter für `ttl` ein.
     ///
     /// Subdomains gelten mit: wer eine Seite freigibt, meint auch die Adressen,
     /// von denen sie ihre Bilder lädt. Eine Freigabe nur für den exakten Namen
@@ -96,9 +102,9 @@ mod tests {
     use crate::clock::TestClock;
     use std::sync::Arc;
 
-    fn allows() -> (Arc<TestClock>, TemporaryAllows<Arc<TestClock>>) {
+    fn allows() -> (Arc<TestClock>, Temporary<Arc<TestClock>>) {
         let clock = Arc::new(TestClock::new());
-        let allows = TemporaryAllows::new(Arc::clone(&clock));
+        let allows = Temporary::new(Arc::clone(&clock));
         (clock, allows)
     }
 

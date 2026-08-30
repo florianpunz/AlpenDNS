@@ -38,3 +38,9 @@
 # Von libFuzzer erzeugt; kuratierte Eingaben liegen in fuzz/seeds/
 /crates/*/fuzz/corpus/
 /crates/*/fuzz/coverage/
+
+# Messkorpora für die Heuristiken (Phase 8). Nicht im Repo: fremde Daten,
+# ein bis zwei Megabyte, und für den Bau nicht nötig — gebraucht werden sie
+# nur von den --ignored-Messläufen in tests/detect_corpus.rs. Woher sie
+# kommen, steht in docs/TESTING.md.
+/corpus/

@@ -52,6 +52,11 @@ pub enum Step {
     TemporaryAllow {
         remaining: Duration,
     },
+    /// Eine befristete Sperre hat gegriffen — der Gegenpart, gesetzt über die
+    /// API mit einem Klick auf eine auffällige Anfrage (Phase 8, Schritt 7).
+    TemporaryDeny {
+        remaining: Duration,
+    },
     AllowlistHit {
         list: Arc<str>,
         line: u32,
@@ -83,6 +88,18 @@ pub enum Step {
     DnssecChecked {
         verdict: crate::dnssec::Verdict,
     },
+    /// Eine Heuristik hat angeschlagen (Phase 8).
+    ///
+    /// Steht auch dann im Trace, wenn die Aktion nur `log` oder `flag` ist —
+    /// der Trace bildet ab, was passiert ist, nicht nur was entschieden wurde.
+    /// Die Begründung ist Pflicht: ohne sie ist ein Fehlalarm nicht debugbar
+    /// (FEATURES.md D6).
+    Detected {
+        detector: crate::detect::Detector,
+        score: crate::detect::Permille,
+        reason: Arc<str>,
+        action: crate::detect::Action,
+    },
     Synthesized {
         mode: BlockMode,
     },
@@ -99,6 +116,9 @@ impl std::fmt::Display for Step {
             Self::PolicyApplied { policy } => write!(f, "Policy '{policy}'"),
             Self::TemporaryAllow { remaining } => {
                 write!(f, "befristete Freigabe, noch {remaining:.0?}")
+            }
+            Self::TemporaryDeny { remaining } => {
+                write!(f, "befristete Sperre, noch {remaining:.0?}")
             }
             Self::AllowlistHit {
                 list,
@@ -127,6 +147,23 @@ impl std::fmt::Display for Step {
                 write!(f, "Upstream '{resolver}' antwortete in {rtt:.1?}")
             }
             Self::DnssecChecked { verdict } => write!(f, "DNSSEC selbst geprüft: {verdict}"),
+            Self::Detected {
+                detector,
+                score,
+                reason,
+                action,
+            } => {
+                let verb = match action {
+                    crate::detect::Action::Block => "blockt",
+                    crate::detect::Action::Flag => "meldet",
+                    crate::detect::Action::Log | crate::detect::Action::Off => "notiert",
+                };
+                write!(
+                    f,
+                    "{detector} {verb} (Score {}): {reason}",
+                    crate::detect::format_score(*score)
+                )
+            }
             Self::Synthesized { mode } => write!(f, "Antwort selbst erzeugt, Modus {mode:?}"),
         }
     }
@@ -246,6 +283,9 @@ mod tests {
             Step::TemporaryAllow {
                 remaining: Duration::from_secs(42),
             },
+            Step::TemporaryDeny {
+                remaining: Duration::from_secs(42),
+            },
             Step::AllowlistHit {
                 list: Arc::from("a"),
                 line: 1,
@@ -274,6 +314,12 @@ mod tests {
             },
             Step::DnssecChecked {
                 verdict: crate::dnssec::Verdict::Secure,
+            },
+            Step::Detected {
+                detector: crate::detect::Detector::Dga,
+                score: 900,
+                reason: Arc::from("Testbegründung"),
+                action: crate::detect::Action::Flag,
             },
             Step::Synthesized {
                 mode: BlockMode::Nxdomain,

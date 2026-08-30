@@ -23,7 +23,8 @@ use std::time::{Duration, Instant};
 
 use alpendns::caching::CachingBackend;
 use alpendns::clock::{SystemClock, SystemWallClock};
-use alpendns::config::{BlockingConfig, CacheConfig, Config, LoggingConfig};
+use alpendns::config::{BlockingConfig, CacheConfig, Config, DetectionConfig, LoggingConfig};
+use alpendns::detect::Detectors;
 use alpendns::filter::LoadedLists;
 use alpendns::filter::matcher::Builder as MatcherBuilder;
 use alpendns::filter::parser::{Format, parse};
@@ -95,11 +96,15 @@ struct Harness {
 }
 
 async fn start(cache_config: CacheConfig) -> Harness {
-    start_with_lists(cache_config, LoadedLists::default()).await
+    start_with_lists(cache_config, LoadedLists::default(), Detectors::new()).await
 }
 
 /// Startet den Server mit einer Policy, die alle übergebenen Listen benutzt.
-async fn start_with_lists(cache_config: CacheConfig, lists: LoadedLists) -> Harness {
+async fn start_with_lists(
+    cache_config: CacheConfig,
+    lists: LoadedLists,
+    detectors: Detectors,
+) -> Harness {
     let upstream_hits = Arc::new(AtomicUsize::new(0));
     let upstream = fake_upstream(Arc::clone(&upstream_hits)).await;
 
@@ -120,13 +125,16 @@ async fn start_with_lists(cache_config: CacheConfig, lists: LoadedLists) -> Harn
         }],
     );
     let entries = lists.total_entries();
-    let filter = Arc::new(Engine::new(
-        blueprint.build(&lists).expect("Regelstand"),
-        entries,
-        &BlockingConfig::default(),
-        SystemClock,
-        SystemWallClock,
-    ));
+    let filter = Arc::new(
+        Engine::new(
+            blueprint.build(&lists).expect("Regelstand"),
+            entries,
+            &BlockingConfig::default(),
+            SystemClock,
+            SystemWallClock,
+        )
+        .with_detectors(detectors),
+    );
     let backend = PolicyBackend::new(
         filter,
         CachingBackend::new(
@@ -232,6 +240,52 @@ async fn throughput_repeated_versus_unique_corpus() {
     );
 
     harness.shutdown.cancel();
+}
+
+/// Was die Heuristiken den Anfragepfad kosten.
+///
+/// Die Frage ist nicht rhetorisch: die Tunneling-Erkennung nimmt bei **jeder**
+/// Anfrage einen `Mutex` über einer Tabelle, und CLAUDE.md B.3 Regel 5 sagt
+/// "kein globaler Mutex im Anfragepfad". Diese Messung ist der Beleg dafür,
+/// dass die Ausnahme vertretbar ist — oder der Anlass, sie zu beseitigen.
+///
+/// Gemessen wird mit lauter neuen Namen: nur dann laufen die Detektoren
+/// wirklich bei jeder Anfrage. Bei wiederholtem Korpus antwortet der Cache, und
+/// die Policy-Schicht liegt zwar davor, sieht aber immer denselben Namen.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "Lastmessung: maschinenabhängig, gehört nicht in die Definition of Done"]
+async fn throughput_with_and_without_detectors() {
+    let without = start(CacheConfig::default()).await;
+    let plain = drive(without.addr, true, 0).await;
+    without.shutdown.cancel();
+
+    // Genau die Zusammenstellung aus dem Auslieferungszustand, plus eine
+    // Schutzliste — sonst hinge der Typosquat-Wächter gar nicht drin.
+    let config = DetectionConfig {
+        typosquat: alpendns::config::TyposquatConfig {
+            protect: vec!["sparkasse.at".to_owned(), "orf.at".to_owned()],
+            ..alpendns::config::TyposquatConfig::default()
+        },
+        ..DetectionConfig::default()
+    };
+    let detectors =
+        alpendns::detect::from_config(&config, Vec::new(), SystemClock, SystemWallClock);
+    let with = start_with_lists(CacheConfig::default(), LoadedLists::default(), detectors).await;
+    let detected = drive(with.addr, true, 1).await;
+    with.shutdown.cancel();
+
+    println!("\n| Anfragepfad            | Anfragen/s |");
+    println!("|------------------------|-----------:|");
+    println!("| ohne Detektoren        | {plain:>10.0} |");
+    println!("| mit vier Detektoren    | {detected:>10.0} |");
+    println!("\nAnteil: {:.1} %", detected / plain * 100.0);
+
+    // Kein hartes Kriterium — die Zahl ist maschinenabhängig. Aber eine
+    // Halbierung wäre ein Befund und kein Rauschen.
+    assert!(
+        detected > plain * 0.5,
+        "die Detektoren kosten mehr als die Hälfte des Durchsatzes: {detected:.0} gegen {plain:.0}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -411,7 +465,7 @@ async fn cache_hit_latency_with_two_million_blocklist_entries() {
     )]);
     let entries = lists.total_entries();
 
-    let harness = start_with_lists(CacheConfig::default(), lists).await;
+    let harness = start_with_lists(CacheConfig::default(), lists, Detectors::new()).await;
     let rss = resident_kib();
 
     // Einmal aufwärmen, danach kommt alles aus dem Cache.

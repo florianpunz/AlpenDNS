@@ -311,6 +311,17 @@ impl<B: ResolveBackend, C: Clock> Pool<B, C> {
                 });
                 Err(ResolveError::Bogus)
             }
+            // Ebenfalls kein Fehlversuch — aber aus dem gegenteiligen Grund:
+            // hier hat der Upstream nichts geliefert, worüber sich urteilen
+            // ließe. Der nächste wird gefragt (siehe `Pool::resolve`), und
+            // zwar ohne dass eine kaputte Zone den Pool leerräumen kann.
+            Err(ResolveError::Unproven) => {
+                tracing::debug!(
+                    upstream = %upstream.name,
+                    "keine prüfbare Antwort; der nächste Upstream wird gefragt"
+                );
+                Err(ResolveError::Unproven)
+            }
             Err(error) => {
                 self.record_failure(index);
                 tracing::debug!(upstream = %upstream.name, %error, "Upstream-Anfrage fehlgeschlagen");
@@ -377,6 +388,10 @@ impl<B: ResolveBackend, C: Clock> ResolveBackend for Pool<B, C> {
                     // Antwort und zeigte den Namen einem zweiten Anbieter —
                     // genau das, was split_by_zone verhindern soll.
                     Err(ResolveError::Bogus) => return Err(ResolveError::Bogus),
+                    // Der Gegenfall: nichts Prüfbares bekommen. Hier ist der
+                    // nächste Upstream genau richtig — er ist womöglich
+                    // gesund, und der Client soll seine Antwort bekommen.
+                    Err(ResolveError::Unproven) => last_error = Some(ResolveError::Unproven),
                     Err(error) => last_error = Some(error),
                 }
             }
@@ -441,6 +456,22 @@ mod tests {
                 let mut response = Message::response(request.metadata.id, OpCode::Query);
                 response.add_queries(request.queries.iter().cloned());
                 Ok(response)
+            }
+        }
+    }
+
+    /// Damit ein Pool zwei verschiedene Fakes halten kann.
+    #[derive(Debug)]
+    enum Backend {
+        Fake(Arc<Fake>),
+        Unproving(Arc<Unproving>),
+    }
+
+    impl ResolveBackend for Backend {
+        async fn resolve(&self, request: &Message, ctx: &mut Ctx) -> Result<Message, ResolveError> {
+            match self {
+                Self::Fake(fake) => fake.resolve(request, ctx).await,
+                Self::Unproving(inner) => inner.resolve(request, ctx).await,
             }
         }
     }
@@ -733,6 +764,65 @@ mod tests {
         tokio::time::sleep(Duration::from_secs(48 * 3600)).await;
         assert_eq!(pool.rotations(), 0);
         assert_eq!(pool.seed(), seed);
+    }
+
+    /// Ein Upstream, der eine leere Fehlerantwort liefert.
+    #[derive(Debug)]
+    struct Unproving(AtomicUsize);
+
+    impl ResolveBackend for Unproving {
+        fn resolve(
+            &self,
+            _request: &Message,
+            _ctx: &mut Ctx,
+        ) -> impl std::future::Future<Output = Result<Message, ResolveError>> + Send {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            std::future::ready(Err(ResolveError::Unproven))
+        }
+    }
+
+    #[tokio::test]
+    async fn an_unprovable_answer_moves_on_without_blaming_the_upstream() {
+        // Der Unterschied zu `Bogus`: dort ist Schluss, hier wird der nächste
+        // gefragt. Und in beiden Fällen bekommt niemand einen Fehlversuch
+        // angerechnet — sonst räumte eine kaputte Zone den Pool leer.
+        let clock = Arc::new(TestClock::new());
+        let first = Arc::new(Unproving(AtomicUsize::new(0)));
+        let alive = Fake::new(0);
+        let upstreams = vec![
+            Upstream::new(
+                "stumm".to_owned(),
+                "dot",
+                Backend::Unproving(Arc::clone(&first)),
+            ),
+            Upstream::new(
+                "gesund".to_owned(),
+                "dot",
+                Backend::Fake(Arc::clone(&alive)),
+            ),
+        ];
+        let pool = Pool::with_seed(
+            upstreams,
+            Strategy::SplitByZone,
+            clock,
+            seed_starting_at("example.com.", 2, 0),
+        );
+
+        for _ in 0..6 {
+            pool.resolve(&question("example.com."), &mut ctx())
+                .await
+                .expect("der gesunde Upstream antwortet");
+        }
+
+        assert!(first.0.load(Ordering::SeqCst) >= 6, "er wurde übersprungen");
+        assert!(alive.calls() >= 6, "es sprang niemand ein");
+        let stats = pool.stats();
+        assert_eq!(
+            stats.first().expect("Statistik").failures,
+            0,
+            "eine unprüfbare Antwort wurde als Ausfall gezählt"
+        );
+        assert!(!stats.first().expect("Statistik").down);
     }
 
     #[tokio::test]

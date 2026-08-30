@@ -40,6 +40,8 @@ const SPLIT_BANDS = 4;
 // er dort unvermeidlich, überall sonst nicht.
 let token = localStorage.getItem(TOKEN_KEY) || "";
 let stream = null;
+/** Gesetzt, solange der Server in einem Modus läuft, der keine Namen behält. */
+let quietMode = "";
 /** Ohne Namen (Modus none/aggregate) hat das Protokoll keine Namensspalte. */
 let namesAvailable = true;
 
@@ -127,6 +129,7 @@ function syncEmptyStates() {
   $("log-empty").hidden = hasRows;
   $("log-table").hidden = !hasRows;
   $("top-empty").hidden = $("top").childElementCount > 0;
+  $("flagged-empty").hidden = $("flagged").childElementCount > 0;
 }
 
 /** Setzt den Pfad eines eingebetteten Diagramms.
@@ -317,6 +320,10 @@ function renderUpstreams(list) {
 /** Der Privacy-Streifen: Modus, Schwelle, und wohin die Daten gehen. */
 function renderPrivacy(status) {
   $("p-mode").textContent = `Modus ${status.logging_mode}`;
+  quietMode =
+    status.logging_mode === "none" || status.logging_mode === "aggregate"
+      ? status.logging_mode
+      : "";
 
   if (status.logging_mode === "none") {
     $("p-k").textContent = "keine Namen";
@@ -349,6 +356,12 @@ function renderReasons(reasons) {
     blocklist: "Blockliste",
     regex: "Regex-Regel",
     schedule: "Zeitplan",
+    temporary_deny: "befristet gesperrt",
+    dga: "Erzeugter Name",
+    tunneling: "Tunneling",
+    rebinding: "Rebinding",
+    typosquat: "Typosquatting",
+    nrd: "Neu registriert",
     other: "ohne Zuordnung",
   };
   const total = reasons.reduce((sum, entry) => sum + entry.count, 0);
@@ -361,9 +374,13 @@ function renderReasons(reasons) {
   $("reason-empty").hidden = total !== 0;
   if (total === 0) return;
 
-  reasons.forEach((entry, index) => {
-    if (entry.count === 0) return;
-    const band = `band-${Math.min(index + 1, SPLIT_BANDS)}`;
+  // Nur die Gründe, die auch vorkommen. Seit Phase 8 sind es zehn Kategorien,
+  // und neun leere Legendenzeilen wären keine Information, sondern Rauschen.
+  const present = reasons.filter((entry) => entry.count > 0);
+  present.forEach((entry, index) => {
+    // Die Graustufen-Rampe hat vier Stufen (B.6). Bei mehr Kategorien wiederholt
+    // sie sich; die Zuordnung trägt ohnehin die Legende, nicht der Ton.
+    const band = `band-${(index % SPLIT_BANDS) + 1}`;
 
     const segment = document.createElement("span");
     segment.className = band;
@@ -661,6 +678,103 @@ async function refreshTop() {
   syncEmptyStates();
 }
 
+/**
+ * Die auffälligen Anfragen.
+ *
+ * Kommen aus demselben Ringpuffer wie das Protokoll — in den leisen Log-Modi
+ * gibt der nichts heraus, und dann bleibt dieses Panel leer. Das ist kein
+ * Fehler, sondern die Einstellung, und der Leertext sagt es auch.
+ */
+async function refreshFlagged() {
+  const entries = await api("/api/flagged?limit=25");
+  const list = $("flagged");
+  list.replaceChildren();
+
+  for (const entry of entries) {
+    for (const finding of entry.findings ?? []) {
+      list.append(flaggedRow(entry, finding));
+    }
+  }
+  $("flagged-note").textContent = entries.length
+    ? `${thousands(entries.length)} in den letzten Minuten`
+    : "";
+  $("flagged-note").hidden = entries.length === 0;
+  // Leer heißt nicht immer "nichts gefunden": in den leisen Log-Modi behält der
+  // Server keine Namen, und dann kann hier nichts stehen. Das gehört gesagt,
+  // sonst sieht ein zurückhaltend eingestellter Server aus wie ein untätiger.
+  $("flagged-note-empty").textContent = quietMode
+    ? `Modus '${quietMode}': der Server merkt sich keine Namen, deshalb steht hier nichts.`
+    : "Keine Heuristik hat angeschlagen.";
+  syncEmptyStates();
+}
+
+function flaggedRow(entry, finding) {
+  const item = document.createElement("li");
+
+  const subject = document.createElement("span");
+  subject.className = "subject";
+  subject.textContent = entry.name;
+
+  const meta = document.createElement("p");
+  meta.className = "meta";
+  const label = document.createElement("span");
+  label.textContent = finding.label;
+  const score = document.createElement("span");
+  score.className = "score";
+  score.textContent = finding.score;
+  const action = document.createElement("span");
+  action.textContent = finding.action === "block" ? "geblockt" : "gemeldet";
+  meta.append(label, score, action);
+
+  // Die Merkmale, die zum Score geführt haben. Ohne sie ist ein Fehlalarm
+  // nicht nachvollziehbar, und dann wird die Heuristik abgeschaltet statt
+  // verbessert.
+  const why = document.createElement("p");
+  why.className = "why";
+  why.textContent = finding.reason;
+
+  const actions = document.createElement("div");
+  actions.className = "actions";
+  actions.append(
+    decideButton("Freigeben", `/api/allow`, entry.name),
+    decideButton("Sperren", `/api/deny`, entry.name),
+  );
+
+  item.append(subject, meta, why, actions);
+  return item;
+}
+
+/** Ein Knopf, der eine befristete Freigabe oder Sperre setzt. */
+function decideButton(caption, path, domain) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = caption;
+  button.addEventListener("click", async () => {
+    button.disabled = true;
+    try {
+      await post(path, { domain, seconds: 3600 });
+      button.textContent = `${caption} ✓`;
+    } catch {
+      button.textContent = "ging nicht";
+      button.disabled = false;
+    }
+  });
+  return button;
+}
+
+async function post(path, body) {
+  const response = await fetch(path, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) throw new Error(String(response.status));
+  return response.json();
+}
+
 function connectStream() {
   if (stream) stream.close();
   // EventSource kann keine Header setzen, deshalb der Token in der URL.
@@ -697,7 +811,12 @@ let started = false;
 async function start() {
   await refreshStatus();
   showApp();
-  await Promise.allSettled([loadRecent(), refreshTop(), refreshHistory()]);
+  await Promise.allSettled([
+    loadRecent(),
+    refreshTop(),
+    refreshHistory(),
+    refreshFlagged(),
+  ]);
   if (started) return;
   started = true;
 

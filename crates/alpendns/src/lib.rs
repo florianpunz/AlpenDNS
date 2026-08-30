@@ -10,6 +10,7 @@ pub mod cache;
 pub mod caching;
 pub mod clock;
 pub mod config;
+pub mod detect;
 pub mod dns;
 pub mod dnssec;
 pub mod filter;

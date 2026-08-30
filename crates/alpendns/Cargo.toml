@@ -21,6 +21,7 @@ ipnet.workspace = true
 jiff.workspace = true
 hickory-proto.workspace = true
 hpke.workspace = true
+idna.workspace = true
 odoh-rs.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true

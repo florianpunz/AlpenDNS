@@ -11,6 +11,7 @@
 use std::fmt::Write as _;
 
 use crate::cache::Stats as CacheStats;
+use crate::detect::{Action as DetectorAction, Detector as DetectorKind};
 use crate::dnssec::{CounterSnapshot as DnssecCounters, Verdict};
 use crate::filter::block::BlockMode;
 use crate::logging::{LogStats, Mode as LogMode};
@@ -47,6 +48,10 @@ pub struct Snapshot {
     pub dnssec_enabled: bool,
     /// Wie die Prüfung ausgegangen ist.
     pub dnssec: DnssecCounters,
+    /// Was für jeden Detektor eingestellt ist.
+    pub detectors: Vec<(crate::detect::Detector, crate::detect::Action)>,
+    /// Wie oft jeder Detektor angeschlagen hat.
+    pub detections: Vec<(crate::detect::Detector, u64)>,
 }
 
 /// Maskiert, was in einem Label-Wert nicht vorkommen darf.
@@ -283,6 +288,45 @@ pub fn render(snapshot: &Snapshot) -> String {
         snapshot.zone_seed_rotations,
     );
 
+    // Was für jeden Detektor eingestellt ist — dieselbe Form wie bei den
+    // Modi: eine Zeile je Kombination, damit sich über viele Installationen
+    // summieren lässt, wer welche Stufe benutzt. Ein Detektor, der nicht
+    // eingehängt ist, erscheint als `off`.
+    let _ = writeln!(
+        out,
+        "# HELP alpendns_detector_action 1 bei der eingestellten Stufe je Detektor, 0 sonst"
+    );
+    let _ = writeln!(out, "# TYPE alpendns_detector_action gauge");
+    for detector in DetectorKind::ALL {
+        let configured = snapshot
+            .detectors
+            .iter()
+            .find_map(|(known, action)| (*known == detector).then_some(*action))
+            .unwrap_or(DetectorAction::Off);
+        for action in DetectorAction::ALL {
+            let _ = writeln!(
+                out,
+                "alpendns_detector_action{{detector=\"{}\",action=\"{}\"}} {}",
+                detector.as_str(),
+                action.as_str(),
+                u8::from(action == configured)
+            );
+        }
+    }
+
+    let _ = writeln!(
+        out,
+        "# HELP alpendns_detections_total Funde je Detektor, oberhalb seiner Schwelle"
+    );
+    let _ = writeln!(out, "# TYPE alpendns_detections_total counter");
+    for (detector, count) in &snapshot.detections {
+        let _ = writeln!(
+            out,
+            "alpendns_detections_total{{detector=\"{}\"}} {count}",
+            detector.as_str()
+        );
+    }
+
     let _ = writeln!(out, "# HELP alpendns_lists Geladene Listen je Format");
     let _ = writeln!(out, "# TYPE alpendns_lists gauge");
     for (format, count) in &snapshot.list_formats {
@@ -377,12 +421,21 @@ mod tests {
                 queries: 100,
                 blocked: 12,
                 by_rcode: vec![("NoError".to_owned(), 88), ("NXDomain".to_owned(), 12)],
-                by_reason: vec![
-                    (BlockReason::Blocklist, 9),
-                    (BlockReason::Regex, 2),
-                    (BlockReason::Schedule, 1),
-                    (BlockReason::Other, 0),
-                ],
+                // Wie im Betrieb: jeder Grund kommt vor, auch mit Wert null.
+                // Sonst verschwände eine Kategorie aus der Ausgabe, sobald sie
+                // gerade nicht auftritt, und ein Diagramm darüber bekäme Lücken.
+                by_reason: BlockReason::ALL
+                    .iter()
+                    .map(|&reason| {
+                        let count = match reason {
+                            BlockReason::Blocklist => 9,
+                            BlockReason::Regex => 2,
+                            BlockReason::Schedule => 1,
+                            _ => 0,
+                        };
+                        (reason, count)
+                    })
+                    .collect(),
                 ring_entries: 0,
             },
             cache: CacheStats {
@@ -427,6 +480,11 @@ mod tests {
                 bogus: 1,
                 indeterminate: 6,
             },
+            detectors: vec![
+                (DetectorKind::Dga, DetectorAction::Flag),
+                (DetectorKind::Tunneling, DetectorAction::Block),
+            ],
+            detections: vec![(DetectorKind::Dga, 4), (DetectorKind::Nrd, 0)],
         }
     }
 
@@ -493,6 +551,13 @@ mod tests {
             "alpendns_dnssec_enabled 1",
             "alpendns_dnssec_total{result=\"secure\"} 11",
             "alpendns_dnssec_total{result=\"bogus\"} 1",
+            "alpendns_detector_action{detector=\"dga\",action=\"flag\"} 1",
+            "alpendns_detector_action{detector=\"dga\",action=\"block\"} 0",
+            "alpendns_detector_action{detector=\"tunneling\",action=\"block\"} 1",
+            // Nicht eingehängt heißt `off`.
+            "alpendns_detector_action{detector=\"nrd\",action=\"off\"} 1",
+            "alpendns_detections_total{detector=\"dga\"} 4",
+            "alpendns_blocked_by_reason_total{reason=\"tunneling\"} 0",
             "alpendns_zone_seed_rotation_seconds 86400",
             "alpendns_upstream_transport{resolver=\"quad9\",transport=\"dot\"} 1",
         ] {
@@ -585,7 +650,7 @@ mod tests {
     /// Label-Schlüssel auftauchen, egal wer was fragt.
     #[test]
     fn every_label_key_comes_from_a_closed_set() {
-        const ALLOWED: [&str; 8] = [
+        const ALLOWED: [&str; 10] = [
             "version",   // Konstante aus dem Build
             "rcode",     // Aufzählung des Protokolls
             "mode",      // Aufzählung aus der Konfiguration
@@ -594,6 +659,8 @@ mod tests {
             "resolver",  // Name aus der Konfiguration
             "transport", // Aufzählung der Transporte
             "result",    // dnssec::Verdict::ALL
+            "detector",  // detect::Detector::ALL
+            "action",    // detect::Action::ALL
         ];
         let text = render(&snapshot());
         for line in text.lines().filter(|l| !l.starts_with('#')) {

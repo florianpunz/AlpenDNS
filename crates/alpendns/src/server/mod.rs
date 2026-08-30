@@ -197,5 +197,10 @@ fn build_event(request: &Message, response: &Message, ctx: &Ctx) -> QueryEvent {
         rcode: response.metadata.response_code,
         why: steps.iter().map(ToString::to_string).collect(),
         elapsed: ctx.elapsed(),
+        // Nur was sichtbar sein soll: `log` zählt mit und erscheint sonst
+        // nirgends. Dass die Namen darin den leisen Log-Modi nicht entkommen,
+        // regelt weiterhin allein die Logging-Schicht — hier wird nur
+        // zusammengetragen, was passiert ist.
+        findings: crate::logging::Flagged::from_steps(steps),
     }
 }

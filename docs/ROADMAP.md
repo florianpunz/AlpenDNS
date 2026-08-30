@@ -4,7 +4,7 @@ Der Plan ist in Phasen geschnitten. Jede Phase hat ein **Ziel**, eine **Schrittl
 Verify-Format** (siehe CLAUDE.md, Teil A.4) und ein **Abnahmekriterium**. Eine Phase gilt
 als fertig, wenn das Abnahmekriterium erfüllt ist — nicht, wenn der Code kompiliert.
 
-**Aktuelle Phase: 8.**
+**Aktuelle Phase: 9.**
 
 Die Reihenfolge ist so gewählt, dass **nach Phase 4 ein Server steht, den du produktiv
 im eigenen Netz benutzen kannst**. Alles danach macht ihn besser, nicht erst benutzbar.
@@ -455,11 +455,22 @@ eingeschaltetem ODoH still nichts.
   Gegen den laufenden Server nachgeprüft:
 
   ```
-  dnssec-failed.org            → SERVFAIL, bogus=1, quad9 ohne Fehlversuch
+  dnssec-failed.org            → SERVFAIL, quad9 ohne Fehlversuch
   cloudflare.com               → NOERROR, ad-Flag, keine RRSIG in der Antwort
   cloudflare.com +dnssec       → dieselbe Cache-Zeile, RRSIG dabei
   gnu.org                      → NOERROR, kein ad-Flag (unsignierte Zone)
   ```
+
+  **Nachtrag aus Phase 8:** ein vierter Fehler kam erst im Dauerbetrieb heraus.
+  Antwortet der Upstream selbst mit einem leeren SERVFAIL, meldet hickory
+  mangels NSEC-Records ebenfalls `Bogus` — und weil `Bogus` terminal ist, wurde
+  ein einzelner Wackler beim Upstream zu einem harten SERVFAIL für den Client,
+  ohne Ausweichversuch. `wikipedia.org` kam so einmal als SERVFAIL zurück und
+  beim nächsten Versuch als NOERROR. Unterschieden wird jetzt an dem, was die
+  Antwort enthält; Einzelheiten im Nachtrag zu
+  [ADR-0016](adr/0016-dnssec-validierung-im-forwarder.md). Die Zahl `bogus=1`
+  oben ist dadurch auf 0 gefallen: Quad9 validiert selbst, wir sehen nie eine
+  faule Signatur — die alte 1 war der Mislabel.
 * **Die DNSSEC-Vektoren pinnen den Schlüssel der Testzone als Trust Anchor,**
   statt eine Kette bis zur echten Root zu bauen. An der Rechnerei ist dabei
   nichts abgekürzt; dass der validierende Griff im Transport auch wirklich
@@ -506,6 +517,81 @@ gebaute Pipeline (CT-Logs, Zonendaten, Klassifikator) kann die NRD- und
 Reputationsdateien liefern, die AlpenDNS hier lokal einliest. Die Schnittstelle dazwischen
 ist bewusst eine simple Datei, kein API-Aufruf: der Resolver darf nicht davon abhängen,
 dass ein zweiter Dienst läuft.
+
+**Umgesetzt am 2026-08-30 — alle sieben Punkte.** Die vier Kommandos der
+Definition of Done laufen durch. Was **nicht** erledigt ist, ist die Abnahme:
+sie verlangt eine Woche Betrieb im echten Netz, und die kann kein Test ersetzen
+(siehe unten).
+
+**Schritt 1 — Framework** ([ADR-0019](adr/0019-heuristiken-melden-statt-blocken.md)).
+`crate::detect` mit zwei Traits: `NameDetector` sieht die Frage, `AnswerDetector`
+die Antwort. Zwei und nicht einer, weil es zwei Stellen in der Pipeline sind —
+der Rebinding-Schutz braucht die Antwort (ARCHITECTURE.md §1, Schicht 5). Vier
+Stufen `off`/`log`/`flag`/`block`; der Unterschied zwischen `log` und `flag` ist,
+wem sie auffallen. Das Abnahmekriterium steht als Test da:
+`a_detector_runs_through_the_pipeline_and_lands_in_the_trace`.
+
+**Schritt 2 — Rebinding.** Private Adressen für öffentliche Namen, inklusive der
+Falle `::ffff:192.168.1.1` und der Glue-Records im Additional-Abschnitt. Die
+`forward_zone`-Einträge kommen automatisch in die Ausnahmeliste: wer eine Zone
+ins eigene Netz leitet, hat schon gesagt, dass private Adressen von dort in
+Ordnung sind — ohne das wäre der Schutz beim ersten Start eine Falle.
+
+**Schritt 3 — Tunneling.** Bewertet wird die *Zone* über ein Zeitfenster, nicht
+die einzelne Anfrage: fünf Signale, gewichtet, mit den einmaligen Subdomains als
+schwerstem. Gemessen: gewöhnlicher Verkehr unter einer Zone bleibt bei 0,17, ein
+`dnscat2`-artiger Strom liegt bei 0,81, ein `iodine`-artiger bei 1,0. Auf der
+Top-100k **0,0000 % Falsch-Positive**.
+
+**Schritt 4 — DGA.** 3-Gramm-Modell im Binary, 107 KiB. Auf der Top-100k
+**0,077 % Falsch-Positive** gegen eine Zusage von 0,1 %. Trefferquoten je
+Familie: alphanumerisch 92,8 %, necurs-artig 40,6 %, conficker-artig 28,6 %,
+aussprechbar 0,5 %, wörterbuchbasiert 0,0 %. Die letzten beiden sind die
+dokumentierte Grenze des Verfahrens und keine Überraschung (FEATURES.md D3).
+
+**Schritt 5 — Typosquat.** Damerau-Levenshtein plus Unicode-Confusables plus
+Punycode-Auflösung. Vier Trefferarten mit eigenem Score; die Originale werden nie
+gemeldet, und das ist der wichtigere Teil des Kriteriums.
+
+**Schritt 6 — NRD.** Lokale Datei, Score fällt linear mit dem Alter. Eine
+fehlende Datei ist **kein** Startfehler: der Resolver hängt nicht davon ab, dass
+AlpenShield gelaufen ist.
+
+**Schritt 7 — UI.** Neues Panel "Auffällig" mit Detektor, Score und Begründung,
+dazu je ein Knopf zum Freigeben und zum Sperren. Die Sperre ist der Gegenpart zur
+befristeten Freigabe aus Phase 5 und benutzt dieselbe Struktur.
+
+**Abweichungen und Preise:**
+
+* **Der Messkorpus liegt nicht im Repo.** Zwei Dateien unter `corpus/`
+  (gitignoriert): trainiert wird auf den Rängen 100 001–600 000 der Majestic
+  Million, gemessen auf der Top-100k. Die Trennung ist nicht Kosmetik — beim
+  ersten Anlauf lief beides auf derselben Liste, und die Falsch-Positiv-Rate war
+  um den **Faktor 500** zu gut (0,001 % gegen 0,54 %). Herkunft, Lizenz und
+  Erzeugung stehen in `src/detect/dga/model.bin.md`.
+* **Die DGA-Familien sind nachgebaut, nicht mitgeschnitten**, ebenso der
+  iodine-/dnscat-Korpus. Was zählt, sind Alphabet und Längenbereich; die echte
+  Saat erzeugte dieselbe Verteilung. Steht so in `tests/detect_corpus.rs`.
+* **Punycode und private Suffixe werden von der DGA-Erkennung ausgenommen.**
+  Beim ersten Messlauf waren vier der zwanzig auffälligsten Namen IDNs, und
+  `d1a2b3.cloudfront.net` galt als erzeugter Name — er ist es, aber der Anbieter
+  vergibt ihn so. Beides sind jetzt benannte blinde Flecken statt systematischer
+  Fehlalarme für ganze Sprachräume.
+* **Pinyin-Kürzel bleiben ein Fehlalarm.** `hnqxdzkj.com` ist ein gewachsener
+  Name aus Anfangsbuchstaben chinesischer Silben und für ein Modell über
+  lateinischem Text nicht von Zufall zu unterscheiden. Sie machen den größten
+  Teil der verbleibenden 0,077 % aus.
+* **Ein DNSSEC-Fehler aus Phase 7 kam hier heraus** und ist behoben — siehe den
+  Nachtrag oben.
+* **Weiterhin offen aus Phase 0:** der CI-Lauf, dafür fehlt ein GitHub-Remote.
+* **Weiterhin offen aus Phase 6, Schritt 8:** der Blick eines Menschen auf die
+  gerenderte UI. Dazugekommen ist das Panel "Auffällig".
+
+**Die Abnahme steht aus, und sie kann nicht anders ausstehen:** "eine Woche
+Betrieb im echten Netz mit allen Detektoren auf `flag`" braucht eine Woche und
+ein echtes Netz. Sie gehört damit zu demselben Praxistest, der aus Phase 4 nach
+Phase 9 verschoben wurde — vorher gibt es keine systemd-Unit und keinen Betrieb
+auf Port 53. Erst danach darf ein Detektor auf `block`.
 
 ---
 

@@ -35,6 +35,17 @@ use crate::resolve::ResolveError;
 /// Darüber wartet der Multiplexer, statt weitere Streams zu öffnen.
 const MAX_ACTIVE_REQUESTS: usize = 256;
 
+/// Ob dieser Fehler daher kommt, dass der Upstream nichts Prüfbares lieferte.
+///
+/// Siehe [`dnssec::from_error`]: dort steht, warum das etwas anderes ist als
+/// eine faule Signatur, und was es kostet, die beiden zu verwechseln.
+fn is_unproven(error: &hickory_net::NetError) -> bool {
+    matches!(
+        error,
+        hickory_net::NetError::Dns(hickory_net::DnsError::Nsec { .. })
+    )
+}
+
 /// Eine offene Verbindung, gegebenenfalls mit vorgeschalteter Validierung.
 ///
 /// Der validierende Griff steht neben der Verbindung und wird nicht je Anfrage
@@ -170,6 +181,10 @@ impl Transport {
                     settled = Some(verdict);
                     recovered
                 }
+                // Kein Urteil, sondern ein Ausfall: der Upstream hat nichts
+                // Prüfbares geliefert. Die Verbindung bleibt stehen — sie ist
+                // nicht kaputt, der Inhalt war leer.
+                None if is_unproven(&error) => return Err(ResolveError::Unproven),
                 None => {
                     self.invalidate().await;
                     return Err(ResolveError::Upstream(error.to_string()));

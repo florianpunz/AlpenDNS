@@ -75,9 +75,9 @@ impl Mode {
 /// (ARCHITECTURE.md §2). Eine zweite Buchführung daneben liefe irgendwann
 /// auseinander.
 ///
-/// Die Aufzählung ist bewusst offen für Phase 8: die Heuristiken aus
-/// `alpendns-detect` (DGA, Tunneling, Rebinding) bekommen dann je eine
-/// Variante, ohne dass Zähler, API oder UI sich ändern müssen.
+/// Seit Phase 8 stehen die Heuristiken mit darin — je eine Variante, wie es die
+/// Roadmap vorgesehen hatte; Zähler, Metrik-Label und Diagramm ziehen von
+/// selbst mit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BlockReason {
     /// Eine Blockliste hat den Namen enthalten.
@@ -86,6 +86,10 @@ pub enum BlockReason {
     Regex,
     /// Ein Zeitplan war aktiv.
     Schedule,
+    /// Eine befristete Sperre über die API.
+    TemporaryDeny,
+    /// Ein Heuristik-Detektor auf `block`.
+    Detector(crate::detect::Detector),
     /// Geblockt, aber kein Schritt sagt warum. Sollte nicht vorkommen und wird
     /// deshalb sichtbar gezählt statt stillschweigend einem Grund zugeschlagen.
     Other,
@@ -95,13 +99,30 @@ impl BlockReason {
     /// Alle Gründe. Wie [`Mode::ALL`] gibt die Metrik jeden aus, auch mit Wert
     /// null — sonst verschwindet eine Kategorie aus der Ausgabe, sobald sie
     /// gerade nicht vorkommt, und ein Diagramm darüber bekommt Lücken.
-    pub const ALL: [Self; 4] = [Self::Blocklist, Self::Regex, Self::Schedule, Self::Other];
+    pub const ALL: [Self; 10] = [
+        Self::Blocklist,
+        Self::Regex,
+        Self::Schedule,
+        Self::TemporaryDeny,
+        Self::Detector(crate::detect::Detector::Dga),
+        Self::Detector(crate::detect::Detector::Tunneling),
+        Self::Detector(crate::detect::Detector::Rebinding),
+        Self::Detector(crate::detect::Detector::Typosquat),
+        Self::Detector(crate::detect::Detector::Nrd),
+        // Steht mit in der Liste, obwohl es kein Grund ist, sondern das
+        // Eingeständnis, keinen gefunden zu haben. Ohne diesen Eintrag fiele
+        // der Zähler dafür stillschweigend weg — `record` sucht den Index in
+        // genau dieser Liste.
+        Self::Other,
+    ];
 
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Blocklist => "blocklist",
             Self::Regex => "regex",
             Self::Schedule => "schedule",
+            Self::TemporaryDeny => "temporary_deny",
+            Self::Detector(detector) => detector.as_str(),
             Self::Other => "other",
         }
     }
@@ -119,6 +140,13 @@ impl BlockReason {
                 Step::BlocklistHit { .. } => Some(Self::Blocklist),
                 Step::RegexHit { .. } => Some(Self::Regex),
                 Step::ScheduleHit { .. } => Some(Self::Schedule),
+                Step::TemporaryDeny { .. } => Some(Self::TemporaryDeny),
+                // Nur ein Detektor, der wirklich blockt. Ein `flag` steht im
+                // Trace, hat die Anfrage aber nicht geblockt — ihn hier zu
+                // nennen hieße, den Grund falsch zu benennen.
+                Step::Detected {
+                    detector, action, ..
+                } if action.blocks() => Some(Self::Detector(*detector)),
                 _ => None,
             })
             .unwrap_or(Self::Other)
@@ -138,6 +166,53 @@ pub struct QueryEvent {
     /// Die Begründungskette, schon als Text.
     pub why: Vec<String>,
     pub elapsed: Duration,
+    /// Was die Heuristiken gefunden haben, sofern sichtbar (`flag` oder
+    /// `block`). Leer bei allem, was nur `log` war — und bei allem, was gar
+    /// nichts gefunden hat.
+    pub findings: Vec<Flagged>,
+}
+
+/// Ein Fund, wie ihn API und UI sehen.
+///
+/// Getrennt von [`crate::detect::Finding`], weil dieses hier über die
+/// HTTP-Schnittstelle geht: der Score steht als Text in der Schreibweise der
+/// Konfiguration, und der Detektor als geschlossener Bezeichner.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct Flagged {
+    pub detector: &'static str,
+    /// Wie der Detektor in der Oberfläche heißt.
+    pub label: &'static str,
+    /// `0.873` — dieselbe Schreibweise wie in der Konfiguration.
+    pub score: String,
+    pub action: &'static str,
+    pub reason: String,
+}
+
+impl Flagged {
+    /// Zieht die sichtbaren Funde aus einem Trace.
+    ///
+    /// `log` fällt heraus: die Stufe zählt mit und erscheint sonst nirgends,
+    /// genau das ist ihr Zweck.
+    pub fn from_steps(steps: &[Step]) -> Vec<Self> {
+        steps
+            .iter()
+            .filter_map(|step| match step {
+                Step::Detected {
+                    detector,
+                    score,
+                    reason,
+                    action,
+                } if action.is_visible() => Some(Self {
+                    detector: detector.as_str(),
+                    label: detector.label(),
+                    score: crate::detect::format_score(*score),
+                    action: action.as_str(),
+                    reason: reason.to_string(),
+                }),
+                _ => None,
+            })
+            .collect()
+    }
 }
 
 /// So viele Ereignisse gehen je Sekunde höchstens in den Live-Strom.
@@ -199,6 +274,9 @@ pub struct LoggedQuery {
     pub rcode: String,
     pub why: Vec<String>,
     pub ms: f64,
+    /// Was die Heuristiken gefunden haben. Leer, wenn nichts angeschlagen hat.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub findings: Vec<Flagged>,
 }
 
 /// Zähler, die es in jedem Modus gibt.
@@ -395,6 +473,7 @@ impl QueryLog {
             rcode: format!("{:?}", event.rcode),
             why: event.why.clone(),
             ms: event.elapsed.as_secs_f64() * 1000.0,
+            findings: event.findings.clone(),
         };
 
         self.ring
@@ -564,6 +643,31 @@ impl QueryLog {
             .unwrap_or_else(PoisonError::into_inner)
             .recent(Instant::now(), limit)
     }
+
+    /// Nur die Anfragen, bei denen eine Heuristik angeschlagen hat.
+    ///
+    /// **Aus demselben Ringpuffer**, und das ist der Punkt: eine zweite Ablage
+    /// nur für auffällige Anfragen wäre ein Query-Log unter anderem Namen und
+    /// stünde neben den Zusicherungen aus ADR-0004. So gilt für die auffälligen
+    /// Anfragen genau dieselbe Regel wie für alle anderen — in `none` und
+    /// `aggregate` gibt es sie nicht, und nach `ring_seconds` sind sie weg.
+    ///
+    /// Gesucht wird über den ganzen Puffer, nicht über die letzten `limit`
+    /// Einträge: auffällige Anfragen sind die seltenen, und wer zehn davon
+    /// sehen will, meint zehn Funde und nicht zehn durchsuchte Zeilen.
+    pub fn flagged(&self, limit: usize) -> Vec<LoggedQuery> {
+        if !self.mode.keeps_names() {
+            return Vec::new();
+        }
+        self.ring
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .recent(Instant::now(), usize::MAX)
+            .into_iter()
+            .filter(|entry| !entry.findings.is_empty())
+            .take(limit)
+            .collect()
+    }
 }
 
 #[cfg(test)]
@@ -652,6 +756,72 @@ mod tests {
         // Die Namen stehen in Metrik-Labels und in der UI; sie sind Teil der
         // Schnittstelle, nicht bloß Debug-Ausgabe.
         let names: Vec<&str> = BlockReason::ALL.iter().map(|r| r.as_str()).collect();
-        assert_eq!(names, ["blocklist", "regex", "schedule", "other"]);
+        assert_eq!(
+            names,
+            [
+                "blocklist",
+                "regex",
+                "schedule",
+                "temporary_deny",
+                "dga",
+                "tunneling",
+                "rebinding",
+                "typosquat",
+                "nrd",
+                "other",
+            ]
+        );
+        let mut seen = std::collections::HashSet::new();
+        for reason in BlockReason::ALL {
+            assert!(seen.insert(reason.as_str()), "{reason:?} doppelt");
+        }
+    }
+
+    /// Jeder Grund, den `from_steps` liefern kann, muss in `ALL` stehen.
+    ///
+    /// `record` sucht den Zähler über den Index in `ALL`. Ein Grund, der dort
+    /// fehlt, wird stillschweigend nicht gezählt — beim Einbau der Heuristiken
+    /// ist genau das mit `Other` passiert.
+    #[test]
+    fn every_reason_that_can_occur_has_a_counter() {
+        use crate::detect::{Action, Detector};
+        let cases: Vec<Vec<Step>> = vec![
+            vec![Step::BlocklistHit {
+                list: Arc::from("l"),
+                line: 1,
+                matched: "x".to_owned(),
+            }],
+            vec![Step::RegexHit {
+                policy: Arc::from("p"),
+                pattern: Arc::from("x"),
+            }],
+            vec![Step::ScheduleHit {
+                schedule: Arc::from("s"),
+                effect: crate::trace::ScheduleEffect::BlockAllExceptAllowlist,
+            }],
+            vec![Step::TemporaryDeny {
+                remaining: std::time::Duration::from_secs(1),
+            }],
+            // Leer: der Fall, für den es `Other` gibt.
+            vec![],
+        ];
+        let mut reasons: Vec<BlockReason> = cases
+            .iter()
+            .map(|steps| BlockReason::from_steps(steps))
+            .collect();
+        for detector in Detector::ALL {
+            reasons.push(BlockReason::from_steps(&[Step::Detected {
+                detector,
+                score: 900,
+                reason: Arc::from("x"),
+                action: Action::Block,
+            }]));
+        }
+        for reason in reasons {
+            assert!(
+                BlockReason::ALL.contains(&reason),
+                "{reason:?} kann vorkommen, steht aber nicht in ALL und wird nie gezählt"
+            );
+        }
     }
 }

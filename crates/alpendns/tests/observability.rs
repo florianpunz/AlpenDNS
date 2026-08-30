@@ -77,6 +77,16 @@ fn event(name: &str, blocked: bool) -> QueryEvent {
             format!("Blockliste 'test' Zeile 1: '{name}'"),
         ],
         elapsed: Duration::from_micros(300),
+        // Seit Phase 8 tragen die Detektor-Begründungen den Query-Namen. Genau
+        // deshalb steht hier einer: der Leck-Test unten sucht ihn in allem, was
+        // der Prozess ausgeben kann.
+        findings: vec![alpendns::logging::Flagged {
+            detector: "dga",
+            label: "Algorithmisch erzeugter Name",
+            score: "0.930".to_owned(),
+            action: "flag",
+            reason: format!("'{name}' passt nicht zu gewachsenen Namen"),
+        }],
     }
 }
 
@@ -162,6 +172,11 @@ fn the_full_mode_also_writes_a_file() {
 }
 
 /// Der automatisierte Nachweis für das zentrale Versprechen des Projekts.
+///
+/// Seit Phase 8 durchsucht er auch die Begründungen der Heuristiken. Die
+/// enthalten den Query-Namen — sie sollen ihn enthalten, sonst wäre ein
+/// Fehlalarm nicht nachvollziehbar (FEATURES.md D6) — und sind damit die
+/// neueste Stelle, an der einer entkommen könnte.
 #[test]
 fn no_query_name_leaves_the_process_in_the_quiet_modes() {
     for mode in [Mode::None, Mode::Aggregate] {
@@ -177,6 +192,11 @@ fn no_query_name_leaves_the_process_in_the_quiet_modes() {
         output.push_str(&format!("{:?}", log.stats()));
         output.push_str(&serde_json::to_string(&log.top_domains(1000)).expect("JSON"));
         output.push_str(&serde_json::to_string(&log.recent(1000)).expect("JSON"));
+        // Seit Phase 8 dazugekommen: die Liste der auffälligen Anfragen. Sie
+        // kommt aus demselben Ringpuffer und muss deshalb denselben Regeln
+        // folgen — der Test hält fest, dass sie es tut, statt sich darauf zu
+        // verlassen.
+        output.push_str(&serde_json::to_string(&log.flagged(1000)).expect("JSON"));
         if let Ok(file) = std::fs::read_to_string(&path) {
             output.push_str(&file);
         }
@@ -206,6 +226,43 @@ async fn the_live_stream_carries_no_names_in_the_quiet_modes() {
     assert!(json.contains("\"rcode\""), "{json}");
 }
 
+/// Im Modus `ring` ist der Fund da, samt Begründung.
+///
+/// Das Gegenstück zum Leck-Test: er zeigt, dass die Zurückhaltung wirkt, dieser
+/// hier, dass sie nicht alles wegnimmt. Ohne ihn könnte `flagged()` einfach
+/// immer leer zurückgeben und beide Tests wären grün.
+#[test]
+fn the_flagged_list_carries_the_finding_in_the_ring_mode() {
+    let dir = TempDir::new("flagged-ring");
+    let log = QueryLog::new(&config(Mode::Ring, dir.0.join("q.jsonl"))).expect("QueryLog");
+    log.record(&event(SECRET, true));
+    log.record(&event("unauffaellig.example.com", false));
+
+    let flagged = log.flagged(50);
+    assert_eq!(flagged.len(), 2, "beide Ereignisse tragen einen Fund");
+
+    let json = serde_json::to_string(&flagged).expect("JSON");
+    assert!(json.contains(SECRET), "{json}");
+    assert!(json.contains("Algorithmisch erzeugter Name"), "{json}");
+    assert!(json.contains("0.930"), "{json}");
+}
+
+/// Anfragen ohne Fund stehen nicht in der Liste der auffälligen.
+#[test]
+fn the_flagged_list_holds_only_what_was_flagged() {
+    let dir = TempDir::new("flagged-only");
+    let log = QueryLog::new(&config(Mode::Ring, dir.0.join("q.jsonl"))).expect("QueryLog");
+    let mut plain = event("gewoehnlich.example.com", false);
+    plain.findings.clear();
+    log.record(&plain);
+
+    assert_eq!(log.recent(50).len(), 1, "die Anfrage fehlt im Protokoll");
+    assert!(
+        log.flagged(50).is_empty(),
+        "eine Anfrage ohne Fund steht in der Liste der auffälligen"
+    );
+}
+
 #[tokio::test]
 async fn the_live_stream_carries_names_in_the_ring_mode() {
     let dir = TempDir::new("stream-ring");
@@ -226,6 +283,7 @@ async fn the_live_stream_carries_names_in_the_ring_mode() {
 struct Fake {
     log: Arc<QueryLog>,
     granted: std::sync::Mutex<Vec<(String, Duration)>>,
+    denied: std::sync::Mutex<Vec<(String, Duration)>>,
 }
 
 impl StatusSource for Fake {
@@ -264,6 +322,8 @@ impl StatusSource for Fake {
             zone_seed_rotations: 0,
             dnssec_enabled: true,
             dnssec: alpendns::dnssec::counters(),
+            detectors: Vec::new(),
+            detections: alpendns::detect::counters(),
         }
     }
     fn lists(&self) -> Vec<ListInfo> {
@@ -295,6 +355,24 @@ impl StatusSource for Fake {
             .expect("Lock")
             .retain(|(name, _)| name != domain);
     }
+    fn deny(&self, domain: &str, ttl: Duration) {
+        self.denied
+            .lock()
+            .expect("Lock")
+            .push((domain.to_owned(), ttl));
+    }
+
+    fn undeny(&self, domain: &str) {
+        self.denied
+            .lock()
+            .expect("Lock")
+            .retain(|(name, _)| name != domain);
+    }
+
+    fn denials(&self) -> Vec<(String, Duration)> {
+        self.denied.lock().expect("Lock").clone()
+    }
+
     fn grants(&self) -> Vec<(String, Duration)> {
         self.granted.lock().expect("Lock").clone()
     }
@@ -347,6 +425,7 @@ async fn start_api(mode: Mode) -> (Api, TempDir) {
     let source = Arc::new(Fake {
         log: Arc::clone(&log),
         granted: std::sync::Mutex::new(Vec::new()),
+        denied: std::sync::Mutex::new(Vec::new()),
     });
     let state = ApiState::new(
         Arc::clone(&source) as Arc<dyn StatusSource>,
@@ -584,6 +663,7 @@ async fn the_metrics_endpoint_needs_no_token_and_names_nothing() {
     let source = Arc::new(Fake {
         log: Arc::clone(&log),
         granted: std::sync::Mutex::new(Vec::new()),
+        denied: std::sync::Mutex::new(Vec::new()),
     });
     let state = ApiState::new(source as Arc<dyn StatusSource>, log, Arc::from(""));
 
@@ -628,6 +708,7 @@ async fn no_metric_label_carries_a_domain_or_client_name() {
         let source = Fake {
             log: Arc::clone(&log),
             granted: std::sync::Mutex::new(Vec::new()),
+            denied: std::sync::Mutex::new(Vec::new()),
         };
 
         // Genug Treffer, um auch die k-Schwelle zu überschreiten: gerade der

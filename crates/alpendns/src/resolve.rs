@@ -37,6 +37,12 @@ pub enum ResolveError {
     /// Upstream gefragt (Begründung in `upstream::pool::Pool::resolve`).
     #[error("DNSSEC-Prüfung fehlgeschlagen, die Antwort wurde verworfen")]
     Bogus,
+    /// Der Upstream hat nichts geliefert, worüber sich urteilen ließe — eine
+    /// leere Fehlerantwort. Das ist **kein** DNSSEC-Befund, sondern ein
+    /// Ausfall: der nächste Upstream wird gefragt, ohne dass diesem hier ein
+    /// Fehlversuch angerechnet wird (Begründung in `crate::dnssec::from_error`).
+    #[error("Upstream lieferte keine prüfbare Antwort")]
+    Unproven,
 }
 
 /// Löst eine Anfrage auf — in v1 durch Weiterleiten an einen Upstream.

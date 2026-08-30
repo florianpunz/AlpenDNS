@@ -463,9 +463,15 @@ async fn a_tampered_response_is_refused_instead_of_returned() {
 
 #[tokio::test]
 async fn a_proxy_that_is_gone_reports_an_error_instead_of_hanging() {
-    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
-    let dead = listener.local_addr().expect("local_addr");
-    drop(listener);
+    // Port 1 auf Loopback: dort lauscht nichts, und es *kann* dort nichts
+    // lauschen — unter 1024 braucht es Rechte, die ein Test nicht hat.
+    //
+    // Der naheliegende Weg wäre, einen Listener zu binden und wieder
+    // fallenzulassen. Genau das war eine Fehlerquelle: die Tests dieser Datei
+    // laufen nebenläufig, und ein anderer Fake bekam den freigewordenen Port
+    // gelegentlich zugeteilt. Dann antwortete der "tote" Proxy, und der Test
+    // schlug etwa jeden zehnten Lauf fehl.
+    let dead: SocketAddr = "127.0.0.1:1".parse().expect("Adresse");
 
     let target_log = Arc::new(TargetLog::default());
     let target_addr = target_fake(target_log).await;

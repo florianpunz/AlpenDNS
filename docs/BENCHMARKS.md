@@ -250,3 +250,138 @@ Geändert sind dort drei Dinge, deren Wirkung sich aus der Zahl oben ergibt:
 Ereignisse werden gesammelt und einmal je Bild gezeichnet statt einzeln, die
 Tabelle hat einen Zuhörer statt zwei je Zeile, und eine unsichtbare Seite
 zeichnet und pollt nicht mehr.
+
+---
+
+## Phase 8 — Heuristiken · gemessen am 2026-08-30
+
+**Messaufbau.** Zwei Korpora aus der Majestic Million (CC-BY 3.0), beide unter
+`corpus/` und beide nicht im Repo:
+
+| Datei | Ränge | Zweck |
+|---|---|---|
+| `train-500k.txt` | 100 001 – 600 000 | Training des DGA-Modells |
+| `top-100k.txt` | 1 – 100 000 | Messung |
+
+Reproduzierbar mit `cargo test --release --test detect_corpus -- --ignored
+measure --nocapture`; die Anleitung zum Beschaffen steht im Kopf derselben Datei
+und in [TESTING.md](TESTING.md).
+
+### Warum zwei Korpora, und was der erste Anlauf gekostet hat
+
+Der erste Messlauf trainierte und maß auf **derselben** Top-100k und meldete
+0,001 % Falsch-Positive. Auf ungesehenen Namen waren es **0,54 %** — Faktor 500.
+Ein Modell erkennt die Namen wieder, aus denen es gebaut wurde. Seither wird auf
+den Rängen dahinter trainiert und auf der Top-100k gemessen, die kein einziges
+Mal ins Modell eingegangen ist.
+
+Die Zahl darunter ist die zweite, nicht die erste.
+
+### DGA-Erkennung
+
+Schwelle 0,75. **77 von 100 000 Namen gemeldet — 0,077 %**, gegen eine Zusage von
+0,1 %.
+
+| Schwelle | Falsch-Positive | alphanumerisch | necurs-artig | conficker-artig |
+|---:|---:|---:|---:|---:|
+| 0,70 | 0,098 % | 93,8 % | 47,0 % | 33,2 % |
+| **0,75** | **0,077 %** | **92,8 %** | **40,6 %** | **28,6 %** |
+| 0,80 | 0,039 % | 38,8 % | 31,9 % | 18,7 % |
+
+0,75 steht unmittelbar vor der Kante: bei 0,80 bricht die alphanumerische
+Familie von 92,8 % auf 38,8 % ein, während die Fehlalarme nur von 77 auf 39
+zurückgehen. Bei 0,70 bliebe keine Reserve unter der Zusage.
+
+**Trefferquote je Familie** (je 5000 nachgebaute Namen, Schwelle 0,75):
+
+| Familie | Ø Überraschung | Trefferquote |
+|---|---:|---:|
+| alphanumerisch | 7,92 Bit | 92,8 % |
+| necurs-artig | 6,17 Bit | 40,6 % |
+| conficker-artig | 6,01 Bit | 28,6 % |
+| kraken-artig (aussprechbar) | 4,79 Bit | 0,5 % |
+| suppobox-artig (Wörterbuch) | 3,45 Bit | 0,0 % |
+
+Zum Vergleich gewachsene Namen: Median 3,69 Bit, 99 % bei 6,24, Maximum 10,73.
+**Die Verteilungen überlappen** — ein aussprechbar erzeugter Name *ist*
+statistisch ein gewachsener Name. Die letzten beiden Zeilen sind deshalb keine
+Lücke in der Umsetzung, sondern die Grenze des Verfahrens (FEATURES.md D3), und
+sie stehen als Test in `dga::tests::a_word_list_dga_is_honestly_not_detected`.
+
+**Zwei Klassen systematischer Fehlalarme sind dabei verschwunden:**
+
+* *Punycode.* Vier der zwanzig auffälligsten Namen im ersten Lauf waren IDNs —
+  `xn--vhqrb498dfmcffp24qfocl09dqkh.cn` sieht für ein lateinisches Zeichenmodell
+  aus wie base32. Sie werden nicht mehr bewertet; ein benannter blinder Fleck ist
+  besser als ein Fehlalarm für ganze Sprachräume.
+* *Private Suffixe.* `d1a2b3c4e5.cloudfront.net` ist ein erzeugter Name — nur
+  vergibt ihn der Anbieter so, und `cloudfront.net` steht selbst in der Public
+  Suffix List. Unterhalb eines privaten Suffixes wird nicht mehr bewertet.
+
+Was bleibt, sind zum größten Teil **Pinyin-Kürzel**: `hnqxdzkj.com`,
+`lzdsxxb.com`, `pzhsdqfybjfwzx.cn`. Gewachsene Namen aus Anfangsbuchstaben
+chinesischer Silben, für ein Modell über lateinischem Text nicht von Zufall zu
+unterscheiden.
+
+### Tunneling-Erkennung
+
+Schwelle 0,75. **0 von 100 000 Namen gemeldet — 0,0000 %.**
+
+Der Korpus wird dabei so eingespielt, wie er im schlimmsten Fall aussähe: alle
+100 000 Namen innerhalb eines Fensters von fünf Minuten. Das ist weit mehr
+Verkehr, als ein Haushalt erzeugt.
+
+| Verkehr | Score |
+|---|---:|
+| 20 Hosts unter einer Zone, je fünfmal gefragt | 0,17 |
+| `dnscat2`-artig (hex, 36 Zeichen, TXT) | 0,81 |
+| `iodine`-artig (base32, 58 Zeichen, TXT) | 1,00 |
+
+Die Schwelle steht am **unteren** Rand der Treffer und nicht in der Mitte der
+Lücke: `dnscat2` kodiert hexadezimal und kommt über 4 Bit Entropie nicht hinaus,
+liegt also knapp über 0,8. Bei 0,8 als Schwelle entschiede die zweite
+Nachkommastelle darüber, ob der verbreitetste Tunnel auffällt.
+
+### Typosquat-Wächter
+
+Schutzliste mit fünf Domains gegen dieselben 100 000 Namen: **18 Meldungen,
+0,018 %**. Keine davon ist eine der geschützten Domains selbst — das ist der Teil
+des Kriteriums, der zählt.
+
+### Was die Detektoren den Anfragepfad kosten
+
+Die Frage ist nicht rhetorisch: die Tunneling-Erkennung nimmt bei **jeder**
+Anfrage einen `Mutex` über einer Tabelle, und CLAUDE.md B.3 Regel 5 sagt "kein
+globaler Mutex im Anfragepfad".
+
+Gemessen mit dem Lastgenerator aus Phase 2, lauter neue Namen — nur dann laufen
+die Detektoren wirklich bei jeder Anfrage (`cargo test --release --test load --
+--ignored throughput_with_and_without_detectors`). Drei Läufe:
+
+| Lauf | ohne Detektoren | mit vier Detektoren | Anteil |
+|---|---:|---:|---:|
+| 1 | 96 191 /s | 87 065 /s | 90,5 % |
+| 2 | 100 707 /s | 85 689 /s | 85,1 % |
+| 3 | 97 127 /s | 88 064 /s | 90,7 % |
+
+**Rund 10 % Durchsatz**, im schlechtesten Lauf 15 %. Das ist kein Rauschen,
+sondern ein Preis — und er ist bezahlbar: 87 000 Anfragen pro Sekunde sind für
+einen Haushalts-Resolver drei Größenordnungen über dem, was je gebraucht wird.
+
+Der Mutex bleibt damit vorerst. Die Umkehrbedingung ist dieselbe wie bei
+[ADR-0008](adr/0008-hashmap-statt-bloom-und-trie.md): wenn diese Messung eines
+Tages unter zwei Drittel fällt — etwa weil mehr Detektoren dazukommen oder der
+Resolver auf schwächerer Hardware läuft —, gehört die Zonentabelle hinter ein
+`ArcSwap` oder eine Aufteilung nach Hash. Vorher wäre es Optimierung ohne
+Messung, und die verbietet Phase 4 ausdrücklich.
+
+### Speicher
+
+| | |
+|---|---|
+| DGA-Modell im Binary | 109 744 Byte |
+| Tunneling-Zustand, Obergrenze | 4096 Zonen × höchstens 256 Hashes je Zone |
+
+Beide Grenzen sind hart und stehen als Test da
+(`the_table_does_not_grow_with_traffic`, `the_unique_set_per_zone_is_bounded`):
+die Tabelle liegt im Anfragepfad und darf nicht mit dem Verkehr wachsen.

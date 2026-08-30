@@ -175,6 +175,16 @@ fn run() -> anyhow::Result<()> {
         })
         .collect();
 
+    // Die Detektoren brauchen die forward_zone-Einträge (für den
+    // Rebinding-Schutz) und damit die noch vollständige Konfiguration.
+    let detectors = alpendns::detect::from_config(
+        &config.detection,
+        config.rebinding_allow_zones(),
+        SystemClock,
+        SystemWallClock,
+    );
+    let detector_settings = detectors.configured();
+
     let server_config = config.server;
     let cache_config = config.cache;
     let privacy_config = config.privacy;
@@ -317,13 +327,16 @@ fn run() -> anyhow::Result<()> {
                     .map_or_else(|| "?".to_owned(), ToString::to_string),
             })
             .collect();
-        let engine = Arc::new(Engine::new(
-            blueprint.build(&loaded)?,
-            entries,
-            &blocking_config,
-            SystemClock,
-            SystemWallClock,
-        ));
+        let engine = Arc::new(
+            Engine::new(
+                blueprint.build(&loaded)?,
+                entries,
+                &blocking_config,
+                SystemClock,
+                SystemWallClock,
+            )
+            .with_detectors(detectors),
+        );
 
         // Von außen nach innen: Filter → Cache → Zonen-Weiche → Pool.
         // Gefiltert wird vor dem Cache, damit dieser die ungefilterte Antwort
@@ -363,6 +376,10 @@ fn run() -> anyhow::Result<()> {
             logging = ?privacy_config.logging.mode,
             dnssec = privacy.dnssec,
             odoh = odoh_proxy.is_some(),
+            detectors = ?detector_settings
+                .iter()
+                .map(|(detector, action)| format!("{}={}", detector.as_str(), action.as_str()))
+                .collect::<Vec<_>>(),
             "AlpenDNS gestartet"
         );
 
@@ -616,6 +633,8 @@ impl StatusSource for Runtime {
             zone_seed_rotations: self.pool.rotations(),
             dnssec_enabled: self.dnssec,
             dnssec: alpendns::dnssec::counters(),
+            detectors: self.engine.detectors(),
+            detections: alpendns::detect::counters(),
             below_threshold_queries: self.log.top(0).below_threshold_queries,
         }
     }
@@ -634,6 +653,18 @@ impl StatusSource for Runtime {
 
     fn revoke(&self, domain: &str) {
         self.engine.temporary().revoke(domain);
+    }
+
+    fn deny(&self, domain: &str, ttl: Duration) {
+        self.engine.denied().grant(domain, ttl);
+    }
+
+    fn undeny(&self, domain: &str) {
+        self.engine.denied().revoke(domain);
+    }
+
+    fn denials(&self) -> Vec<(String, Duration)> {
+        self.engine.denied().active()
     }
 
     fn grants(&self) -> Vec<(String, Duration)> {

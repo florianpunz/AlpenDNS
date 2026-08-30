@@ -86,6 +86,35 @@ Testfälle, die es geben muss:
   in der Definition of Done würde jeden Durchlauf verlangsamen und wäre auf fremder
   Hardware ohnehin nicht vergleichbar.
 
+### 6. Messläufe gegen Korpora (seit Phase 8)
+
+Die Heuristiken haben Abnahmekriterien mit Zahlen: "unter 0,1 % Falsch-Positive
+auf einem Top-100k-Korpus". Solche Zahlen brauchen echte Daten, und die liegen
+**nicht im Repo** — sie sind fremd, ein bis zwei Megabyte groß und für den Bau
+nicht nötig. `corpus/` steht in `.gitignore`.
+
+```bash
+mkdir -p corpus
+curl -sSL https://downloads.majestic.com/majestic_million.csv | tail -n +2 \
+  | cut -d, -f3 > /tmp/majestic.txt
+head -100000            /tmp/majestic.txt > corpus/top-100k.txt    # Messung
+sed -n '100001,600000p' /tmp/majestic.txt > corpus/train-500k.txt  # Training
+
+cargo test --release --test detect_corpus -- --ignored measure --nocapture
+```
+
+Majestic Million, CC-BY 3.0. Über `ALPENDNS_CORPUS_DIR` lässt sich ein anderes
+Verzeichnis angeben.
+
+**Getrennt wird nicht aus Ordnungsliebe.** Beim ersten Anlauf lief Training und
+Messung auf derselben Liste, und die Falsch-Positiv-Rate war um den Faktor 500
+zu gut — 0,001 % gegen 0,54 % auf ungesehenen Namen. Ein Modell erkennt die
+Namen wieder, aus denen es gebaut wurde. Wer eine dieser Zahlen neu erhebt, muss
+die Trennung mit erheben.
+
+Das Modell selbst wird mit demselben Werkzeug erzeugt; wie, steht in
+`crates/alpendns/src/detect/dga/model.bin.md`.
+
 ## Der Replay-Harness
 
 Das Werkzeug, das sich am meisten auszahlt und das man früh baut:

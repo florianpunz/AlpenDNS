@@ -143,6 +143,14 @@ Geräte im LAN zugreift. `dnsmasq` und `unbound` können das; es fehlt in vielen
 Blocklisten-Lösungen. Braucht eine Ausnahmeliste für interne Zonen und für Dienste, die
 das legitim tun.
 
+**Umgesetzt in Phase 8.** Der einzige der fünf, der keine Heuristik ist: eine
+Ja-Nein-Regel, Score immer 1,000, Ausnahmeliste statt Schwelle. Geprüft werden
+auch Glue-Records im Additional-Abschnitt und die als IPv6 verpackte
+IPv4-Adresse (`::ffff:192.168.1.1`) — die wäre sonst der offene Seiteneingang.
+Die `forward_zone`-Einträge kommen automatisch in die Ausnahmeliste; ohne das
+wäre der Schutz beim ersten Start eine Falle, denn der eigene LAN-Nameserver
+antwortet naturgemäß mit privaten Adressen.
+
 ### D2 · DNS-Tunneling-Erkennung `Aufwand M` `Neu ◐` `Phase 8`
 
 Datenexfiltration über DNS hat auffällige Merkmale: sehr lange Labels, hohe Entropie in
@@ -155,6 +163,14 @@ eine einzelne lange Subdomain ist normal, tausend davon unter derselben Zone nic
 
 **Grenze:** Manche CDNs und Antivirus-Produkte sehen genauso aus. Deshalb eine Ausnahmeliste
 und `flag` als Default.
+
+**Umgesetzt in Phase 8.** Fünf Signale, gewichtet, mit den einmaligen Subdomains
+je Zone als schwerstem — die Entropie hängt stark am Kodierverfahren (hex kommt
+über 4 Bit nicht hinaus, base64 über 6), die Zahl der einmaligen Namen dagegen an
+der Sache selbst. Gemessen (BENCHMARKS.md): gewöhnlicher Verkehr unter einer Zone
+0,17, `dnscat2`-artig 0,81, `iodine`-artig 1,0; **0,0000 % Falsch-Positive** auf
+100 000 echten Domains. Ein Tunnel mit zehn Anfragen pro Stunde fällt bewusst
+nicht auf — dafür wäre der Zustand zu teuer.
 
 ### D3 · DGA-Erkennung `Aufwand M` `Neu ◐` `Phase 8`
 
@@ -171,6 +187,19 @@ zufällig aussehende CDN-Hostnamen erzeugen Falsch-Positive. Wortlisten-basierte
 (zwei echte Wörter aneinander) erkennt das Modell nicht. Deshalb: Falsch-Positiv-Rate ist
 das Qualitätsmaß, nicht die Trefferquote.
 
+**Umgesetzt in Phase 8**, und die Grenzen oben sind gemessen statt vermutet
+(BENCHMARKS.md): **0,077 % Falsch-Positive** bei 92,8 % Trefferquote auf
+alphanumerischen, 40,6 % auf necurs-artigen und 28,6 % auf conficker-artigen
+Namen — aber **0,5 %** auf aussprechbaren und **0,0 %** auf wörterbuchbasierten.
+Die letzten beiden stehen als Test da, damit die Grenze eine bekannte bleibt und
+keine Überraschung wird.
+
+Zwei Klassen dazugelernt: Punycode (`xn--…`) und alles unterhalb eines *privaten*
+Suffixes (`cloudfront.net`, `github.io`) werden gar nicht erst bewertet. Beim
+ersten Messlauf waren vier der zwanzig auffälligsten Namen IDNs — ein
+systematischer Fehlalarm für ganze Sprachräume. Was bleibt, sind vor allem
+Pinyin-Kürzel wie `hnqxdzkj.com`.
+
 ### D4 · Typosquat-Wächter `Aufwand M` `Neu ●` `Phase 8`
 
 Du hinterlegst die Domains, die dir wichtig sind — Bank, Behördenportal, Arbeitgeber.
@@ -182,6 +211,14 @@ IDN-Homographen, verwechselbare TLDs.
 also gegen das, was gestern schon gemeldet war. Hier läuft der Vergleich gegen *deine*
 zwanzig Domains, wodurch auch eine Domain auffällt, die vor zehn Minuten registriert wurde
 und auf keiner Liste steht. Der Rechenaufwand ist trivial, weil die Schutzliste klein ist.
+
+**Umgesetzt in Phase 8**, mit vier Trefferarten: Homograph (1,000), fremder Name
+trägt die geschützte Domain wie `sparkasse.at.com` (0,950), Tippfehler mit
+Abstand 1 oder 2 (0,950 / 0,850), andere Endung (0,900). Punycode wird vorher
+aufgelöst — ein kyrillisches `а` erreicht uns als `xn--sprkasse-…` und sieht dem
+Original in dieser Form nicht im Geringsten ähnlich. Fünf geschützte Domains
+gegen 100 000 echte Namen ergaben 18 Meldungen und **kein einziges Mal die
+geschützte Domain selbst**.
 
 Sinnvolle Ergänzung: bei einem Treffer nicht stumpf blocken, sondern eine
 Sinkhole-Erklärseite ausliefern — *"dieser Name ähnelt sparkasse.at, unterscheidet sich
@@ -197,11 +234,36 @@ Die Datei kommt aus deinem AlpenShield-Projekt (CT-Logs, Zonendaten). Die Schnit
 ist bewusst eine Datei und kein API-Aufruf: der Resolver darf nicht davon abhängen, dass
 ein zweiter Dienst läuft.
 
+**Umgesetzt in Phase 8.** Der Score fällt linear mit dem Alter — eine Domain von
+gestern ist verdächtiger als eine von vor drei Wochen, und die Abstufung zeigt
+das, statt alles im Fenster gleich zu behandeln. Eine fehlende Datei ist **kein**
+Startfehler: der Detektor läuft leer mit und erscheint im Status als `off`.
+
 ### D6 · Erklärbarkeit ist Pflicht, nicht Kür
 
 Jeder Detektor liefert nicht nur einen Score, sondern die Merkmale, die dazu geführt haben
 (*"Label-Entropie 4.7, 340 einmalige Subdomains in 5 Minuten"*). Ohne das ist ein
 Falsch-Positiv nicht debugbar, und du wirst das Feature abschalten statt es zu verbessern.
+
+**Umgesetzt in Phase 8 als Pflichtfeld:** `Finding::reason` ist kein `Option`.
+Ein Detektor *kann* keinen Fund ohne Begründung liefern. So sieht das im Betrieb
+aus:
+
+```
+Algorithmisch erzeugter Name meldet (Score 0.900): 'kqxvbnzmrtwp' passt nicht zu
+gewachsenen Namen: 7.3 Bit Überraschung je Zeichentripel, längste
+Konsonantenkette 12, Ziffernanteil 0 %
+Neu registriert meldet (Score 0.933): 'kqxvbnzmrtwp.com' wurde am 2026-08-28
+registriert, vor 2 Tagen (Schwelle: 30 Tage)
+```
+
+Beide Funde zu derselben Anfrage — deshalb laufen alle Detektoren und nicht nur
+bis zum ersten Treffer. "Frisch registriert *und* algorithmisch erzeugt" ist eine
+andere Aussage als jeder Teil für sich.
+
+Der Preis: eine Begründung trägt den Query-Namen. Sie unterliegt damit denselben
+Regeln wie alles im Trace (CLAUDE.md B.1 Regel 3), und der Leck-Test durchsucht
+seit Phase 8 auch die Liste der auffälligen Anfragen.
 
 ---
 

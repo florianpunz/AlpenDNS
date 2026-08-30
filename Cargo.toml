@@ -60,6 +60,11 @@ lru = "0.18"
 arc-swap = "1.7"
 # Client-Identifikation über Subnetze. Liegt ohnehin schon im Baum (hickory).
 ipnet = "2.12"
+# Punycode auflösen, um IDN-Homographen zu erkennen (Phase 8, Schritt 5): ein
+# kyrillisches 'а' in sparkasse.at erreicht uns als xn--sprkasse-..., und in
+# der Form sieht es dem Original nicht ähnlich. Liegt ohnehin schon im Baum
+# (über url/hickory-proto), hier nur als direkte Abhängigkeit benannt.
+idna = "1.1"
 # Public Suffix List für split_by_zone: ohne sie ist die registrierbare Domain
 # von `shop.example.co.uk` das wirkungslose `co.uk`, und alle .co.uk-Namen
 # landen beim selben Upstream. Die Liste ist einkompiliert — kein Netzabruf,

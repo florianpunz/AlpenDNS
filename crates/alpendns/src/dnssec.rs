@@ -189,6 +189,27 @@ pub fn client_wants_verdict(request: &Message) -> bool {
 /// Gefunden beim ersten Lauf gegen echte Upstreams: `dnssec-failed.org` ergab
 /// zwar korrekt SERVFAIL, aber `alpendns_dnssec_total{result="bogus"}` blieb
 /// auf 0.
+///
+/// # Was hier *kein* Urteil ist
+///
+/// Antwortet der Upstream selbst mit SERVFAIL und schickt dabei keine Records,
+/// meldet `hickory` ebenfalls `Bogus` — es fehlen ja die NSEC-Records, mit
+/// denen sich etwas beweisen ließe. Das sieht auf dem Draht genauso aus wie
+/// eine Zone mit kaputter Signatur, ist aber etwas ganz anderes: **wir haben
+/// nichts gesehen, worüber sich urteilen ließe.**
+///
+/// Der Unterschied ist teuer, weil `Bogus` nach
+/// [ADR-0016](../../../docs/adr/0016-dnssec-validierung-im-forwarder.md)
+/// terminal ist. Ein einzelner Wackler beim Upstream würde damit zu einem
+/// harten SERVFAIL für den Client — ohne dass der zweite, gesunde Upstream je
+/// gefragt worden wäre. Beim Lauf gegen echte Upstreams ist genau das passiert:
+/// `wikipedia.org` kam einmal als SERVFAIL zurück und beim nächsten Versuch
+/// als NOERROR.
+///
+/// Unterschieden wird an dem, was die Antwort enthält: **leer und mit
+/// Fehler-RCODE** heißt Ausfall, alles andere heißt Urteil. Beides zusammen
+/// gibt es nicht — eine Zone mit kaputter Signatur liefert Records, sonst
+/// hätte niemand etwas zu prüfen.
 pub fn from_error(error: &hickory_net::NetError) -> Option<(Verdict, Message)> {
     let hickory_net::NetError::Dns(hickory_net::DnsError::Nsec {
         proof, response, ..
@@ -196,13 +217,32 @@ pub fn from_error(error: &hickory_net::NetError) -> Option<(Verdict, Message)> {
     else {
         return None;
     };
+    let message = response.as_ref().clone().into_message();
+    if is_empty_failure(&message) {
+        return None;
+    }
     let verdict = match proof {
         Proof::Bogus => Verdict::Bogus,
         Proof::Insecure => Verdict::Insecure,
         Proof::Secure => Verdict::Secure,
         Proof::Indeterminate => Verdict::Indeterminate,
     };
-    Some((verdict, response.as_ref().clone().into_message()))
+    Some((verdict, message))
+}
+
+/// Ob die Antwort ein Ausfall des Upstreams ist statt eines Befunds über die
+/// Zone: kein einziger Record und ein RCODE, der Scheitern meldet.
+fn is_empty_failure(message: &Message) -> bool {
+    let empty = message.answers.is_empty()
+        && message.authorities.is_empty()
+        && message.additionals.is_empty();
+    empty
+        && matches!(
+            message.metadata.response_code,
+            hickory_proto::op::ResponseCode::ServFail
+                | hickory_proto::op::ResponseCode::Refused
+                | hickory_proto::op::ResponseCode::NotImp
+        )
 }
 
 /// Ob der Client die Prüfung ausdrücklich abbestellt hat (CD-Bit, RFC 4035 §3.2.2).
@@ -560,6 +600,47 @@ mod tests {
             apply(&mut response),
             Err(crate::resolve::ResolveError::Bogus)
         ));
+    }
+
+    #[test]
+    fn an_empty_failure_from_the_upstream_is_not_a_verdict() {
+        // Der Fall, der `wikipedia.org` einmal ein SERVFAIL beschert hat: der
+        // Upstream scheitert, hickory meldet mangels NSEC-Records `Bogus`, und
+        // ohne diese Unterscheidung wäre daraus ein terminaler Befund über die
+        // Zone geworden — ohne dass der zweite Upstream je gefragt worden wäre.
+        let mut empty = Message::response(1, OpCode::Query);
+        empty.add_query(Query::query(name("wikipedia.org."), RecordType::A));
+        empty.metadata.response_code = hickory_proto::op::ResponseCode::ServFail;
+        assert!(is_empty_failure(&empty));
+
+        for code in [
+            hickory_proto::op::ResponseCode::Refused,
+            hickory_proto::op::ResponseCode::NotImp,
+        ] {
+            let mut other = empty.clone();
+            other.metadata.response_code = code;
+            assert!(is_empty_failure(&other), "{code:?}");
+        }
+    }
+
+    #[test]
+    fn an_answer_with_records_stays_a_verdict() {
+        // Die Gegenprobe: eine Zone mit kaputter Signatur *liefert* Records.
+        // Würde auch dieser Fall als Ausfall gelten, ginge eine gefälschte
+        // Antwort an den nächsten Upstream weiter statt verworfen zu werden.
+        let mut bogus = answer_with(&[Proof::Bogus]);
+        bogus.metadata.response_code = hickory_proto::op::ResponseCode::ServFail;
+        assert!(
+            !is_empty_failure(&bogus),
+            "eine Antwort mit Records ist kein Ausfall"
+        );
+
+        // Und ein leeres NXDOMAIN ist ebenfalls kein Ausfall — es ist eine
+        // Aussage, und ob sie bewiesen ist, entscheidet die Prüfung.
+        let mut nxdomain = Message::response(1, OpCode::Query);
+        nxdomain.add_query(Query::query(name("gibtsnicht.example."), RecordType::A));
+        nxdomain.metadata.response_code = hickory_proto::op::ResponseCode::NXDomain;
+        assert!(!is_empty_failure(&nxdomain));
     }
 
     #[test]

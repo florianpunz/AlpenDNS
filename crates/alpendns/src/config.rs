@@ -67,9 +67,169 @@ pub struct Config {
     #[serde(default)]
     pub policy: Vec<PolicyEntry>,
     #[serde(default)]
+    pub detection: DetectionConfig,
+    #[serde(default)]
     pub api: ApiConfig,
     #[serde(default)]
     pub metrics: MetricsConfig,
+}
+
+/// Die Heuristiken aus Phase 8.
+///
+/// **Alle fünf stehen per Default auf `flag`** — sie melden, sie blocken nicht.
+/// Das ist keine Vorsicht um der Vorsicht willen, sondern das Abnahmekriterium
+/// der Phase: erst eine Woche Betrieb, dann die Fehlalarm-Liste durchsehen, und
+/// erst danach darf ein Detektor auf `block` (CLAUDE.md B.8). Ein Detektor, der
+/// beim ersten Start Internet kaputtmacht, wird abgeschaltet — und mit ihm alle
+/// anderen.
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DetectionConfig {
+    #[serde(default)]
+    pub dga: DgaConfig,
+    #[serde(default)]
+    pub tunneling: TunnelingConfig,
+    #[serde(default)]
+    pub rebinding: RebindingConfig,
+    #[serde(default)]
+    pub typosquat: TyposquatConfig,
+    #[serde(default)]
+    pub nrd: NrdConfig,
+}
+
+/// Algorithmisch erzeugte Namen.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DgaConfig {
+    #[serde(default)]
+    pub action: crate::detect::Action,
+    /// Ab diesem Score gilt ein Name als erzeugt. Der Default kommt aus dem
+    /// Detektor selbst, weil er nur zusammen mit dem Modell einen Sinn ergibt.
+    #[serde(default = "default_dga_threshold")]
+    pub threshold: f32,
+}
+
+/// Datenexfiltration über DNS.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TunnelingConfig {
+    #[serde(default)]
+    pub action: crate::detect::Action,
+    #[serde(default = "default_tunneling_threshold")]
+    pub threshold: f32,
+    /// Zeitfenster, über das je Zone gezählt wird.
+    #[serde(with = "humantime_serde", default = "default_tunneling_window")]
+    pub window: Duration,
+    /// Zonen, die nicht bewertet werden — für Reputationsdienste und
+    /// Antivirus-Produkte, die per Konstruktion wie ein Tunnel aussehen.
+    #[serde(default)]
+    pub allow_zones: Vec<String>,
+}
+
+/// Private Adressen als Antwort auf öffentliche Namen.
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RebindingConfig {
+    #[serde(default)]
+    pub action: crate::detect::Action,
+    /// Zonen, in denen private Adressen erlaubt sind. Die `forward_zone`-Einträge
+    /// kommen automatisch dazu (siehe [`Config::rebinding_allow_zones`]).
+    #[serde(default)]
+    pub allow_zones: Vec<ZoneName>,
+}
+
+/// Verwechselbare Namen relativ zu einer kleinen Schutzliste.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TyposquatConfig {
+    #[serde(default)]
+    pub action: crate::detect::Action,
+    #[serde(default = "default_typosquat_threshold")]
+    pub threshold: f32,
+    /// Die Domains, die dir wichtig sind. Ohne Einträge tut der Detektor
+    /// nichts — er hat dann nichts, wogegen er vergleichen könnte.
+    #[serde(default)]
+    pub protect: Vec<String>,
+}
+
+/// Neu registrierte Domains aus einer lokalen Datei.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NrdConfig {
+    #[serde(default)]
+    pub action: crate::detect::Action,
+    /// Bis zu diesem Alter gilt eine Domain als neu.
+    #[serde(with = "humantime_serde", default = "default_nrd_max_age")]
+    pub max_age: Duration,
+    /// Die Datei mit Domain und Registrierungsdatum. Fehlt sie, läuft der
+    /// Detektor leer mit — der Resolver hängt nicht davon ab, dass ein
+    /// zweiter Dienst gelaufen ist.
+    #[serde(default)]
+    pub source: Option<std::path::PathBuf>,
+}
+
+const fn default_dga_threshold() -> f32 {
+    crate::detect::dga::DEFAULT_THRESHOLD
+}
+
+const fn default_tunneling_threshold() -> f32 {
+    crate::detect::tunneling::DEFAULT_THRESHOLD
+}
+
+/// Verwechslungen sind selten und der Vergleich ist scharf; die Schwelle darf
+/// deshalb hoch liegen, ohne etwas zu verpassen.
+const fn default_typosquat_threshold() -> f32 {
+    0.85
+}
+
+/// Fünf Minuten. Lang genug, dass ein Tunnel auffällt, kurz genug, dass der
+/// Zustand nicht mit dem Tag wächst.
+const fn default_tunneling_window() -> Duration {
+    Duration::from_secs(300)
+}
+
+const fn default_nrd_max_age() -> Duration {
+    Duration::from_secs(30 * 24 * 60 * 60)
+}
+
+impl Default for DgaConfig {
+    fn default() -> Self {
+        Self {
+            action: crate::detect::Action::default(),
+            threshold: default_dga_threshold(),
+        }
+    }
+}
+
+impl Default for TunnelingConfig {
+    fn default() -> Self {
+        Self {
+            action: crate::detect::Action::default(),
+            threshold: default_tunneling_threshold(),
+            window: default_tunneling_window(),
+            allow_zones: Vec::new(),
+        }
+    }
+}
+
+impl Default for TyposquatConfig {
+    fn default() -> Self {
+        Self {
+            action: crate::detect::Action::default(),
+            threshold: default_typosquat_threshold(),
+            protect: Vec::new(),
+        }
+    }
+}
+
+impl Default for NrdConfig {
+    fn default() -> Self {
+        Self {
+            action: crate::detect::Action::default(),
+            max_age: default_nrd_max_age(),
+            source: None,
+        }
+    }
 }
 
 /// HTTP-API und Web-UI.
@@ -797,6 +957,7 @@ impl Config {
                 "cache.min_ttl ist größer als cache.max_ttl".to_owned(),
             ));
         }
+        self.detection.validate()?;
         self.privacy.odoh.validate()?;
         if self.privacy.odoh.enabled {
             // Ein Pool mit einem DoT-Resolver und eingeschaltetem ODoH sähe aus
@@ -927,6 +1088,63 @@ impl Config {
     }
 }
 
+impl DetectionConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        for (name, threshold) in [
+            ("dga", self.dga.threshold),
+            ("tunneling", self.tunneling.threshold),
+            ("typosquat", self.typosquat.threshold),
+        ] {
+            if !(0.0..=1.0).contains(&threshold) || !threshold.is_finite() {
+                return Err(ConfigError::Invalid(format!(
+                    "detection.{name}.threshold muss zwischen 0.0 und 1.0 liegen, ist aber \
+                     {threshold}"
+                )));
+            }
+        }
+        if self.tunneling.window.is_zero() && !self.tunneling.action.is_off() {
+            return Err(ConfigError::Invalid(
+                "detection.tunneling.window = 0 ergibt ein Fenster ohne Dauer; der Detektor \
+                 könnte nichts zählen. Entweder eine Dauer setzen oder action = \"off\"."
+                    .to_owned(),
+            ));
+        }
+        // Eine Schutzliste ohne Einträge ist kein Fehler — sie ist der
+        // Auslieferungszustand. Ein *Eintrag*, der keine Domain ist, schon:
+        // sonst schützt jemand `sparkasse` und wundert sich, dass nichts
+        // passiert.
+        for entry in &self.typosquat.protect {
+            if !entry.contains('.') || entry.trim().is_empty() {
+                return Err(ConfigError::Invalid(format!(
+                    "detection.typosquat.protect: '{entry}' ist keine Domain — erwartet wird \
+                     etwas wie 'sparkasse.at'"
+                )));
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Config {
+    /// Die Zonen, in denen private Adressen erlaubt sind.
+    ///
+    /// Die konfigurierten plus **alle `forward_zone`-Einträge**. Ohne diese
+    /// Ergänzung wäre der Rebinding-Schutz beim ersten Start eine Falle: der
+    /// eigene LAN-Nameserver antwortet für `home.arpa` naturgemäß mit
+    /// `192.168.x.y`, und genau das ist der Treffer, auf den der Detektor
+    /// wartet. Wer eine Zone ausdrücklich ins eigene Netz leitet, hat damit
+    /// schon gesagt, dass private Adressen von dort in Ordnung sind.
+    pub fn rebinding_allow_zones(&self) -> Vec<Name> {
+        self.detection
+            .rebinding
+            .allow_zones
+            .iter()
+            .map(|zone| zone.0.clone())
+            .chain(self.forward_zone.iter().map(|zone| zone.zone.0.clone()))
+            .collect()
+    }
+}
+
 impl OdohConfig {
     fn validate(&self) -> Result<(), ConfigError> {
         if !self.enabled {
@@ -1021,6 +1239,95 @@ tls_name = "dns.quad9.net"
         let config = parse(text).expect("muss parsen");
         config.validate().expect("muss gültig sein");
         config
+    }
+
+    #[test]
+    fn the_detection_defaults_flag_and_never_block() {
+        // Die Zusage aus der Roadmap und aus B.8, hier auf Ebene der
+        // Konfiguration. Der Gegentest durch die Pipeline steht in
+        // tests/detection.rs.
+        let config = valid(MINIMAL);
+        let actions = [
+            config.detection.dga.action,
+            config.detection.tunneling.action,
+            config.detection.rebinding.action,
+            config.detection.typosquat.action,
+            config.detection.nrd.action,
+        ];
+        for action in actions {
+            assert_eq!(action, crate::detect::Action::Flag, "{action:?}");
+        }
+        assert!(config.detection.typosquat.protect.is_empty());
+        assert!(config.detection.nrd.source.is_none());
+    }
+
+    #[test]
+    fn the_example_configs_detection_block_parses() {
+        // Die Beispielkonfiguration ist die Spezifikation des Zielformats
+        // (CLAUDE.md B.0). Wenn sie nicht parst, stimmt eine der beiden Seiten
+        // nicht mehr.
+        let text = format!(
+            "{MINIMAL}\n{}",
+            r#"
+[detection]
+dga = { action = "flag", threshold = 0.75 }
+tunneling = { action = "flag", threshold = 0.75, window = "5m", allow_zones = [] }
+rebinding = { action = "flag", allow_zones = [] }
+typosquat = { action = "flag", threshold = 0.85, protect = ["sparkasse.at"] }
+nrd = { action = "flag", max_age = "30d", source = "/var/lib/alpendns/nrd.txt" }
+"#
+        );
+        let config = valid(&text);
+        assert_eq!(config.detection.typosquat.protect.len(), 1);
+        assert_eq!(config.detection.tunneling.window, Duration::from_secs(300));
+    }
+
+    #[test]
+    fn an_unknown_detector_action_says_what_is_allowed() {
+        let text = format!("{MINIMAL}\n[detection]\ndga = {{ action = \"warn\" }}\n");
+        let error = parse(&text).expect_err("muss abbrechen").to_string();
+        assert!(error.contains("off, log, flag, block"), "{error}");
+    }
+
+    #[test]
+    fn a_threshold_outside_the_range_is_a_startup_error() {
+        for bad in ["1.5", "-0.2"] {
+            let text = format!("{MINIMAL}\n[detection]\ndga = {{ threshold = {bad} }}\n");
+            let config = parse(&text).expect("parst");
+            assert!(config.validate().is_err(), "threshold = {bad} akzeptiert");
+        }
+    }
+
+    #[test]
+    fn a_protect_entry_that_is_not_a_domain_is_a_startup_error() {
+        // Sonst schützt jemand 'sparkasse' und wundert sich, dass nichts
+        // passiert.
+        let text = format!("{MINIMAL}\n[detection]\ntyposquat = {{ protect = [\"sparkasse\"] }}\n");
+        let config = parse(&text).expect("parst");
+        let error = config.validate().expect_err("muss abbrechen").to_string();
+        assert!(error.contains("keine Domain"), "{error}");
+    }
+
+    #[test]
+    fn forward_zones_join_the_rebinding_allow_list() {
+        let text = format!(
+            "{MINIMAL}\n{}",
+            r#"
+[[forward_zone]]
+zone = "home.arpa"
+upstream = "udp://10.0.0.1:53"
+
+[detection]
+rebinding = { allow_zones = ["intern.example"] }
+"#
+        );
+        let zones: Vec<String> = valid(&text)
+            .rebinding_allow_zones()
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        assert!(zones.contains(&"intern.example.".to_owned()), "{zones:?}");
+        assert!(zones.contains(&"home.arpa.".to_owned()), "{zones:?}");
     }
 
     #[test]

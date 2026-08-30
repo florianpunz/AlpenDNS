@@ -225,23 +225,58 @@ to = "07:00"
 action = "block_all_except_allowlist"
 
 # ---------------------------------------------------------------------------
-# [PHASE 8] Heuristik / Detection
+# Heuristik / Detection
 # ---------------------------------------------------------------------------
 
+# Jede Heuristik liefert einen Score 0.0–1.0 und eine Begründung. Vier Stufen:
+#
+#   off    läuft nicht, kostet nichts
+#   log    läuft und zählt mit, sonst nichts
+#   flag   läuft, zählt mit, und die Anfrage steht in der Liste "Auffällig"
+#   block  die Anfrage wird geblockt wie ein Blocklisten-Treffer
+#
+# ALLE FÜNF STEHEN PER DEFAULT AUF `flag`, und das ist Absicht. Ein Detektor,
+# der Internet kaputtmacht, wird abgeschaltet — und mit ihm alle anderen.
+# Der Weg zu `block` führt über eine Woche Beobachtung: die Liste "Auffällig"
+# durchsehen, die Fehlalarme in `allow_zones` bzw. auf eine Allowlist nehmen,
+# und erst dann umstellen. Siehe docs/ROADMAP.md, Abnahme Phase 8.
+#
+# Die Schwellen sind gemessen und nicht geraten; die Zahlen dahinter stehen in
+# docs/BENCHMARKS.md. Wer sie ändert, sollte dort nachsehen, was das kostet.
 [detection]
-# Jede Heuristik liefert einen Score 0.0–1.0 und eine Begründung.
-# action: off | log | flag | block
-dga = { action = "flag", threshold = 0.85 }
-tunneling = { action = "block", threshold = 0.9 }
-# Schutz vor DNS Rebinding: private IPs in Antworten für öffentliche Namen.
-rebinding = { action = "block", allow_zones = ["home.arpa"] }
-# Typosquatting relativ zu Domains, die dir wichtig sind.
-typosquat = { action = "flag", threshold = 0.9, protect = [
+
+# Algorithmisch erzeugte Namen (kqxvbnzmrt.com). 3-Gramm-Modell im Binary.
+# Gemessen auf 100 000 echten Domains: 0,077 % Fehlalarme bei dieser Schwelle.
+# Erkennt zufällig aussehende Namen; wörterbuchbasierte DGAs und kurze Namen
+# ausdrücklich nicht — siehe docs/FEATURES.md D3.
+dga = { action = "flag", threshold = 0.75 }
+
+# Datenexfiltration über DNS. Bewertet wird die *Zone* über ein Zeitfenster,
+# nicht die einzelne Anfrage: eine lange zufällige Subdomain ist normal,
+# tausend davon unter derselben Zone nicht.
+# allow_zones ist für Reputationsdienste und Antivirus-Produkte, die per
+# Konstruktion wie ein Tunnel aussehen.
+tunneling = { action = "flag", threshold = 0.75, window = "5m", allow_zones = [] }
+
+# Private IPs in Antworten für öffentliche Namen.
+# Die forward_zone-Einträge von oben kommen automatisch dazu — wer eine Zone
+# ins eigene Netz leitet, hat schon gesagt, dass private Adressen von dort in
+# Ordnung sind. Hier stehen nur die zusätzlichen Ausnahmen: Split-Horizon-DNS,
+# Geräte-Weboberflächen unter einem echten Namen.
+rebinding = { action = "flag", allow_zones = [] }
+
+# Typosquatting relativ zu Domains, die DIR wichtig sind — nicht gegen eine
+# globale Phishing-Liste. Ohne Einträge tut der Detektor nichts; er hat dann
+# nichts, wogegen er vergleichen könnte, und erscheint im Status als `off`.
+typosquat = { action = "flag", threshold = 0.85, protect = [
   "sparkasse.at",
   "id.austria.gv.at",
   "hale.at",
 ] }
+
 # Neu registrierte Domains, Alter aus lokaler Datei (AlpenShield-Feed).
+# Fehlt die Datei, läuft der Detektor leer mit — der Resolver hängt nicht
+# davon ab, dass ein zweiter Dienst gelaufen ist. Ohne `source` bleibt er aus.
 nrd = { action = "flag", max_age = "30d", source = "/var/lib/alpendns/nrd.txt" }
 
 # ---------------------------------------------------------------------------

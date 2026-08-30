@@ -441,6 +441,46 @@ h2 {
 }
 .counters dd { margin: 0; font-size: var(--t-small); }
 
+/* ── Auffällige Anfragen ───────────────────────────────────────────────── */
+
+.flagged { margin: 0; padding: 0 var(--s-16) var(--s-16); list-style: none; }
+.flagged li { padding: var(--s-8) 0; border-top: 1px solid var(--line); }
+.flagged li:first-child { border-top: 0; }
+
+.flagged .subject {
+  display: block;
+  font-family: var(--mono);
+  font-size: var(--t-small);
+  overflow-wrap: anywhere;
+}
+.flagged .meta {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-8);
+  margin-top: var(--s-4);
+  font-size: var(--t-micro);
+  color: var(--faint);
+}
+.flagged .score { font-variant-numeric: tabular-nums; }
+.flagged .why {
+  margin: var(--s-4) 0 0;
+  font-size: var(--t-micro);
+  color: var(--faint);
+}
+.flagged .actions { display: flex; gap: var(--s-8); margin-top: var(--s-8); }
+.flagged button {
+  font: inherit;
+  font-size: var(--t-micro);
+  color: var(--text);
+  background: var(--raised);
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  padding: var(--s-4) var(--s-8);
+  cursor: pointer;
+}
+.flagged button:hover { background: var(--row-hover); }
+.flagged button[disabled] { color: var(--faint); cursor: default; }
+
 /* ── Begründung: das Größte auf der Seite ──────────────────────────────── */
 
 .why { padding-bottom: var(--s-16); }

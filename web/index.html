@@ -238,6 +238,24 @@
             </div>
           </section>
 
+          <!-- Was die Heuristiken gefunden haben. Steht neben den
+               Block-Gründen und nicht in einer eigenen Ansicht: im
+               Auslieferungszustand blockt keiner von ihnen, und was nur meldet,
+               muss man sehen, ohne danach zu suchen. -->
+          <section class="panel" aria-labelledby="h-flagged">
+            <div class="panel-head">
+              <h2 id="h-flagged">Auffällig</h2>
+              <p class="note" id="flagged-note"></p>
+            </div>
+            <ul class="flagged" id="flagged" aria-labelledby="h-flagged"></ul>
+            <div class="empty" id="flagged-empty">
+              <svg class="empty-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 4v10M12 18h.01"/>
+              </svg>
+              <p id="flagged-note-empty">Keine Heuristik hat angeschlagen.</p>
+            </div>
+          </section>
+
           <section class="panel top-panel" aria-labelledby="h-top">
             <div class="panel-head">
               <h2 id="h-top">Häufigste Namen</h2>

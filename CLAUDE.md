@@ -84,9 +84,11 @@ diesem Projekt. Das heißt konkret: erkläre nicht-offensichtliche Entscheidunge
 Commit oder in der Antwort, statt sie kommentarlos einzubauen. Ein Einzeiler
 "warum so und nicht anders" ist mehr wert als drei Absätze Doku.
 
-**Stand:** Phasen 1 bis 7 sind umgesetzt. Abgenommen sind 1 bis 5; bei Phase 6
+**Stand:** Phasen 1 bis 8 sind umgesetzt. Abgenommen sind 1 bis 5; bei Phase 6
 fehlt nur der Blick eines Menschen auf die gerenderte UI (Roadmap, Schritt 8), bei
-Phase 7 nur der CI-Lauf, für den es kein GitHub-Remote gibt. Der Praxistest im echten
+Phase 7 nur der CI-Lauf, für den es kein GitHub-Remote gibt, und bei Phase 8 die
+Beobachtungswoche im echten Netz — erst danach darf ein Detektor von `flag` auf
+`block`. Der Praxistest im echten
 Netz ist bewusst auf Phase 9 verschoben — vorher gibt es keine systemd-Unit und
 damit keinen Betrieb auf Port 53. Der gesamte testbare Code
 liegt in der Library (`src/lib.rs` und die Module daneben), `main.rs` macht nur
@@ -120,7 +122,15 @@ Phase 7 eine engere Begründung (der verwundbare Pfad wird nicht betreten), nich
 mehr "steckt gar nicht im Binary". Der CI-Lauf fehlt weiterhin, dafür gibt es kein
 GitHub-Remote.
 
-Zahlen in `docs/BENCHMARKS.md`. Aktuelle Arbeit: Phase 8 (Heuristik ohne Cloud).
+Seit Phase 8 gibt es fünf Heuristiken in `crate::detect` (DGA, Tunneling,
+Rebinding, Typosquat, NRD). **Alle stehen per Default auf `flag`** und blocken
+nichts (ADR-0019); sie hängen hinter zwei Traits, weil sie an zwei verschiedenen
+Stellen der Pipeline laufen — `NameDetector` sieht die Frage, `AnswerDetector`
+die Antwort. Die Schwellen sind gemessen und stehen im jeweiligen Modul, nicht
+in der Konfiguration. Die Messkorpora liegen **nicht** im Repo, die Messläufe
+sind `--ignored`; Anleitung in `docs/TESTING.md` §6.
+
+Zahlen in `docs/BENCHMARKS.md`. Aktuelle Arbeit: Phase 9 (Betrieb und Paketierung).
 
 **Doku-Karte:** `docs/ROADMAP.md` = aktuelle Phase und Abnahmekriterien ·
 `docs/ARCHITECTURE.md` = Zielbild · `docs/TESTING.md` = Teststrategie ·
@@ -190,7 +200,9 @@ crates/
   alpendns-upstream/ Upstream-Pools, Transporte, Auswahlstrategien
   alpendns-filter/   Blocklisten: Parser, Matcher, Update-Scheduler
   alpendns-policy/   Client-Identität, Policy-Auswertung, Entscheidungs-Trace
-  alpendns-detect/   Heuristiken (DGA, Tunneling, Rebinding, Typosquat)
+  alpendns-detect/   Heuristiken (DGA, Tunneling, Rebinding, Typosquat, NRD)
+                     — liegt bis auf Weiteres als Modul `crate::detect` in
+                       `alpendns`, siehe die Regel unter diesem Baum
   alpendns-api/      HTTP-API + Auslieferung der Web-UI
 web/                 Web-UI (siehe B.6)
 ```

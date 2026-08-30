@@ -134,6 +134,38 @@ validierte Antwort; `dnssec::for_client` schneidet an der Außenkante zu, je
 Client. Das ist dieselbe Trennung, aus der die Filterung vor dem Cache liegt:
 was für alle gilt, gehört in den Cache, was für einen gilt, davor oder danach.
 
+## Nachtrag vom 2026-08-30: ein Ausfall ist kein Befund
+
+Beim Lauf gegen echte Upstreams in Phase 8 kam `wikipedia.org` einmal als
+SERVFAIL zurück und beim nächsten Versuch als NOERROR. Die Ursache war eine
+Verwechslung, die oben angelegt war.
+
+Antwortet der Upstream **selbst** mit SERVFAIL und schickt dabei keine Records,
+meldet `hickory` `Bogus` — es fehlen ja die NSEC-Records, mit denen sich etwas
+beweisen ließe. Auf dem Draht sieht das genauso aus wie eine Zone mit kaputter
+Signatur. Es ist aber etwas ganz anderes: *wir haben nichts gesehen, worüber
+sich urteilen ließe.*
+
+Der Unterschied ist teuer, weil `Bogus` nach Punkt 2 oben **terminal** ist. Ein
+einzelner Wackler beim Upstream wurde damit zu einem harten SERVFAIL für den
+Client, ohne dass der zweite, gesunde Upstream je gefragt worden wäre — ein
+selbstgemachter Ausfall, und noch dazu einer, der sich beim nächsten Versuch von
+selbst erledigt und deshalb schwer zu finden ist.
+
+Unterschieden wird jetzt an dem, was die Antwort enthält: **leer und mit
+Fehler-RCODE** heißt Ausfall (`ResolveError::Unproven`), alles andere heißt
+Urteil. Beides zusammen gibt es nicht — eine Zone mit kaputter Signatur liefert
+Records, sonst hätte niemand etwas zu prüfen. `Unproven` fragt den nächsten
+Upstream, rechnet aber **niemandem einen Fehlversuch an**: sonst könnte eine
+kaputte Zone weiterhin den Pool leerräumen, was Punkt 2 ja gerade verhindern
+soll.
+
+**Damit ist eine Zahl aus der Roadmap überholt.** Dort steht zu Phase 7:
+`dnssec-failed.org → SERVFAIL, bogus=1`. Der Client bekommt weiterhin SERVFAIL,
+aber der Zähler steht jetzt auf 0 — Quad9 validiert selbst und liefert eine leere
+Fehlerantwort, wir sehen also nie eine faule Signatur. Die alte 1 war der
+Mislabel, nicht die neue 0.
+
 ## Umkehrbedingung
 
 Wenn im Praxistest aus Phase 9 kaputte Zonen zu Ausfällen führen, die niemand

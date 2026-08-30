@@ -206,12 +206,38 @@ mod tests {
     #[test]
     fn empty_areas_explain_themselves() {
         // Kein leeres Rechteck: Zeichen plus ein Satz, warum hier nichts steht.
+        // Sechs Flächen seit Phase 8 — dazugekommen ist "Auffällig".
         assert_eq!(
             INDEX.matches("class=\"empty\"").count(),
-            5,
+            6,
             "nicht jede leere Fläche erklärt sich"
         );
-        assert_eq!(INDEX.matches("class=\"empty-icon\"").count(), 5);
+        assert_eq!(INDEX.matches("class=\"empty-icon\"").count(), 6);
+    }
+
+    /// Der Leertext bei "Auffällig" nennt die Ursache, nicht nur die Leere.
+    ///
+    /// In den Modi `none` und `aggregate` behält der Server keine Namen, und
+    /// dann *kann* dort nichts stehen. Ein Panel, das dann "keine Heuristik hat
+    /// angeschlagen" behauptet, sagt die Unwahrheit.
+    #[test]
+    fn the_flagged_panel_distinguishes_quiet_from_empty() {
+        assert!(INDEX.contains("id=\"flagged\""), "das Panel fehlt");
+        assert!(
+            SCRIPT.contains("quietMode"),
+            "der Leertext unterscheidet die beiden Fälle nicht"
+        );
+        assert!(SCRIPT.contains("merkt sich keine Namen"), "{SCRIPT}");
+    }
+
+    /// Neben einer auffälligen Anfrage stehen beide Knöpfe.
+    #[test]
+    fn a_flagged_query_can_be_allowed_or_denied_with_one_click() {
+        // Roadmap Phase 8, Schritt 7.
+        assert!(SCRIPT.contains("\"Freigeben\""), "kein Knopf zum Freigeben");
+        assert!(SCRIPT.contains("\"Sperren\""), "kein Knopf zum Sperren");
+        assert!(SCRIPT.contains("/api/allow"));
+        assert!(SCRIPT.contains("/api/deny"));
     }
 
     #[test]
