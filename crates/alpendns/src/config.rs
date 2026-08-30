@@ -19,13 +19,17 @@ use serde::Deserialize;
 /// Fehler beim Laden oder Validieren der Konfiguration.
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
-    #[error("Konfigurationsdatei {path} konnte nicht gelesen werden: {source}")]
+    // Die Ursache steht nicht im Text: `main` gibt den Fehler mit `{:#}` aus und
+    // hängt die Kette selbst an. Stünde sie zusätzlich hier, käme jede
+    // Parse-Meldung doppelt — bei den mehrzeiligen Meldungen zu entfernten
+    // Schlüsseln fällt das auf.
+    #[error("Konfigurationsdatei {path} konnte nicht gelesen werden")]
     Read {
         path: String,
         #[source]
         source: std::io::Error,
     },
-    #[error("Konfigurationsdatei {path} ist ungültig: {source}")]
+    #[error("Konfigurationsdatei {path} ist ungültig")]
     Parse {
         path: String,
         #[source]
