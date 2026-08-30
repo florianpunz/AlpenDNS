@@ -52,7 +52,7 @@ impl<B: ResolveBackend, C: Clock> ResolveBackend for CachingBackend<B, C> {
     fn resolve(
         &self,
         request: &Message,
-        ctx: &Ctx,
+        ctx: &mut Ctx,
     ) -> impl std::future::Future<Output = Result<Message, ResolveError>> + Send {
         let inner = Arc::clone(&self.inner);
         let cache = Arc::clone(&self.cache);
@@ -120,7 +120,8 @@ fn spawn_refresh<B: ResolveBackend, C: Clock>(
         };
         // Eine Auffrischung im Hintergrund gehört zu keiner Client-Anfrage und
         // bekommt deshalb einen eigenen, verworfenen Kontext.
-        match inner.resolve(&request, &Ctx::internal()).await {
+        let mut ctx = Ctx::internal();
+        match inner.resolve(&request, &mut ctx).await {
             Ok(response) => {
                 cache.insert(key, &response);
                 leader.complete(Arc::new(response));

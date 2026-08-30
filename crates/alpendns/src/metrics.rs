@@ -11,7 +11,8 @@
 use std::fmt::Write as _;
 
 use crate::cache::Stats as CacheStats;
-use crate::logging::LogStats;
+use crate::filter::block::BlockMode;
+use crate::logging::{LogStats, Mode as LogMode};
 use crate::policy::PolicyStats;
 use crate::upstream::pool::UpstreamStats;
 
@@ -24,6 +25,12 @@ pub struct Snapshot {
     pub policy: PolicyStats,
     pub upstreams: Vec<UpstreamStats>,
     pub uptime: std::time::Duration,
+    /// Der eingestellte Block-Modus.
+    pub blocking_mode: BlockMode,
+    /// Der eingestellte Log-Modus.
+    pub logging_mode: LogMode,
+    /// Wie viele geladene Listen je Format, absteigend nach Häufigkeit.
+    pub list_formats: Vec<(String, u64)>,
 }
 
 /// Maskiert, was in einem Label-Wert nicht vorkommen darf.
@@ -133,6 +140,48 @@ pub fn render(snapshot: &Snapshot) -> String {
         snapshot.policy.entries as f64,
     );
 
+    // Was eingestellt ist, nicht nur was passiert. Ohne diese drei lässt sich
+    // nicht belegen, ob eine Einstellung im Feld überhaupt jemand benutzt — und
+    // genau das ist die Frage vor jeder weiteren Streichung. Keine Namen: die
+    // Label-Werte stammen ausschließlich aus geschlossenen Aufzählungen.
+    let _ = writeln!(
+        out,
+        "# HELP alpendns_blocking_mode 1 beim eingestellten Block-Modus, 0 bei den übrigen"
+    );
+    let _ = writeln!(out, "# TYPE alpendns_blocking_mode gauge");
+    for mode in BlockMode::ALL {
+        let _ = writeln!(
+            out,
+            "alpendns_blocking_mode{{mode=\"{}\"}} {}",
+            mode.as_str(),
+            u8::from(mode == snapshot.blocking_mode)
+        );
+    }
+
+    let _ = writeln!(
+        out,
+        "# HELP alpendns_logging_mode 1 beim eingestellten Log-Modus, 0 bei den übrigen"
+    );
+    let _ = writeln!(out, "# TYPE alpendns_logging_mode gauge");
+    for mode in LogMode::ALL {
+        let _ = writeln!(
+            out,
+            "alpendns_logging_mode{{mode=\"{}\"}} {}",
+            mode.as_str(),
+            u8::from(mode == snapshot.logging_mode)
+        );
+    }
+
+    let _ = writeln!(out, "# HELP alpendns_lists Geladene Listen je Format");
+    let _ = writeln!(out, "# TYPE alpendns_lists gauge");
+    for (format, count) in &snapshot.list_formats {
+        let _ = writeln!(
+            out,
+            "alpendns_lists{{format=\"{}\"}} {count}",
+            escape(format)
+        );
+    }
+
     let _ = writeln!(
         out,
         "# HELP alpendns_upstream_queries_total Erfolgreiche Anfragen je Upstream"
@@ -225,6 +274,9 @@ mod tests {
                 down: false,
             }],
             uptime: Duration::from_secs(3600),
+            blocking_mode: BlockMode::Nxdomain,
+            logging_mode: LogMode::Aggregate,
+            list_formats: vec![("hosts".to_owned(), 2), ("wildcard".to_owned(), 1)],
         }
     }
 
@@ -276,8 +328,29 @@ mod tests {
             "alpendns_responses_total{rcode=\"NXDomain\"} 12",
             "alpendns_upstream_queries_total{resolver=\"quad9\"} 38",
             "alpendns_upstream_down{resolver=\"quad9\"} 0",
+            "alpendns_blocking_mode{mode=\"nxdomain\"} 1",
+            "alpendns_blocking_mode{mode=\"zero_ip\"} 0",
+            "alpendns_logging_mode{mode=\"aggregate\"} 1",
+            "alpendns_logging_mode{mode=\"full\"} 0",
+            "alpendns_lists{format=\"hosts\"} 2",
+            "alpendns_lists{format=\"wildcard\"} 1",
         ] {
             assert!(text.contains(expected), "fehlt: {expected}\n{text}");
+        }
+    }
+
+    #[test]
+    fn exactly_one_mode_is_marked_active() {
+        // Sonst wäre die Metrik zum Belegen unbrauchbar: über mehrere
+        // Installationen summiert soll je Modus die Zahl der Installationen
+        // herauskommen, die ihn benutzen.
+        let text = render(&snapshot());
+        for metric in ["alpendns_blocking_mode", "alpendns_logging_mode"] {
+            let active = text
+                .lines()
+                .filter(|line| line.starts_with(metric) && line.ends_with(" 1"))
+                .count();
+            assert_eq!(active, 1, "{metric} hat {active} aktive Werte\n{text}");
         }
     }
 

@@ -21,8 +21,8 @@ Ein privacy-fokussierter DNS-Server für Linux, in Rust.
 > Noch keine API und keine Web-UI.
 
 > **Phase 4 — Blocklisten.** Ab hier ersetzt AlpenDNS ein Pi-hole im
-> eigenen Netz: Listen in fünf Formaten (hosts, domains, wildcard, Adblock, RPZ),
-> Allowlists mit Vorrang, vier Block-Modi, Aktualisierung mit ETag und
+> eigenen Netz: Listen in drei Formaten (hosts, domains, wildcard),
+> Allowlists mit Vorrang, drei Block-Modi, Aktualisierung mit ETag und
 > Platten-Cache, Austausch der Regeln im laufenden Betrieb ohne Ausfall.
 > Zwei Millionen Einträge kosten 135 MB; eine Anfrage aus dem Cache bleibt bei
 > p99 28 µs ([BENCHMARKS.md](docs/BENCHMARKS.md)).
@@ -78,7 +78,7 @@ Pi-hole offen lässt.
 | Rolle | Forwarding Resolver (keine eigene Rekursion, siehe unten) |
 | Client-Transporte | UDP/53, TCP/53, DoT, DoH, DoQ |
 | Upstream-Transporte | DoT, DoH, DoQ; Klartext nur für explizite interne Zonen |
-| Filterung | Blocklisten (hosts, domains, wildcard, Adblock-Syntax, RPZ), Allowlists, Regex-Regeln |
+| Filterung | Blocklisten (hosts, domains, wildcard), Allowlists, Regex-Regeln |
 | Policies | pro Client/Gruppe, Zeitfenster, temporäre Freigaben |
 | Privacy | ECS-Stripping, Padding, DNS Cookies, 0x20, Upstream-Splitting, aggregiertes Logging |
 | Heuristik | DGA, Tunneling, Rebinding, Typosquatting, neu registrierte Domains |

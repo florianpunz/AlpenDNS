@@ -9,7 +9,6 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 use hickory_proto::op::{Message, ResponseCode};
 use hickory_proto::rr::rdata::{A, AAAA};
 use hickory_proto::rr::{RData, Record, RecordType};
-use serde::Deserialize;
 
 /// Wie lange ein Client eine Block-Antwort behalten soll.
 ///
@@ -19,8 +18,11 @@ use serde::Deserialize;
 const BLOCK_TTL: u32 = 60;
 
 /// Womit auf eine geblockte Anfrage geantwortet wird.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
-#[serde(rename_all = "snake_case")]
+///
+/// `refused` gibt es nicht mehr: es wies den Client an, den nächsten Resolver
+/// zu fragen, und hob damit die Filterung auf
+/// ([ADR-0013](../../../../docs/adr/0013-block-modus-refused-entfaellt.md)).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BlockMode {
     /// "Diesen Namen gibt es nicht." Der Client gibt sofort auf, und für ihn
     /// sieht es aus wie ein Tippfehler, nicht wie eine Sperre.
@@ -29,13 +31,49 @@ pub enum BlockMode {
     /// Eine Antwort mit 0.0.0.0 bzw. ::. Manche Clients versuchen daraufhin
     /// eine Verbindung dorthin und laufen in einen Timeout.
     ZeroIp,
-    /// "Ich beantworte das nicht." Ehrlich, aber manche Clients fragen dann
-    /// den nächsten Resolver in ihrer Liste — und der antwortet.
-    Refused,
     /// Eine Antwort mit einer konfigurierten Adresse, auf der eine Erklärseite
     /// stehen kann. Für HTTPS bricht die Verbindung trotzdem ab, weil das
     /// Zertifikat nicht passt.
     Sinkhole,
+}
+
+impl BlockMode {
+    /// Alle Modi. Die Metrik gibt jeden aus, nicht nur den aktiven — sonst
+    /// zeigt ein Scrape nur, was eingestellt ist, und nie, was es überhaupt
+    /// gibt.
+    pub const ALL: [Self; 3] = [Self::Nxdomain, Self::ZeroIp, Self::Sinkhole];
+
+    /// Wie der Modus in der Konfiguration heißt.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Nxdomain => "nxdomain",
+            Self::ZeroIp => "zero_ip",
+            Self::Sinkhole => "sinkhole",
+        }
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for BlockMode {
+    /// Von Hand statt abgeleitet, damit `refused` in einer Konfiguration von
+    /// gestern erklärt bekommt, warum es weg ist.
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let text = String::deserialize(deserializer)?;
+        match text.as_str() {
+            "nxdomain" => Ok(Self::Nxdomain),
+            "zero_ip" => Ok(Self::ZeroIp),
+            "sinkhole" => Ok(Self::Sinkhole),
+            "refused" => Err(serde::de::Error::custom(
+                "blocking.mode = \"refused\" gibt es nicht mehr. REFUSED heißt für einen \
+                 Client \"frag jemand anderen\": viele Auflöser gehen daraufhin zum nächsten \
+                 Resolver in ihrer Liste, und der antwortet ungefiltert. Ein Block-Modus, \
+                 der die Filterung aufhebt, ist keiner. Stattdessen: nxdomain (Default), \
+                 zero_ip oder sinkhole.",
+            )),
+            other => Err(serde::de::Error::custom(format!(
+                "unbekannter Block-Modus '{other}' — erlaubt sind nxdomain, zero_ip, sinkhole"
+            ))),
+        }
+    }
 }
 
 /// Baut die Antwort auf eine geblockte Anfrage.
@@ -53,10 +91,6 @@ pub fn synthesize(
     let (v4, v6) = match mode {
         BlockMode::Nxdomain => {
             response.metadata.response_code = ResponseCode::NXDomain;
-            return response;
-        }
-        BlockMode::Refused => {
-            response.metadata.response_code = ResponseCode::Refused;
             return response;
         }
         BlockMode::ZeroIp => (Ipv4Addr::UNSPECIFIED, Ipv6Addr::UNSPECIFIED),
@@ -106,12 +140,7 @@ mod tests {
     #[test]
     fn every_mode_answers_the_question_that_was_asked() {
         let request = ask("ads.example.com.", RecordType::A);
-        for mode in [
-            BlockMode::Nxdomain,
-            BlockMode::ZeroIp,
-            BlockMode::Refused,
-            BlockMode::Sinkhole,
-        ] {
+        for mode in [BlockMode::Nxdomain, BlockMode::ZeroIp, BlockMode::Sinkhole] {
             let response = block(&request, mode);
             assert_eq!(response.metadata.id, request.metadata.id, "{mode:?}");
             assert_eq!(response.queries, request.queries, "{mode:?}");
@@ -131,10 +160,19 @@ mod tests {
     }
 
     #[test]
-    fn refused_mode_returns_refused_without_records() {
-        let response = block(&ask("ads.example.com.", RecordType::A), BlockMode::Refused);
-        assert_eq!(response.metadata.response_code, ResponseCode::Refused);
-        assert!(response.answers.is_empty());
+    fn no_mode_answers_with_refused() {
+        // REFUSED schickt den Client zum nächsten Resolver seiner Liste und
+        // hebt damit die Filterung auf (ADR-0013).
+        for mode in [BlockMode::Nxdomain, BlockMode::ZeroIp, BlockMode::Sinkhole] {
+            for record_type in [RecordType::A, RecordType::AAAA, RecordType::MX] {
+                let response = block(&ask("ads.example.com.", record_type), mode);
+                assert_ne!(
+                    response.metadata.response_code,
+                    ResponseCode::Refused,
+                    "{mode:?} / {record_type}"
+                );
+            }
+        }
     }
 
     #[test]

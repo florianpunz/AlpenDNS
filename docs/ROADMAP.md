@@ -146,6 +146,11 @@ der Normalfall.
   ungleiche Verteilung, keine Privacy-Lücke. Die saubere Lösung braucht die Public
   Suffix List und ist als Phase 7, Schritt 1 eingeplant, wo die Verteilung ohnehin
   gemessen wird.
+* **Nachträglich zurückgebaut (Phase 7):** Schritt 3 baute `fastest`, dazu kamen
+  `round_robin` und `fanout`. Alle drei sind wieder weg — `split_by_zone` ist die
+  einzige Strategie, und es wird immer genau ein Upstream gefragt.
+  [ADR-0011](adr/0011-eine-upstream-strategie.md),
+  [ADR-0012](adr/0012-fanout-entfaellt.md).
 
 **Fallstricke:** 0x20 vertragen nicht alle Upstreams — pro Pool abschaltbar machen und im
 Fehlerfall automatisch deaktivieren, statt Anfragen scheitern zu lassen.
@@ -160,11 +165,11 @@ ein Pi-hole im eigenen Netz.
 ```
 1. Parser für Format hosts → verify: Unit-Tests inkl. Kommentaren, CRLF, IPv6-Zeilen, Müllzeilen
 2. Parser für domains und wildcard → verify: Unit-Tests, führende Punkte und *. werden korrekt normalisiert
-3. Parser für Adblock-Syntax (Teilmenge: ||domain^) → verify: Test dokumentiert explizit, welche Syntax unterstützt wird und welche ignoriert
-4. Parser für RPZ-Zonendateien → verify: Unit-Test mit RPZ-Beispiel
+3. ~~Parser für Adblock-Syntax~~ → in Phase 7 wieder entfernt, [ADR-0014](adr/0014-adblock-und-rpz-parser-entfallen.md)
+4. ~~Parser für RPZ-Zonendateien~~ → in Phase 7 wieder entfernt, [ADR-0014](adr/0014-adblock-und-rpz-parser-entfallen.md)
 5. Matcher, v1 als HashSet mit Suffix-Lookup, liefert RuleRef → verify: Property-Test Wildcard-Semantik; notexample.com matcht nie wegen example.com
 6. Allowlist mit Vorrang vor Blocklisten → verify: Integrationstest, Domain auf beiden Listen wird durchgelassen
-7. Block-Antwort synthetisieren (nxdomain / zero_ip / refused) → verify: je ein Test, RCODE und Antwortinhalt korrekt
+7. Block-Antwort synthetisieren (nxdomain / zero_ip / sinkhole) → verify: je ein Test, RCODE und Antwortinhalt korrekt
 8. Listen-Download mit ETag/If-Modified-Since, Cache auf Platte → verify: zweiter Abruf gegen lokalen HTTP-Fake liefert 304, keine Neuverarbeitung
 9. Atomarer Tausch per ArcSwap, kein Ausfall beim Update → verify: Lasttest während eines Updates, keine Fehlerantwort, keine Latenzspitze
 10. Erststart ohne erreichbare Liste bricht ab, späterer Ausfall nicht → verify: zwei Tests für beide Fälle
@@ -234,9 +239,10 @@ Verdikt:  GEBLOCKT
 Dieselbe Domain ohne `--client` läuft durch — die Regel gehört nur der einen Policy.
 
 * **Strukturell:** `resolve` bekommt jetzt einen `Ctx` mit Client-Adresse und Trace.
-  Der Trace wird über einen Mutex geteilt statt exklusiv durchgereicht, weil bei
-  `fanout > 1` mehrere Upstream-Aufgaben gleichzeitig eintragen; Begründung in
-  [ADR-0009](adr/0009-decision-trace-mit-mutex.md).
+  Er lag zunächst hinter einem Mutex, weil bei `fanout > 1` mehrere
+  Upstream-Aufgaben gleichzeitig eintrugen; seit `fanout` entfallen ist, wird er
+  wieder exklusiv durchgereicht ([ADR-0009](adr/0009-decision-trace-mit-mutex.md)
+  samt Nachtrag, [ADR-0012](adr/0012-fanout-entfaellt.md)).
 * **Schritt 5 nachgeholt** mit der API aus Phase 6. Gegen den laufenden Server:
   `doubleclick.net` liefert NXDOMAIN, nach `POST /api/allow` NOERROR, nach Ablauf
   wieder NXDOMAIN.
@@ -282,11 +288,11 @@ GET  /                          → HTTP 200, die UI
   Zähler, Top-Domains, Ringpuffer, Datei — nach dem Query-Namen. In `none` und
   `aggregate` darf er nirgends stehen. Das ist der automatisierte Nachweis für
   das zentrale Versprechen des Projekts und läuft ab jetzt bei jedem `cargo test`.
-* **k-Anonymität:** die Schwelle prüft auf der *unteren* Schätzgrenze des
-  Count-Min-Sketch. Ein Sketch überschätzt; direkt gegen `k` zu prüfen ließe eine
-  einmal gefragte Domain durch, sobald genug andere auf dieselben Zähler fallen.
-  Der Fehler wächst mit dem Verkehr — die Struktur versagt damit zur sicheren
-  Seite, sie zeigt dann *weniger*.
+* **k-Anonymität:** zunächst über einen Count-Min-Sketch, dessen Schwelle auf der
+  *unteren* Schätzgrenze prüfte. In Phase 7 gemessen und ersetzt: die Fehlerschranke
+  wuchs so schnell mit dem Verkehr, dass bei einer Million Anfragen gar keine Domain
+  mehr in der Statistik erschien. Jetzt exakt gezählt, unter einem gesalzenen Hash
+  statt unter dem Namen ([ADR-0015](adr/0015-exakte-zaehlung-statt-sketch.md)).
 * **Entscheidungen zur Oberfläche** (zwei Listener, Token in der SSE-URL, UI ohne
   Build-Schritt, Prometheus von Hand):
   [ADR-0010](adr/0010-api-ui-und-metriken.md).
@@ -294,8 +300,17 @@ GET  /                          → HTTP 200, die UI
 **Offen: Schritt 8.** "Screenshot-Review gegen die Vorgaben in CLAUDE.md B.6" ist
 ein Blick eines Menschen auf eine gerenderte Seite. Automatisiert geprüft ist, was
 sich prüfen lässt: keine Verweise nach außen, die drei Fragen als Überschriften
-vorhanden, ein Akzentton, tabellarische Ziffern, kein `innerHTML`. Ob die Seite
-*ruhig* aussieht, kann kein Test sagen.
+vorhanden, die semantischen Farben in beiden Schemata und nur in Selektoren
+mit Bedeutung, zentrierter Container, 8er-Abstände, vier Kennzahlenkarten,
+Sparkline als Inline-SVG ohne Bibliothek, erklärte Leerflächen, tabellarische
+Ziffern, kein `innerHTML`. Ob die Seite *ruhig* aussieht, kann kein Test sagen.
+
+Die Gestaltung wurde am 2026-08-30 überarbeitet: zentrierter Container (max.
+1400 px), Kennzahlen als Karten mit Sparkline der letzten 60 Sekunden, Upstreams
+als Zeilen mit Statuspunkt und Latenz, Badges und Latenzschwellen im Protokoll,
+echte Leerzustände. Der eine Akzentton ist dabei durch die vier semantischen
+Farben aus B.6 ersetzt worden, dazu kommt `--brand` allein für den Schriftzug;
+Datenquellen und Endpunkte blieben unverändert.
 
 **Fallstricke:** Das ist die Phase, in der ein Agent am ehesten in generisches
 Dashboard-Design abrutscht. CLAUDE.md B.6 ist dafür da; bei jeder UI-Aufgabe explizit

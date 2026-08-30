@@ -103,18 +103,21 @@ die Logging-Schicht:
 | `privacy.logging.mode` | Was mit dem Trace passiert |
 |---|---|
 | `none` | Zähler hochzählen, Trace verwerfen |
-| `aggregate` | Zähler + Domain landet in einem Count-Min-Sketch; erst ab `aggregate_k` Treffern taucht sie in Statistiken auf |
+| `aggregate` | Zähler + Häufigkeit unter einem gesalzenen Hash, exakt gezählt; erst ab `aggregate_k` Treffern taucht der Name in Statistiken auf ([ADR-0015](adr/0015-exakte-zaehlung-statt-sketch.md)) |
 | `ring` | zusätzlich für `ring_seconds` in einem RAM-Ringpuffer, nie auf Platte |
 | `full` | zusätzlich als strukturierte Zeile auf Platte |
 
 Die UI zeigt "warum" aus dem Ringpuffer. Deshalb funktioniert die Erklärung auch bei
 Log-Modus `ring`, ohne dass irgendwo ein Query-Log liegt.
 
-**Zwei Abweichungen in der Umsetzung** (Phase 5): der Trace wird über einen `Mutex`
-geteilt statt exklusiv durchgereicht — sonst könnten bei `fanout > 1` nicht mehrere
-Upstream-Aufgaben gleichzeitig eintragen. Und die Schritte tragen Namen als `Arc<str>`
-statt IDs, damit ein Trace ohne die Konfiguration daneben lesbar ist. Begründung:
-[ADR-0009](adr/0009-decision-trace-mit-mutex.md).
+**Eine Abweichung in der Umsetzung** (Phase 5): die Schritte tragen Namen als
+`Arc<str>` statt IDs, damit ein Trace ohne die Konfiguration daneben lesbar ist.
+Begründung: [ADR-0009](adr/0009-decision-trace-mit-mutex.md).
+
+Die zweite Abweichung — der Trace hinter einem `Mutex` statt exklusiv durchgereicht
+— ist wieder weg. Sie hatte genau einen Grund, `fanout > 1`, und der ist mit
+`fanout` entfallen ([ADR-0012](adr/0012-fanout-entfaellt.md)). `resolve` bekommt
+den Kontext als `&mut Ctx`.
 
 ## 3. Blocklisten: Datenstruktur
 
@@ -159,16 +162,18 @@ Kein Lock im heißen Pfad.
 
 ## 5. Upstream-Auswahl
 
-Ein Pool ist eine Liste von Resolvern plus eine Strategie:
+Ein Pool ist eine Liste von Resolvern plus eine Strategie — und es gibt nur noch eine:
 
-* `fastest` — EWMA der RTT, klassisch, schnell, aber ein Resolver sieht am Ende fast alles.
-* `round_robin` — verteilt, aber derselbe Name geht mal hierhin, mal dorthin; jeder
-  Upstream lernt trotzdem irgendwann alles.
-* `split_by_zone` — **der interessante Fall.** Der Upstream wird über
-  `hash(registrable_domain) % n` bestimmt, mit einem beim Start zufällig gezogenen
-  Seed. Folgen: derselbe Name geht immer zum selben Resolver (Cache bleibt wirksam),
-  aber jeder Resolver sieht nur ~1/n deiner Domains, und welches Drittel er sieht,
-  ist bei jedem Neustart anders. Details und Grenzen: [FEATURES.md](FEATURES.md), P2.
+* `split_by_zone` — Der Upstream wird über `hash(registrable_domain) % n` bestimmt,
+  mit einem beim Start zufällig gezogenen Seed. Folgen: derselbe Name geht immer zum
+  selben Resolver (Cache bleibt wirksam), aber jeder Resolver sieht nur ~1/n deiner
+  Domains, und welches Drittel er sieht, ist bei jedem Neustart anders. Details und
+  Grenzen: [FEATURES.md](FEATURES.md), P2.
+
+**Entfernt:** `fastest` (EWMA der RTT) und `round_robin`. Beide sind klassisch und
+beide laufen darauf hinaus, dass am Ende jeder Upstream alles gesehen hat — genau das,
+wogegen dieses Projekt antritt. Sie standen zwei Absätze über ihrer eigenen Widerlegung.
+Begründung: [ADR-0011](adr/0011-eine-upstream-strategie.md).
 
 Health-Checking: passiv über Fehlerraten und Timeouts, nicht über aktive Probes — aktive
 Probes sind selbst wieder ein Signal.

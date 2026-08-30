@@ -43,11 +43,14 @@ pub enum ResolveError {
 ///
 /// Der Rückgabetyp ist explizit `impl Future + Send`, damit die Antwort in einem
 /// `tokio::spawn` verarbeitet werden kann.
+///
+/// Der Kontext wird **exklusiv** durchgereicht: die Pipeline ist eine Kette ohne
+/// Verzweigung, seit immer genau ein Upstream gefragt wird (ADR-0012).
 pub trait ResolveBackend: Send + Sync + 'static {
     fn resolve(
         &self,
         request: &Message,
-        ctx: &Ctx,
+        ctx: &mut Ctx,
     ) -> impl Future<Output = Result<Message, ResolveError>> + Send;
 }
 
@@ -57,7 +60,7 @@ impl<B: ResolveBackend> ResolveBackend for std::sync::Arc<B> {
     fn resolve(
         &self,
         request: &Message,
-        ctx: &Ctx,
+        ctx: &mut Ctx,
     ) -> impl Future<Output = Result<Message, ResolveError>> + Send {
         (**self).resolve(request, ctx)
     }

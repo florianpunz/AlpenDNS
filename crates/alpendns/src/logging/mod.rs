@@ -8,14 +8,14 @@
 //! | Modus | was gespeichert wird |
 //! |---|---|
 //! | `none` | nur globale Zähler |
-//! | `aggregate` | zusätzlich Häufigkeiten in einem Count-Min-Sketch; ein Name erscheint erst ab `aggregate_k` Treffern |
+//! | `aggregate` | zusätzlich Häufigkeiten in einer Zählertabelle ohne Namen; ein Name erscheint erst ab `aggregate_k` Treffern |
 //! | `ring` | zusätzlich die letzten `ring_seconds` im RAM, nie auf Platte |
 //! | `full` | zusätzlich strukturierte Zeilen auf Platte |
 //!
 //! Default ist `aggregate`. Wer `full` will, muss es hinschreiben.
 
+pub mod counts;
 pub mod ring;
-pub mod sketch;
 
 use std::collections::HashMap;
 use std::io::Write as _;
@@ -26,8 +26,8 @@ use std::time::{Duration, Instant};
 use hickory_proto::op::ResponseCode;
 use serde::Deserialize;
 
+use counts::Counts;
 use ring::Ring;
-use sketch::Sketch;
 
 /// Wie viel eine Anfrage hinterlässt.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
@@ -45,9 +45,24 @@ pub enum Mode {
 }
 
 impl Mode {
+    /// Alle Modi. Wie bei [`crate::filter::block::BlockMode::ALL`] gibt die
+    /// Metrik jeden aus, damit über mehrere Installationen sichtbar wird,
+    /// welche überhaupt jemand benutzt.
+    pub const ALL: [Self; 4] = [Self::None, Self::Aggregate, Self::Ring, Self::Full];
+
     /// Ob in diesem Modus überhaupt Namen gespeichert werden dürfen.
     pub const fn keeps_names(self) -> bool {
         matches!(self, Self::Ring | Self::Full)
+    }
+
+    /// Wie der Modus in der Konfiguration heißt.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Aggregate => "aggregate",
+            Self::Ring => "ring",
+            Self::Full => "full",
+        }
     }
 }
 
@@ -130,7 +145,7 @@ pub struct QueryLog {
     mode: Mode,
     aggregate_k: u32,
     counters: Counters,
-    sketch: Mutex<Sketch>,
+    counts: Mutex<Counts>,
     /// Namen, die die Schwelle überschritten haben. Vorher steht ein Name
     /// **nirgends** — das ist der ganze Punkt.
     reportable: Mutex<HashMap<String, DomainCount>>,
@@ -166,7 +181,7 @@ impl QueryLog {
             mode: config.mode,
             aggregate_k: config.aggregate_k,
             counters: Counters::default(),
-            sketch: Mutex::new(Sketch::new()),
+            counts: Mutex::new(Counts::new()),
             reportable: Mutex::new(HashMap::new()),
             ring: Mutex::new(Ring::new(config.ring_seconds)),
             file,
@@ -199,12 +214,15 @@ impl QueryLog {
         }
 
         // Ab `aggregate`: die Häufigkeit zählt mit, der Name aber erst, wenn er
-        // die Schwelle sicher überschritten hat.
+        // die Schwelle überschritten hat.
         {
-            let mut sketch = self.sketch.lock().unwrap_or_else(PoisonError::into_inner);
-            sketch.add(&event.name);
-            if sketch.reaches(&event.name, self.aggregate_k) {
-                let count = sketch.lower_bound(&event.name);
+            let count = self
+                .counts
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .add(&event.name);
+            // k = 0 wäre sonst ein stiller Weg, die Schwelle abzuschalten.
+            if self.aggregate_k > 0 && count >= self.aggregate_k {
                 self.reportable
                     .lock()
                     .unwrap_or_else(PoisonError::into_inner)

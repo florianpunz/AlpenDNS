@@ -148,3 +148,56 @@ Das Abnahmekriterium verlangt unter 1 ms. Konsequenz für die Datenstruktur:
 Der Filter liegt vor dem Cache und wird damit bei *jeder* Anfrage befragt. Dass der
 Durchsatz trotzdem im Rauschen der Vormessung bleibt, passt zu den 880 ns pro
 Nachschlag.
+
+---
+
+## Phase 7 — Zählstruktur hinter der k-Schwelle · gemessen am 2026-08-30
+
+Der Count-Min-Sketch gegen eine exakte Tabelle. Beide im selben Durchlauf
+gemessen, damit die Speicherzahlen vergleichbar sind. `k = 5`, jeder Name wird
+fünfmal gefragt — ein Name, der die Schwelle also **genau** erreicht.
+
+### 50 000 verschiedene Namen · 250 000 Anfragen
+
+| | Sketch | exakt |
+|---|---:|---:|
+| Speicher | 4 168 KiB | 2 180 KiB |
+| je Eintrag | 109 ns | 42 ns |
+| je Abfrage | 99 ns | 34 ns |
+| Fehlerschranke | 2 | 0 |
+| **Namen über der Schwelle** | **45** | **50 000** |
+
+### 200 000 verschiedene Namen · 1 000 000 Anfragen
+
+| | Sketch | exakt |
+|---|---:|---:|
+| Speicher | 4 096 KiB | 4 356 KiB |
+| je Eintrag | 78 ns | 54 ns |
+| je Abfrage | 74 ns | 40 ns |
+| Fehlerschranke | 11 | 0 |
+| **Namen über der Schwelle** | **0** | **200 000** |
+
+Die letzte Zeile ist die Zahl, um die es geht. Der Sketch überschätzt, deshalb
+prüft die Schwelle auf der unteren Schätzgrenze — und die ist
+`Schätzung − Fehlerschranke`. Bei 250 000 Anfragen liegt die Schranke bei 2, ein
+fünfmal gefragter Name kommt also mit 3 an und bleibt unter `k = 5`: von 50 000
+Namen schaffen es 45. Bei einer Million Anfragen liegt die Schranke bei 11, und
+die Statistik ist **leer**.
+
+Das ist kein Fehler in der Umsetzung — die untere Schranke ist genau richtig, und
+FEATURES.md P1 hatte diese Grenze vorhergesagt. Es ist die Struktur, die für
+diese Größenordnung nicht taugt: sie ist für Datenströme gebaut, deren
+Kardinalität nicht in den Speicher passt. Bei einem Haushalts-Resolver passt sie.
+
+Speicher und Zeit sind das Nebenergebnis: exakt gezählt ist es bei 50 000 Namen
+halb so viel Speicher und rund doppelt so schnell; bei 200 000 Namen — der
+Obergrenze der Tabelle — kostet es etwa gleich viel.
+
+Allein gemessen, ohne den Sketch davor im selben Prozess, liegt die exakte
+Tabelle bei **1 384 KiB** (50 000 Namen) und **6 532 KiB** (200 000 Namen). Die
+Differenz zur Tabelle oben ist Allokator-Verhalten, nicht Struktur: dort wurden
+gerade 4 MiB Sketch freigegeben. Die 6,5 MB im Vollausbau sind die ehrliche
+Obergrenze, und sie ist gedeckelt — mehr als `MAX_TRACKED` Namen nimmt die
+Tabelle nicht auf.
+
+Konsequenz: [ADR-0015](adr/0015-exakte-zaehlung-statt-sketch.md).

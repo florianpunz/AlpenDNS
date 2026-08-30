@@ -171,7 +171,7 @@ impl ResolveBackend for Upstream {
     fn resolve(
         &self,
         request: &Message,
-        _ctx: &Ctx,
+        _ctx: &mut Ctx,
     ) -> impl std::future::Future<Output = Result<Message, ResolveError>> + Send {
         let id = request.metadata.id;
         let queries = request.queries.clone();
@@ -372,7 +372,7 @@ async fn a_blocked_name_never_reaches_the_upstream() {
     let backend = PolicyBackend::new(filter, upstream);
 
     let response = backend
-        .resolve(&ask("ads.example.com."), &ctx())
+        .resolve(&ask("ads.example.com."), &mut ctx())
         .await
         .expect("Antwort");
     assert_eq!(response.metadata.response_code, ResponseCode::NXDomain);
@@ -384,7 +384,7 @@ async fn an_unlisted_name_goes_through() {
     let backend = PolicyBackend::new(filter, Upstream::default());
 
     let response = backend
-        .resolve(&ask("example.org."), &ctx())
+        .resolve(&ask("example.org."), &mut ctx())
         .await
         .expect("Antwort");
     assert_eq!(response.metadata.response_code, ResponseCode::NoError);
@@ -402,7 +402,7 @@ async fn the_allowlist_beats_the_blocklist() {
     let backend = PolicyBackend::new(Arc::clone(&filter), Upstream::default());
 
     let response = backend
-        .resolve(&ask("ads.example.com."), &ctx())
+        .resolve(&ask("ads.example.com."), &mut ctx())
         .await
         .expect("Antwort");
     assert_eq!(
@@ -421,7 +421,7 @@ async fn an_allowlisted_subdomain_survives_a_blocked_parent() {
 
     assert_eq!(
         backend
-            .resolve(&ask("gut.example.com."), &ctx())
+            .resolve(&ask("gut.example.com."), &mut ctx())
             .await
             .expect("Antwort")
             .metadata
@@ -430,7 +430,7 @@ async fn an_allowlisted_subdomain_survives_a_blocked_parent() {
     );
     assert_eq!(
         backend
-            .resolve(&ask("boese.example.com."), &ctx())
+            .resolve(&ask("boese.example.com."), &mut ctx())
             .await
             .expect("Antwort")
             .metadata
@@ -443,22 +443,23 @@ async fn an_allowlisted_subdomain_survives_a_blocked_parent() {
 async fn the_verdict_names_the_rule_that_matched() {
     let engine = filter_with("# Kopf\nads.example.com\n", "", BlockMode::Nxdomain).await;
     let name = Name::from_ascii("sub.ads.example.com.").expect("gültig");
-    let ctx = ctx();
+    let mut ctx = ctx();
+    let peer = ctx.peer.ip();
 
-    assert_eq!(engine.evaluate(&name, ctx.peer.ip(), &ctx), Decision::Block);
+    assert_eq!(engine.evaluate(&name, peer, &mut ctx), Decision::Block);
     let hit = ctx
         .steps()
-        .into_iter()
+        .iter()
         .find_map(|step| match step {
             Step::BlocklistHit {
                 list,
                 line,
                 matched,
-            } => Some((list, line, matched)),
+            } => Some((list, *line, matched)),
             _ => None,
         })
         .expect("ein Blocklisten-Schritt");
-    assert_eq!(&*hit.0, "block");
+    assert_eq!(&**hit.0, "block");
     assert_eq!(hit.1, 2, "Zeilennummer");
     assert_eq!(hit.2, "ads.example.com", "der zutreffende Eintrag");
 }
@@ -497,7 +498,7 @@ async fn swapping_the_rules_under_load_neither_fails_nor_stalls() {
             for _ in 0..500 {
                 let started = std::time::Instant::now();
                 backend
-                    .resolve(&ask("ads.example.com."), &ctx())
+                    .resolve(&ask("ads.example.com."), &mut ctx())
                     .await
                     .expect("keine Anfrage darf während des Tauschs scheitern");
                 slowest = slowest.max(started.elapsed());

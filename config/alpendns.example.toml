@@ -49,14 +49,16 @@ listen = "0.0.0.0:853"
 # plus eine Auswahlstrategie.
 [[upstream_pool]]
 name = "default"
-# fastest       — niedrigste gemessene Latenz (klassisch)
-# round_robin   — gleichmäßig
-# split_by_zone — Registrable Domain wird gehasht und immer demselben Upstream
-#                 zugewiesen. Kein Upstream sieht das ganze Profil, der Cache
-#                 bleibt trotzdem wirksam. Siehe docs/FEATURES.md P2.
+# split_by_zone — und sonst nichts. Die Registrable Domain wird gehasht und
+# immer demselben Upstream zugewiesen: kein Upstream sieht das ganze Profil,
+# der Cache bleibt trotzdem wirksam. Siehe docs/FEATURES.md P2.
+#
+# fastest und round_robin gab es einmal; bei beiden sah am Ende jeder Upstream
+# alles (docs/adr/0011-eine-upstream-strategie.md). Ebenso weg ist fanout: es
+# wird immer genau ein Resolver gefragt und erst beim Ausfall der nächste
+# (docs/adr/0012-fanout-entfaellt.md). Beide Schlüssel sind jetzt ein
+# Startfehler mit Begründung, kein stilles Ignorieren.
 strategy = "split_by_zone"
-# Wieviele Upstreams parallel gefragt werden. >1 kostet Privacy, spart Latenz.
-fanout = 1
 
 [[upstream_pool.resolver]]
 name = "quad9"
@@ -119,7 +121,8 @@ odoh = { enabled = false, proxy = "https://odoh-proxy.example/proxy" }
 
 [privacy.logging]
 # none      — keine Query-Namen, weder auf Platte noch im RAM
-# aggregate — nur Zähler und Top-N über Schwellwert (k-Anonymität)
+# aggregate — nur Zähler und Top-N über Schwellwert (k-Anonymität); gezählt wird
+#             exakt unter einem gesalzenen Hash, nicht unter dem Namen
 # ring      — letzte N Sekunden im RAM für Debugging, nie persistiert
 # full      — Query-Log auf Platte. Bewusste Entscheidung, nicht Default.
 mode = "aggregate"
@@ -132,9 +135,13 @@ aggregate_k = 5
 # ---------------------------------------------------------------------------
 
 [blocking]
-# nxdomain | zero_ip | refused | sinkhole
+# nxdomain | zero_ip | sinkhole
 # sinkhole zeigt für HTTP eine Erklärseite; für HTTPS bricht die Verbindung
 # unvermeidlich ab, deshalb nicht Default.
+#
+# refused gab es einmal. Es wies den Client an, den nächsten Resolver seiner
+# Liste zu fragen, und hob damit die Filterung auf
+# (docs/adr/0013-block-modus-refused-entfaellt.md).
 mode = "nxdomain"
 sinkhole_ipv4 = "127.0.0.1"
 sinkhole_ipv6 = "::1"
@@ -142,7 +149,10 @@ sinkhole_ipv6 = "::1"
 [[blocklist]]
 name = "stevenblack-unified"
 url = "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts"
-format = "hosts"       # hosts | domains | adblock | rpz | wildcard
+# hosts | domains | wildcard. adblock und rpz gab es einmal; beide Parser
+# übersprangen die Ausnahmeregeln ihres Formats und luden Listen damit schärfer
+# als gemeint (docs/adr/0014-adblock-und-rpz-parser-entfallen.md).
+format = "hosts"
 refresh = "24h"
 enabled = true
 

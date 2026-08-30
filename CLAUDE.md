@@ -269,33 +269,55 @@ Upstreams und Token nicht versehentlich im Repo landen.
 
 ### B.6 Web-UI
 
-Zielbild: ruhig, dicht, ohne Deko. Orientierung an macOS-Systemeinstellungen und
+Zielbild: clean, ruhig, Apple-like. Orientierung an macOS-Systemeinstellungen und
 Linear/Vercel-Dashboards, nicht an bunten Admin-Templates.
 
-* Keine Gradient-Hero-Sections, keine Emoji als Icons, keine animierten Zahlen-Counter,
-  keine Glassmorphism-Karten, keine bunten Badges für alles.
-* **Ein Akzentton**, und er markiert ausschließlich Geblocktes — nirgends sonst.
-  Nicht das Blau, das jedes Framework mitliefert. Alles andere neutrale
-  Graustufen; hell und dunkel gleichwertig. Wo Farbe alles markiert, markiert sie
-  nichts. Unterschiede, die keine Farbe brauchen, werden über Gewicht, Größe und
-  Form gemacht — der Schriftzug über das Schriftgewicht, der Erreichbarkeitspunkt
-  über gefüllt gegen hohl.
+* Keine Verläufe, keine Emoji als Icons, keine animierten Zahlen-Counter, keine
+  Glassmorphism-Flächen, keine dekorativen Akzente.
+* **Farbe ist ausschließlich semantisch**, und es gibt genau vier Bedeutungen, als
+  CSS-Variablen festgelegt und nur dort eingesetzt: `--danger` (geblockt,
+  ausgefallen), `--success` (Cache-Hit, gesunder Upstream, erreichbarer Server),
+  `--warn` (hohe Latenz), `--muted` (neutral). Dazu `--brand`, das keinen Zustand
+  meint, sondern den Absender, und deshalb an genau einer Stelle steht: in der
+  ersten Hälfte des Schriftzugs. Alles andere ist Graustufe; hell und dunkel sind
+  gleichwertig, dasselbe Variablenset über `prefers-color-scheme`. Wo Farbe alles
+  markiert, markiert sie nichts. Farbe wiederholt immer nur, was der Text schon
+  sagt — Unterschiede, die ohne Farbe auskommen, werden über Gewicht, Größe und
+  Form gemacht: der Erreichbarkeitspunkt über gefüllt gegen hohl, die Antwort
+  über das Wort im Badge.
+* Der Inhalt sitzt in **einem zentrierten Container, maximal 1400 px** breit.
+* **Abstände auf 8er-Basis**, als Variablen, deren Name der Pixelwert ist
+  (`--s-8`, `--s-16`, …); `--s-4` ist die einzige halbe Stufe. Typografische
+  Skala genauso. Im Regelwerk stehen keine Ad-hoc-Pixelwerte.
+* **Eine einzige Sorte Container**: 1px Rahmen, 12px Radius, leicht abgesetzte
+  Fläche — für die Kennzahlenkarten wie für die Panels. Sie wird nicht
+  verschachtelt: keine Karte in einer Karte.
+* Kennzahlen als Karten: die Zahl groß und tabular, das Label darunter klein und
+  in Versalien.
 * Grafiken werden als SVG in die Seite eingebettet, nicht als Datei geladen —
-  eine Route weniger und keine Seite, die ohne Netz halb aussieht.
+  eine Route weniger und keine Seite, die ohne Netz halb aussieht. Das gilt auch
+  für Diagramme: die Sparkline ist ein `<path>`, dessen `d` das Skript setzt.
+  Keine Charting-Bibliothek, kein `createElementNS` (der Namensraum wäre eine
+  fremde URL im Quelltext).
 * System-Schriftart. Zahlen tabular (`font-variant-numeric: tabular-nums`), damit Werte
   in Tabellen nicht springen.
-* Großzügige Weißräume, klare Hierarchie über Größe und Gewicht, nicht über Farbe.
-* Typografische Skala und Abstände liegen als CSS-Variablen fest; im Regelwerk
-  stehen keine Ad-hoc-Pixelwerte. Getrennt wird über Haarlinien und Weißraum,
-  nicht über Boxen — keine Karte in einer Karte.
 * Domainnamen in einer Monospace-Schrift aus dem System-Stack: ein Name ist
   Material, kein Fließtext.
+* Tabellenzeilen minimal alterniert plus Hover-Zustand — gerade so viel, dass das
+  Auge die Zeile hält.
+* **Keine leeren Flächen.** Wo nichts steht, steht ein zentriertes Zeichen und ein
+  Satz, der erklärt, warum nichts da ist.
 * Die Seite füllt einen Bildschirm und scrollt nicht; es scrollt das Protokoll.
   Nur so stehen die drei Fragen gleichzeitig da.
 * Die Startseite beantwortet drei Fragen ohne Klick: Läuft er? Was wurde gerade geblockt?
   Warum? Alles andere ist eine Ebene tiefer.
 * Kein Client-seitiges Analytics, keine externen Fonts, keine CDN-Ressourcen. Die UI wird
   vom Server selbst ausgeliefert und funktioniert offline.
+
+Was sich davon automatisch prüfen lässt, steht als Test in
+`crates/alpendns/src/api/ui.rs` — inklusive der Regel, dass `--danger`,
+`--success` und `--warn` nur in Selektoren auftauchen, die eine dieser
+Bedeutungen tragen.
 
 ### B.7 Git
 

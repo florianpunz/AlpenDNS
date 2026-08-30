@@ -39,7 +39,7 @@ impl<Z: ResolveBackend, D: ResolveBackend> ResolveBackend for ZoneRouter<Z, D> {
     fn resolve(
         &self,
         request: &Message,
-        ctx: &Ctx,
+        ctx: &mut Ctx,
     ) -> impl std::future::Future<Output = Result<Message, ResolveError>> + Send {
         let question = request.queries.first().map(|q| q.name().clone());
         async move {
@@ -80,7 +80,7 @@ mod tests {
         fn resolve(
             &self,
             request: &Message,
-            _ctx: &Ctx,
+            _ctx: &mut Ctx,
         ) -> impl std::future::Future<Output = Result<Message, ResolveError>> + Send {
             let id = request.metadata.id;
             async move {
@@ -123,7 +123,7 @@ mod tests {
         );
 
         router
-            .resolve(&ask("nas.home.arpa."), &ctx())
+            .resolve(&ask("nas.home.arpa."), &mut ctx())
             .await
             .expect("Antwort");
         assert_eq!(lan.calls.load(Ordering::SeqCst), 1);
@@ -140,7 +140,7 @@ mod tests {
         );
 
         router
-            .resolve(&ask("home.arpa."), &ctx())
+            .resolve(&ask("home.arpa."), &mut ctx())
             .await
             .expect("Antwort");
         assert_eq!(lan.calls.load(Ordering::SeqCst), 1);
@@ -161,7 +161,10 @@ mod tests {
             "nothome.arpa.",
             "home.arpa.evil.com.",
         ] {
-            router.resolve(&ask(name), &ctx()).await.expect("Antwort");
+            router
+                .resolve(&ask(name), &mut ctx())
+                .await
+                .expect("Antwort");
         }
         assert_eq!(
             lan.calls.load(Ordering::SeqCst),
@@ -186,7 +189,7 @@ mod tests {
         );
 
         router
-            .resolve(&ask("host.dev.home.arpa."), &ctx())
+            .resolve(&ask("host.dev.home.arpa."), &mut ctx())
             .await
             .expect("Antwort");
         assert_eq!(narrow.calls.load(Ordering::SeqCst), 1);
@@ -203,7 +206,7 @@ mod tests {
         );
 
         router
-            .resolve(&ask("NAS.Home.ARPA."), &ctx())
+            .resolve(&ask("NAS.Home.ARPA."), &mut ctx())
             .await
             .expect("Antwort");
         assert_eq!(lan.calls.load(Ordering::SeqCst), 1);
@@ -215,7 +218,7 @@ mod tests {
         let router: ZoneRouter<Arc<Marker>, Arc<Marker>> =
             ZoneRouter::new(Vec::new(), Arc::clone(&internet));
         router
-            .resolve(&ask("example.com."), &ctx())
+            .resolve(&ask("example.com."), &mut ctx())
             .await
             .expect("Antwort");
         assert_eq!(internet.calls.load(Ordering::SeqCst), 1);

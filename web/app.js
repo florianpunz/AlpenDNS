@@ -13,6 +13,11 @@ const TOKEN_KEY = "alpendns.token";
 /** So viele Zeilen hält das Protokoll. Darüber fällt die älteste heraus. */
 const MAX_ROWS = 300;
 const POLL_MS = 5000;
+/** Breite der Sparkline in Sekunden. */
+const SPARK_SECONDS = 60;
+/** Ab hier gilt eine Antwort als schnell bzw. als langsam (Millisekunden). */
+const MS_FAST = 20;
+const MS_SLOW = 100;
 
 // Nur aus dem Speicher des Browsers. Den Token zusätzlich aus der URL zu lesen
 // wäre bequem und würde ihn in jeden Verlauf schreiben; für den Live-Strom ist
@@ -53,6 +58,15 @@ function clockTime(at) {
 }
 const percent = (value) => `${(value * 100).toFixed(1)} %`;
 
+/** Die Farbklasse für eine Latenz — oder keine, wenn sie nichts zu sagen hat.
+ *  Dieselben Schwellen für Upstreams und Protokoll, sonst hieße dieselbe Farbe
+ *  an zwei Stellen zweierlei. */
+function latencyClass(ms) {
+  if (ms < MS_FAST) return "ms-fast";
+  if (ms < MS_SLOW) return null;
+  return "ms-slow";
+}
+
 function formatUptime(seconds) {
   const d = Math.floor(seconds / 86400);
   const h = Math.floor((seconds % 86400) / 3600);
@@ -71,7 +85,80 @@ function setReachable(reachable) {
     : "Keine Antwort — die Zahlen sind der letzte bekannte Stand";
 }
 
+/** Leere Flächen sagen, warum sie leer sind. Die Tabelle weicht dabei ganz:
+ *  ein Spaltenkopf ohne Zeilen fällt in sich zusammen und sieht kaputt aus. */
+function syncEmptyStates() {
+  const hasRows = $("log").childElementCount > 0;
+  $("log-empty").hidden = hasRows;
+  $("log-table").hidden = !hasRows;
+  $("top-empty").hidden = $("top").childElementCount > 0;
+}
+
+// ── Die Sparkline ─────────────────────────────────────────────────────────
+//
+// Sie zählt die Anfragen des Live-Stroms je Sekunde — dieselbe Quelle wie das
+// Protokoll, kein zusätzlicher Endpunkt. Der Puffer wächst von einer Sekunde
+// auf sechzig und schiebt erst dann: so füllt sich die Linie von links, statt
+// eine Minute Nullen zu behaupten, die niemand beobachtet hat.
+
+const spark = [0];
+
+function drawSpark() {
+  const path = $("spark");
+  if (spark.length < 2) {
+    path.setAttribute("d", "");
+    return;
+  }
+  // Der Maßstab folgt der Spitze; mindestens 1, damit eine ruhige Minute flach
+  // am Boden liegt statt durch Rundungsrauschen zu zappeln.
+  const peak = Math.max(1, ...spark);
+  const step = 240 / (SPARK_SECONDS - 1);
+  let d = "";
+  spark.forEach((value, index) => {
+    const x = (index * step).toFixed(1);
+    const y = (39 - (value / peak) * 38).toFixed(1);
+    d += `${index === 0 ? "M" : " L"}${x} ${y}`;
+  });
+  path.setAttribute("d", d);
+}
+
+function tickSpark() {
+  spark.push(0);
+  if (spark.length > SPARK_SECONDS) spark.shift();
+  drawSpark();
+}
+
 // ── Frage 1: Läuft er? ────────────────────────────────────────────────────
+
+function renderUpstreams(list) {
+  const box = $("upstreams");
+  box.replaceChildren();
+  for (const upstream of list) {
+    const item = document.createElement("li");
+
+    const dot = document.createElement("span");
+    dot.className = `up-dot ${upstream.down ? "is-down" : "is-up"}`;
+
+    const name = document.createElement("span");
+    name.className = "up-name";
+    name.textContent = upstream.name;
+
+    const rtt = document.createElement("span");
+    rtt.className = "up-rtt";
+    if (upstream.down) {
+      rtt.textContent = "ausgefallen";
+    } else if (upstream.rtt_ms === null) {
+      rtt.textContent = "–";
+    } else {
+      rtt.textContent = `${upstream.rtt_ms.toFixed(0)} ms`;
+      const slot = latencyClass(upstream.rtt_ms);
+      if (slot) rtt.classList.add(slot);
+    }
+
+    item.append(dot, name, rtt);
+    box.append(item);
+  }
+}
 
 async function refreshStatus() {
   const status = await api("/api/status");
@@ -82,27 +169,18 @@ async function refreshStatus() {
   $("mode").textContent = status.logging_mode;
 
   $("queries").textContent = thousands(status.queries);
-  $("blocked").textContent = `${thousands(status.blocked)} · ${percent(status.block_rate)}`;
+  // Die Anzahl ist die Kennzahl, der Anteil ihr Kleingedrucktes.
+  const rate = document.createElement("span");
+  rate.className = "trail";
+  rate.textContent = percent(status.block_rate);
+  $("blocked").replaceChildren(
+    document.createTextNode(thousands(status.blocked)),
+    rate,
+  );
   $("hitrate").textContent = percent(status.cache_hit_rate);
   $("entries").textContent = thousands(status.list_entries);
 
-  const upstreams = $("upstreams");
-  upstreams.replaceChildren();
-  status.upstreams.forEach((upstream, index) => {
-    if (index > 0) {
-      const sep = document.createElement("span");
-      sep.className = "sep";
-      sep.textContent = "·";
-      upstreams.append(sep);
-    }
-    const span = document.createElement("span");
-    if (upstream.down) span.className = "down";
-    const rtt = upstream.rtt_ms === null ? "–" : `${upstream.rtt_ms.toFixed(0)} ms`;
-    span.textContent = upstream.down
-      ? `${upstream.name} ausgefallen`
-      : `${upstream.name} ${rtt}`;
-    upstreams.append(span);
-  });
+  renderUpstreams(status.upstreams);
 
   // Der aktive Log-Modus steht dauerhaft auf der Seite, nicht in einem
   // Einstellungsdialog (ADR-0004). Er bestimmt, was das Protokoll zeigen kann.
@@ -111,17 +189,18 @@ async function refreshStatus() {
   const note = $("live-note");
   if (quiet) {
     note.textContent =
-      `Modus '${status.logging_mode}': der Server speichert keine Namen. ` +
+      `Modus '${status.logging_mode}': keine Namen. ` +
       `Sichtbar ist, dass etwas passiert — nicht was.`;
     note.hidden = false;
   } else {
     note.hidden = true;
   }
-  $("top-note").hidden = !quiet;
-  $("top-note").textContent =
-    `Nur Namen ab ${status.logging_mode === "none" ? "—" : "der k-Schwelle"}.`;
   if (status.logging_mode === "none") {
     $("top-note").textContent = "Im Modus 'none' werden keine Namen gezählt.";
+  } else if (quiet) {
+    $("top-note").textContent = "Namen erscheinen erst ab der k-Schwelle.";
+  } else {
+    $("top-note").textContent = "Noch kein Name oft genug gesehen.";
   }
 }
 
@@ -150,9 +229,31 @@ function showReason(event) {
     chain.append(item);
   }
   box.append(chain);
+
+  $("why-empty").hidden = true;
+  box.hidden = false;
 }
 
 // ── Frage 2: Was gerade passiert ──────────────────────────────────────────
+
+/** Die Antwort als Badge. Geblockt sagt der Text, die Farbe wiederholt es nur —
+ *  wer sie nicht sieht, verliert nichts. Der echte RCODE bleibt im Titel. */
+function rcodeCell(event) {
+  const td = document.createElement("td");
+  td.className = "c-rcode";
+  const badge = document.createElement("span");
+  badge.className = "badge";
+  if (event.blocked) {
+    badge.classList.add("is-blocked");
+    badge.textContent = "BLOCKED";
+    badge.title = event.rcode;
+  } else {
+    badge.textContent = event.rcode;
+    if (event.rcode === "NXDOMAIN") badge.classList.add("is-muted");
+  }
+  td.append(badge);
+  return td;
+}
 
 function row(event) {
   const tr = document.createElement("tr");
@@ -164,8 +265,12 @@ function row(event) {
   tr.append(name);
 
   tr.append(cell(event.client ?? "–", "c-client"));
-  tr.append(cell(event.rcode, "c-rcode"));
-  tr.append(cell(event.ms.toFixed(1), "c-ms"));
+  tr.append(rcodeCell(event));
+
+  const ms = cell(event.ms.toFixed(1), "c-ms");
+  const slot = latencyClass(event.ms);
+  if (slot) ms.classList.add(slot);
+  tr.append(ms);
   return tr;
 }
 
@@ -181,6 +286,8 @@ function addRow(event) {
   // Wer im Protokoll nach unten gescrollt hat, soll nicht mitgeschoben werden.
   if (!wasAtTop) scroller.scrollTop += tr.offsetHeight;
 
+  spark[spark.length - 1] += 1;
+  syncEmptyStates();
   if (event.blocked && event.name) showReason(event);
 }
 
@@ -200,6 +307,7 @@ async function refreshTop() {
     item.append(name, count);
     list.append(item);
   }
+  syncEmptyStates();
 }
 
 function connectStream() {
@@ -223,6 +331,7 @@ async function loadRecent() {
   for (const event of recent.slice().reverse()) body.prepend(row(event));
   const newestBlocked = recent.find((event) => event.blocked && event.name);
   if (newestBlocked) showReason(newestBlocked);
+  syncEmptyStates();
 }
 
 function showApp() {
@@ -235,6 +344,7 @@ async function start() {
   showApp();
   await Promise.allSettled([loadRecent(), refreshTop()]);
   connectStream();
+  setInterval(tickSpark, 1000);
   setInterval(async () => {
     try {
       await refreshStatus();
