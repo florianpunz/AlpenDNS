@@ -44,6 +44,9 @@ pub trait StatusSource: Send + Sync + 'static {
 pub struct ListInfo {
     pub name: String,
     pub entries: usize,
+    /// In welchem Format sie gelesen wurde. Steht hier, damit die Metrik
+    /// belegen kann, welche Formate im Feld tatsächlich vorkommen.
+    pub format: String,
 }
 
 /// Eine konfigurierte Policy mit den Clients, für die sie gilt.

@@ -217,6 +217,11 @@ fn run() -> anyhow::Result<()> {
     // Der Blueprint muss vor dem Zerlegen der Konfiguration gebaut werden.
     let blocking_config = config.blocking;
     let specs = to_specs(&config.blocklist, &config.allowlist);
+    // Name → Format, um die geladenen Listen später der Metrik zuzuordnen.
+    let list_formats: std::collections::HashMap<String, alpendns::filter::parser::Format> = specs
+        .iter()
+        .map(|spec| (spec.name.clone(), spec.format))
+        .collect();
     // Kürzestes Intervall aller Listen; Details in filter::run_updater.
     let refresh = config
         .blocklist
@@ -258,6 +263,11 @@ fn run() -> anyhow::Result<()> {
             .map(|name| ListInfo {
                 name: name.to_string(),
                 entries: loaded.get(name).map_or(0, |matcher| matcher.len()),
+                // Nur *geladene* Listen zählen; eine, die nicht erreichbar war,
+                // steht in der Konfiguration, aber nicht in der Metrik.
+                format: list_formats
+                    .get(name.as_ref())
+                    .map_or_else(|| "?".to_owned(), ToString::to_string),
             })
             .collect();
         let engine = Arc::new(Engine::new(
@@ -324,6 +334,7 @@ fn run() -> anyhow::Result<()> {
             log: Arc::clone(&query_log),
             lists: list_infos.clone(),
             policies: policy_infos.clone(),
+            blocking_mode: blocking_config.mode,
             started: std::time::Instant::now(),
         });
 
@@ -397,6 +408,23 @@ fn run() -> anyhow::Result<()> {
 ///
 /// Abgeschaltete Listen fallen hier heraus; die Validierung hat schon
 /// sichergestellt, dass genau eine Quelle angegeben ist.
+/// Zählt die geladenen Listen je Format, häufigstes zuerst.
+///
+/// Für die Metrik `alpendns_lists`: sie soll belegen, welche Formate im Betrieb
+/// tatsächlich vorkommen — die Frage vor jeder weiteren Streichung.
+fn count_formats(lists: &[ListInfo]) -> Vec<(String, u64)> {
+    let mut counted: std::collections::HashMap<&str, u64> = std::collections::HashMap::new();
+    for list in lists {
+        *counted.entry(list.format.as_str()).or_default() += 1;
+    }
+    let mut counted: Vec<(String, u64)> = counted
+        .into_iter()
+        .map(|(format, count)| (format.to_owned(), count))
+        .collect();
+    counted.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    counted
+}
+
 fn to_specs(blocklists: &[ListConfig], allowlists: &[ListConfig]) -> Vec<ListSpec> {
     blocklists
         .iter()
@@ -489,6 +517,7 @@ struct Runtime {
     log: Arc<QueryLog>,
     lists: Vec<ListInfo>,
     policies: Vec<PolicyInfo>,
+    blocking_mode: alpendns::filter::block::BlockMode,
     started: std::time::Instant,
 }
 
@@ -501,6 +530,9 @@ impl StatusSource for Runtime {
             policy: self.engine.stats(),
             upstreams: self.pool.stats(),
             uptime: self.started.elapsed(),
+            blocking_mode: self.blocking_mode,
+            logging_mode: self.log.mode(),
+            list_formats: count_formats(&self.lists),
         }
     }
 

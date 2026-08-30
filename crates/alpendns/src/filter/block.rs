@@ -37,6 +37,22 @@ pub enum BlockMode {
     Sinkhole,
 }
 
+impl BlockMode {
+    /// Alle Modi. Die Metrik gibt jeden aus, nicht nur den aktiven — sonst
+    /// zeigt ein Scrape nur, was eingestellt ist, und nie, was es überhaupt
+    /// gibt.
+    pub const ALL: [Self; 3] = [Self::Nxdomain, Self::ZeroIp, Self::Sinkhole];
+
+    /// Wie der Modus in der Konfiguration heißt.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Nxdomain => "nxdomain",
+            Self::ZeroIp => "zero_ip",
+            Self::Sinkhole => "sinkhole",
+        }
+    }
+}
+
 impl<'de> serde::Deserialize<'de> for BlockMode {
     /// Von Hand statt abgeleitet, damit `refused` in einer Konfiguration von
     /// gestern erklärt bekommt, warum es weg ist.

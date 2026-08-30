@@ -45,9 +45,24 @@ pub enum Mode {
 }
 
 impl Mode {
+    /// Alle Modi. Wie bei [`crate::filter::block::BlockMode::ALL`] gibt die
+    /// Metrik jeden aus, damit über mehrere Installationen sichtbar wird,
+    /// welche überhaupt jemand benutzt.
+    pub const ALL: [Self; 4] = [Self::None, Self::Aggregate, Self::Ring, Self::Full];
+
     /// Ob in diesem Modus überhaupt Namen gespeichert werden dürfen.
     pub const fn keeps_names(self) -> bool {
         matches!(self, Self::Ring | Self::Full)
+    }
+
+    /// Wie der Modus in der Konfiguration heißt.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Aggregate => "aggregate",
+            Self::Ring => "ring",
+            Self::Full => "full",
+        }
     }
 }
 

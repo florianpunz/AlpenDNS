@@ -87,9 +87,11 @@ hat kein Einstellungsproblem.
 * Der Test `a_rare_name_stays_hidden_among_many_others` bleibt bestehen, obwohl
   er exakt gezählt nicht mehr fehlschlagen *kann*. Er prüft die Zusicherung,
   nicht die Implementierung, und wäre bei einem Rückbau sofort wieder scharf.
-* Neu ist ein Zähler `dropped` für Anfragen, die keinen Zähler mehr bekamen. Ohne
-  ihn wäre der volle Deckel nicht von "es wird gerade nichts gefragt" zu
-  unterscheiden.
+* `Counts::dropped()` zählt Anfragen, die keinen Zähler mehr bekamen. Der Test
+  `the_table_stops_growing_and_says_so` prüft daran, dass der Deckel greift. Als
+  Metrik nach außen geht der Wert noch nicht — solange nicht, ist ein voller
+  Deckel im Betrieb nicht von "es wird gerade wenig gefragt" zu unterscheiden.
+  Notiert als Kandidat, nicht Teil dieser Entscheidung.
 
 ## Alternativen
 

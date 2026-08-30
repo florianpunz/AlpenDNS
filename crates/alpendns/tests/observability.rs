@@ -246,12 +246,16 @@ impl StatusSource for Fake {
                 down: false,
             }],
             uptime: Duration::from_secs(42),
+            blocking_mode: alpendns::filter::block::BlockMode::Nxdomain,
+            logging_mode: self.log.mode(),
+            list_formats: vec![("hosts".to_owned(), 1)],
         }
     }
     fn lists(&self) -> Vec<ListInfo> {
         vec![ListInfo {
             name: "stevenblack".to_owned(),
             entries: 79_747,
+            format: "hosts".to_owned(),
         }]
     }
     fn policies(&self) -> Vec<PolicyInfo> {
