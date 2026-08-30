@@ -1816,6 +1816,53 @@ odoh = { enabled = true, proxy = "https://proxy.example/p" }
             .expect("die ausgelieferte Datei muss gültig sein");
     }
 
+    /// Die Unit-Datei, die neben der Konfiguration ausgeliefert wird.
+    const UNIT: &str = include_str!("../../../packaging/systemd/alpendns.service");
+
+    /// `alpendns check` läuft als `ExecStartPre` und verlangt, dass die
+    /// Verzeichnisse **schon da** sind. Angelegt werden sie von systemd, nicht
+    /// vom Paket — also müssen beide Dateien dieselben Pfade meinen. Taten sie
+    /// einmal nicht: `CacheDirectory=alpendns` legt `/var/cache/alpendns` an,
+    /// die Konfiguration zeigte auf `/var/cache/alpendns/lists`, und der erste
+    /// Start nach `apt install` scheiterte.
+    #[test]
+    fn systemd_creates_every_directory_the_packaged_configuration_needs() {
+        let mut created: Vec<String> = Vec::new();
+        for line in UNIT.lines().map(str::trim) {
+            for (key, root) in [
+                ("StateDirectory=", "/var/lib/"),
+                ("CacheDirectory=", "/var/cache/"),
+                ("LogsDirectory=", "/var/log/"),
+            ] {
+                if let Some(rest) = line.strip_prefix(key) {
+                    created.extend(rest.split_whitespace().map(|d| format!("{root}{d}")));
+                }
+            }
+        }
+
+        let config = valid(PACKAGED);
+        let mut needed = vec![config.blocking.cache_dir.clone()];
+        if config.api.enabled {
+            needed.push(
+                config
+                    .api
+                    .token_file
+                    .parent()
+                    .expect("token_file hat ein Verzeichnis")
+                    .to_path_buf(),
+            );
+        }
+
+        for dir in needed {
+            let dir = dir.display().to_string();
+            assert!(
+                created.contains(&dir),
+                "{dir} braucht die Konfiguration, aber keine *Directory=-Zeile der Unit \
+                 legt es an: {created:?}"
+            );
+        }
+    }
+
     #[test]
     fn the_packaged_configuration_listens_nowhere_public() {
         let config = valid(PACKAGED);

@@ -51,7 +51,11 @@ UMask=0077
 # keine Rechte setzen, und ein Upgrade kann sie nicht kaputtmachen.
 StateDirectory=alpendns
 StateDirectoryMode=0750
-CacheDirectory=alpendns
+# Mit Unterverzeichnis, weil blocking.cache_dir auf /var/cache/alpendns/lists
+# zeigt: `CacheDirectory=alpendns` allein legt nur die Ebene darüber an, und
+# `alpendns check` als ExecStartPre scheitert dann beim ersten Start an einem
+# Verzeichnis, das es nicht gibt.
+CacheDirectory=alpendns/lists
 CacheDirectoryMode=0750
 LogsDirectory=alpendns
 LogsDirectoryMode=0750
