@@ -398,10 +398,11 @@ pub struct UpstreamPool {
     pub name: String,
     #[serde(default)]
     pub strategy: Strategy,
-    /// Wie viele Resolver parallel gefragt werden. Mehr als einer kostet
-    /// Privacy (zwei Anbieter sehen dieselbe Anfrage) und spart Latenz.
-    #[serde(default = "default_fanout")]
-    pub fanout: usize,
+    /// Entfernt. Der Schlüssel steht nur noch hier, damit
+    /// [`UpstreamPool::validate`] sagen kann, was stattdessen gilt — ohne ihn
+    /// meldete `deny_unknown_fields` bloß "unknown field" (ADR-0012).
+    #[serde(default)]
+    fanout: Option<toml::Value>,
     #[serde(default)]
     pub resolver: Vec<ResolverConfig>,
 }
@@ -654,10 +655,6 @@ impl Default for LoggingConfig {
     }
 }
 
-const fn default_fanout() -> usize {
-    1
-}
-
 const fn default_query_timeout() -> Duration {
     Duration::from_secs(3)
 }
@@ -871,16 +868,12 @@ impl UpstreamPool {
                 "Pool '{pool}' hat keinen Resolver"
             )));
         }
-        if self.fanout == 0 {
+        if self.fanout.is_some() {
             return Err(ConfigError::Invalid(format!(
-                "Pool '{pool}': fanout = 0 würde nie jemanden fragen"
-            )));
-        }
-        if self.fanout > self.resolver.len() {
-            return Err(ConfigError::Invalid(format!(
-                "Pool '{pool}': fanout = {} bei nur {} Resolvern",
-                self.fanout,
-                self.resolver.len()
+                "Pool '{pool}': fanout gibt es nicht mehr. Es wird immer genau ein \
+                 Resolver gefragt und erst beim Ausfall der nächste. Parallele \
+                 Anfragen zeigten dieselbe Frage mehreren Anbietern und hoben \
+                 split_by_zone auf. Bitte den Schlüssel entfernen."
             )));
         }
         for resolver in &self.resolver {
@@ -946,7 +939,6 @@ tls_name = "dns.quad9.net"
         assert_eq!(config.cache.max_entries, 100_000);
         let pool = config.upstream_pool.first().expect("ein Pool");
         assert_eq!(pool.strategy, Strategy::SplitByZone, "Default-Strategie");
-        assert_eq!(pool.fanout, 1);
         assert!(config.privacy.strip_ecs);
         assert!(config.privacy.dns0x20);
     }
@@ -1122,10 +1114,13 @@ tls_name = "dns.quad9.net"
     }
 
     #[test]
-    fn fanout_beyond_the_number_of_resolvers_is_rejected() {
-        let text = MINIMAL.replace("name = \"default\"", "name = \"default\"\nfanout = 3");
+    fn a_removed_fanout_says_what_applies_instead() {
+        // Nicht nur "unbekanntes Feld": wer fanout gesetzt hatte, soll lesen,
+        // was der Server jetzt tut.
+        let text = MINIMAL.replace("name = \"default\"", "name = \"default\"\nfanout = 2");
         let err = valid_err(&text);
         assert!(err.contains("fanout"), "{err}");
+        assert!(err.contains("genau ein"), "{err}");
     }
 
     #[test]

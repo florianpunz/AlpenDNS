@@ -110,11 +110,14 @@ die Logging-Schicht:
 Die UI zeigt "warum" aus dem Ringpuffer. Deshalb funktioniert die Erklärung auch bei
 Log-Modus `ring`, ohne dass irgendwo ein Query-Log liegt.
 
-**Zwei Abweichungen in der Umsetzung** (Phase 5): der Trace wird über einen `Mutex`
-geteilt statt exklusiv durchgereicht — sonst könnten bei `fanout > 1` nicht mehrere
-Upstream-Aufgaben gleichzeitig eintragen. Und die Schritte tragen Namen als `Arc<str>`
-statt IDs, damit ein Trace ohne die Konfiguration daneben lesbar ist. Begründung:
-[ADR-0009](adr/0009-decision-trace-mit-mutex.md).
+**Eine Abweichung in der Umsetzung** (Phase 5): die Schritte tragen Namen als
+`Arc<str>` statt IDs, damit ein Trace ohne die Konfiguration daneben lesbar ist.
+Begründung: [ADR-0009](adr/0009-decision-trace-mit-mutex.md).
+
+Die zweite Abweichung — der Trace hinter einem `Mutex` statt exklusiv durchgereicht
+— ist wieder weg. Sie hatte genau einen Grund, `fanout > 1`, und der ist mit
+`fanout` entfallen ([ADR-0012](adr/0012-fanout-entfaellt.md)). `resolve` bekommt
+den Kontext als `&mut Ctx`.
 
 ## 3. Blocklisten: Datenstruktur
 

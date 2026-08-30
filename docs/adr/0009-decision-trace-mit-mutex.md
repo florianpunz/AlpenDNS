@@ -61,3 +61,25 @@ passiert, und es spart ein Dependency.
 * **IDs mit Registry.** Spart Speicher pro Schritt und kostet jedem Leser des
   Traces eine Abhängigkeit auf die Konfiguration, aus der er stammt. Für ein
   Projekt, dessen Zweck Erklärbarkeit ist, der falsche Tausch.
+
+---
+
+## Nachtrag, 2026-08-30: der Mutex ist weg
+
+Die erste der beiden Fragen oben hatte genau eine Antwort, und sie hieß `fanout`.
+Mit `fanout > 1` fragte der Pool mehrere Resolver gleichzeitig, und zwei exklusive
+Referenzen auf denselben Trace gibt es nicht — also ein `Mutex`.
+
+`fanout` ist entfernt ([ADR-0012](0012-fanout-entfaellt.md)). Damit ist die
+Pipeline eine Kette ohne Verzweigung: jede Schicht reicht den Kontext an genau
+eine nächste weiter, der Pool fragt einen Upstream nach dem anderen. Ein `Mutex`,
+der nie umkämpft ist und nichts schützt, was gleichzeitig zugegriffen wird, ist
+kein Schutz, sondern Zeremonie — und er verdeckt, dass der Zugriff exklusiv ist.
+
+`resolve` bekommt den Kontext deshalb wieder als `&mut Ctx`, wie ARCHITECTURE.md §2
+es ursprünglich skizziert hatte. `Ctx::record` nimmt `&mut self`, `Ctx::steps`
+liefert `&[Step]` statt einer Kopie — der Aufrufer in `server::handle_request`
+kopierte die Schritte bisher bei jeder Anfrage einmal, nur um sie zu lesen.
+
+**Die zweite Entscheidung dieses ADR bleibt unverändert:** Schritte tragen
+`Arc<str>` mit dem Namen, nicht IDs mit Registry. Daran ändert `fanout` nichts.

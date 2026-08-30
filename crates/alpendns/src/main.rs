@@ -241,12 +241,7 @@ fn run() -> anyhow::Result<()> {
     runtime.block_on(async move {
         // Von außen nach innen: Cache → Zonen-Weiche → Pool bzw. LAN-Server.
         // Jede Schicht ist ein ResolveBackend, keine kennt die anderen.
-        let pool = Arc::new(Pool::new(
-            upstreams,
-            strategy,
-            pool_config.fanout,
-            SystemClock,
-        ));
+        let pool = Arc::new(Pool::new(upstreams, strategy, SystemClock));
         let query_log = Arc::new(
             QueryLog::new(&privacy_config.logging).context("Query-Log konnte nicht geöffnet werden")?,
         );
@@ -631,8 +626,8 @@ fn policy_test(path: &std::path::Path, domain: &str, client: Option<&str>) -> an
 
     let name = hickory_proto::rr::Name::from_str_relaxed(domain)
         .map_err(|e| anyhow::anyhow!("'{domain}' ist kein gültiger Domainname: {e}"))?;
-    let ctx = alpendns::trace::Ctx::new(std::net::SocketAddr::new(peer, 0));
-    let decision = engine.evaluate(&name, peer, &ctx);
+    let mut ctx = alpendns::trace::Ctx::new(std::net::SocketAddr::new(peer, 0));
+    let decision = engine.evaluate(&name, peer, &mut ctx);
 
     println!("Domain:   {domain}");
     println!("Client:   {} ({peer})", client.unwrap_or("(default)"));

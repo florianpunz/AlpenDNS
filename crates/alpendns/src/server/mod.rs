@@ -147,8 +147,8 @@ pub(crate) async fn handle_request<B: ResolveBackend>(
         return Some(dns::error_response(&request, ResponseCode::NotImp));
     }
 
-    let ctx = Ctx::new(peer);
-    let response = match backend.resolve(&request, &ctx).await {
+    let mut ctx = Ctx::new(peer);
+    let response = match backend.resolve(&request, &mut ctx).await {
         Ok(mut response) => {
             response.metadata.recursion_available = true;
             response

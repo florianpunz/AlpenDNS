@@ -87,9 +87,9 @@ fn engine(
 
 fn ask(engine: &TestEngine, domain: &str, from: &str) -> (Decision, Ctx) {
     let peer: IpAddr = from.parse().expect("gültige Adresse");
-    let ctx = Ctx::new(SocketAddr::new(peer, 4242));
+    let mut ctx = Ctx::new(SocketAddr::new(peer, 4242));
     let name = Name::from_ascii(domain).expect("gültiger Name");
-    let decision = engine.evaluate(&name, peer, &ctx);
+    let decision = engine.evaluate(&name, peer, &mut ctx);
     (decision, ctx)
 }
 

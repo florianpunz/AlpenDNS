@@ -132,7 +132,7 @@ impl<C: Clock, W: WallClock> Engine<C, W> {
     /// Blocklisten → Regex → Zeitplan. Die Allowlist steht vorn, weil sie sonst
     /// keinen Zweck hätte: sie ist das Mittel, einen Fehlalarm einer fremden
     /// Liste zu übersteuern.
-    pub fn evaluate(&self, name: &Name, peer: IpAddr, ctx: &Ctx) -> Decision {
+    pub fn evaluate(&self, name: &Name, peer: IpAddr, ctx: &mut Ctx) -> Decision {
         let set = self.set.load();
         let identity = set.clients.identify(peer);
         ctx.record(Step::ClientMatched {
@@ -205,7 +205,7 @@ impl<C: Clock, W: WallClock> Engine<C, W> {
         Decision::Allow
     }
 
-    fn block(&self, ctx: &Ctx) -> Decision {
+    fn block(&self, ctx: &mut Ctx) -> Decision {
         ctx.record(Step::Synthesized { mode: self.mode });
         self.counters.blocked.fetch_add(1, Ordering::Relaxed);
         Decision::Block
@@ -463,12 +463,15 @@ impl<B: ResolveBackend, C: Clock, W: WallClock> ResolveBackend for PolicyBackend
     fn resolve(
         &self,
         request: &Message,
-        ctx: &Ctx,
+        ctx: &mut Ctx,
     ) -> impl std::future::Future<Output = Result<Message, ResolveError>> + Send {
+        // Die Adresse vorher herausziehen: `evaluate` braucht den Kontext
+        // exklusiv, und `ctx.peer` im selben Ausdruck wäre ein zweiter Zugriff.
+        let peer = ctx.peer.ip();
         let decision = request
             .queries
             .first()
-            .map(|query| self.engine.evaluate(query.name(), ctx.peer.ip(), ctx));
+            .map(|query| self.engine.evaluate(query.name(), peer, ctx));
 
         async move {
             if decision == Some(Decision::Block) {

@@ -146,6 +146,11 @@ der Normalfall.
   ungleiche Verteilung, keine Privacy-Lücke. Die saubere Lösung braucht die Public
   Suffix List und ist als Phase 7, Schritt 1 eingeplant, wo die Verteilung ohnehin
   gemessen wird.
+* **Nachträglich zurückgebaut (Phase 7):** Schritt 3 baute `fastest`, dazu kamen
+  `round_robin` und `fanout`. Alle drei sind wieder weg — `split_by_zone` ist die
+  einzige Strategie, und es wird immer genau ein Upstream gefragt.
+  [ADR-0011](adr/0011-eine-upstream-strategie.md),
+  [ADR-0012](adr/0012-fanout-entfaellt.md).
 
 **Fallstricke:** 0x20 vertragen nicht alle Upstreams — pro Pool abschaltbar machen und im
 Fehlerfall automatisch deaktivieren, statt Anfragen scheitern zu lassen.
@@ -234,9 +239,10 @@ Verdikt:  GEBLOCKT
 Dieselbe Domain ohne `--client` läuft durch — die Regel gehört nur der einen Policy.
 
 * **Strukturell:** `resolve` bekommt jetzt einen `Ctx` mit Client-Adresse und Trace.
-  Der Trace wird über einen Mutex geteilt statt exklusiv durchgereicht, weil bei
-  `fanout > 1` mehrere Upstream-Aufgaben gleichzeitig eintragen; Begründung in
-  [ADR-0009](adr/0009-decision-trace-mit-mutex.md).
+  Er lag zunächst hinter einem Mutex, weil bei `fanout > 1` mehrere
+  Upstream-Aufgaben gleichzeitig eintrugen; seit `fanout` entfallen ist, wird er
+  wieder exklusiv durchgereicht ([ADR-0009](adr/0009-decision-trace-mit-mutex.md)
+  samt Nachtrag, [ADR-0012](adr/0012-fanout-entfaellt.md)).
 * **Schritt 5 nachgeholt** mit der API aus Phase 6. Gegen den laufenden Server:
   `doubleclick.net` liefert NXDOMAIN, nach `POST /api/allow` NOERROR, nach Ablauf
   wieder NXDOMAIN.

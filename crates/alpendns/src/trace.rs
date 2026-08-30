@@ -7,13 +7,14 @@
 //! Query-Namen enthalten — und deshalb darf ihn niemand außerhalb dieser
 //! Schicht einfach ins Log schreiben (B.1 Regel 3).
 //!
-//! **Warum ein Mutex und kein `&mut`:** der Upstream-Pool fragt bei `fanout > 1`
-//! mehrere Resolver gleichzeitig, und jeder will seinen Schritt eintragen. Mit
-//! einer exklusiven Referenz ginge das nicht. Ein unumkämpfter Mutex kostet
-//! wenige Nanosekunden gegen 28 µs für eine ganze Anfrage.
+//! **Der Trace wird exklusiv durchgereicht** (`&mut Ctx`). Bis `fanout` entfiel,
+//! lag er hinter einem `Mutex`: der Pool fragte mehrere Resolver gleichzeitig,
+//! und jeder wollte eintragen. Seit immer genau ein Upstream gefragt wird, ist
+//! die Pipeline eine Kette ohne Verzweigung, und der `Mutex` schützte nichts
+//! mehr ([ADR-0012](../../../docs/adr/0012-fanout-entfaellt.md)).
 
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::filter::block::BlockMode;
@@ -128,14 +129,14 @@ impl std::fmt::Display for Step {
 
 /// Kontext einer einzelnen Anfrage.
 ///
-/// Wandert durch alle Schichten der Pipeline. Geteilt und nicht exklusiv, damit
-/// nebenläufige Schichten eintragen können.
+/// Wandert exklusiv durch alle Schichten der Pipeline. Jede Schicht reicht ihn
+/// an die nächste weiter; nebenläufig trägt niemand ein.
 #[derive(Debug)]
 pub struct Ctx {
     /// Woher die Anfrage kam. Grundlage der Client-Identifikation.
     pub peer: SocketAddr,
     started: Instant,
-    steps: Mutex<Vec<Step>>,
+    steps: Vec<Step>,
 }
 
 impl Ctx {
@@ -144,7 +145,7 @@ impl Ctx {
             peer,
             started: Instant::now(),
             // Acht Schritte decken den Normalfall ohne Nachallokieren ab.
-            steps: Mutex::new(Vec::with_capacity(8)),
+            steps: Vec::with_capacity(8),
         }
     }
 
@@ -154,18 +155,12 @@ impl Ctx {
         Self::new(SocketAddr::from(([127, 0, 0, 1], 0)))
     }
 
-    pub fn record(&self, step: Step) {
-        self.steps
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push(step);
+    pub fn record(&mut self, step: Step) {
+        self.steps.push(step);
     }
 
-    pub fn steps(&self) -> Vec<Step> {
-        self.steps
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone()
+    pub fn steps(&self) -> &[Step] {
+        &self.steps
     }
 
     pub fn elapsed(&self) -> Duration {
@@ -174,7 +169,7 @@ impl Ctx {
 
     /// Die Begründungskette als Text, ein Schritt pro Zeile.
     pub fn explain(&self) -> String {
-        self.steps()
+        self.steps
             .iter()
             .enumerate()
             .map(|(index, step)| format!("  {}. {step}", index.saturating_add(1)))
@@ -193,7 +188,7 @@ mod tests {
 
     #[test]
     fn steps_are_kept_in_order() {
-        let ctx = ctx();
+        let mut ctx = ctx();
         ctx.record(Step::ClientMatched {
             client: Arc::from("laptop"),
             by: MatchKind::Address,
@@ -214,29 +209,8 @@ mod tests {
     }
 
     #[test]
-    fn several_threads_can_record_at_once() {
-        // Der Grund für den Mutex: bei fanout > 1 tragen mehrere Aufgaben
-        // gleichzeitig ein.
-        let ctx = Arc::new(ctx());
-        let mut handles = Vec::new();
-        for i in 0..8 {
-            let ctx = Arc::clone(&ctx);
-            handles.push(std::thread::spawn(move || {
-                ctx.record(Step::UpstreamUsed {
-                    resolver: Arc::from(format!("r{i}")),
-                    rtt: Duration::from_millis(i),
-                });
-            }));
-        }
-        for handle in handles {
-            handle.join().expect("Thread");
-        }
-        assert_eq!(ctx.steps().len(), 8);
-    }
-
-    #[test]
     fn the_explanation_numbers_every_step() {
-        let ctx = ctx();
+        let mut ctx = ctx();
         ctx.record(Step::ClientMatched {
             client: Arc::from("kids-tablet"),
             by: MatchKind::Address,

@@ -138,7 +138,7 @@ impl ResolveBackend for ForwardBackend {
     fn resolve(
         &self,
         request: &Message,
-        _ctx: &crate::trace::Ctx,
+        _ctx: &mut crate::trace::Ctx,
     ) -> impl std::future::Future<Output = Result<Message, ResolveError>> + Send {
         let client_id = request.metadata.id;
         let request = request.clone();
