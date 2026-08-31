@@ -84,19 +84,19 @@ diesem Projekt. Das heißt konkret: erkläre nicht-offensichtliche Entscheidunge
 Commit oder in der Antwort, statt sie kommentarlos einzubauen. Ein Einzeiler
 "warum so und nicht anders" ist mehr wert als drei Absätze Doku.
 
-**Stand:** Phasen 1 bis 9 sind umgesetzt. Abgenommen sind 1 bis 5; bei Phase 6
-fehlt nur der Blick eines Menschen auf die gerenderte UI (Roadmap, Schritt 8), bei
-Phase 7 nur der CI-Lauf, für den es kein GitHub-Remote gibt. Bei Phase 8 und 9
-steht derselbe Praxistest aus, weil es derselbe Lauf ist: der Server als
-einziger Resolver im LAN, mehrere Tage, alle Detektoren auf `flag` — erst
-danach darf ein Detektor auf `block`. Anleitung dazu in `docs/OPERATIONS.md`
-§6. Ebenfalls offen aus Phase 9: die Installation des `.deb` auf einer frischen
-Debian-VM; geprüft ist bisher nur, was ohne VM prüfbar ist (Paketinhalt,
-Maintainer-Skripte, `systemd-analyze verify` und `security`). Der gesamte
-testbare Code
-liegt in der Library (`src/lib.rs` und die Module daneben), `main.rs` macht nur
-Start, Signale und Shutdown — Voraussetzung dafür, dass Module später ohne Umbau zu
-eigenen Crates werden.
+**Stand:** Phasen 1 bis 9 sind umgesetzt. Abgenommen sind 1 bis 7 — bei Phase 6
+kam am 2026-08-31 der Blick eines Menschen auf die gerenderte UI dazu, bei
+Phase 7 läuft der CI-Workflow dauerhaft grün in GitHub Actions. Bei Phase 8
+und 9 läuft derselbe Praxistest: seit 2026-08-30 ist der Server der einzige
+Resolver im Homelab, alle Detektoren auf `flag` — erst nach Durchsicht der
+Falsch-Positiv-Liste darf ein Detektor auf `block`. Anleitung dazu in
+`docs/OPERATIONS.md` §6. Aus Phase 9 ist die Installation auf einem echten
+System mit einer Abweichung erledigt: das `.deb` wurde auf einem
+Ubuntu-Container installiert und läuft; die frische Debian-VM, die das
+Abnahmekriterium wörtlich verlangt, wird bei Gelegenheit nachgeholt. Der
+gesamte testbare Code liegt in der Library (`src/lib.rs` und die Module
+daneben), `main.rs` macht nur Start, Signale und Shutdown — Voraussetzung
+dafür, dass Module später ohne Umbau zu eigenen Crates werden.
 
 Die Pipeline ist eine Kette von `ResolveBackend`-Implementierungen, von außen nach
 innen: `PolicyBackend` → `CachingBackend` → `ZoneRouter` → `Pool` → `Encrypted`
@@ -122,8 +122,8 @@ ADR-0006, bekannter Fall in `crates/alpendns/fuzz/known-crashes/`. Dazu eine
 dokumentierte Advisory-Ausnahme in `deny.toml`: RUSTSEC-2026-0009 betrifft `time`,
 das seit dem DNSSEC-Feature **im Produktionsbaum** liegt — die Ausnahme trägt seit
 Phase 7 eine engere Begründung (der verwundbare Pfad wird nicht betreten), nicht
-mehr "steckt gar nicht im Binary". Der CI-Lauf fehlt weiterhin, dafür gibt es kein
-GitHub-Remote.
+mehr "steckt gar nicht im Binary". Der CI-Workflow läuft in GitHub Actions
+dauerhaft grün.
 
 Seit Phase 8 gibt es fünf Heuristiken in `crate::detect` (DGA, Tunneling,
 Rebinding, Typosquat, NRD). **Alle stehen per Default auf `flag`** und blocken
