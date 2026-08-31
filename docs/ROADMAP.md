@@ -58,7 +58,7 @@ Anfragepfad läuft 5 Minuten ohne Crash.
 Auslieferungs-Konfiguration (`cargo +nightly fuzz run -O`). Mit aktiven Overflow-Checks
 findet er einen Panic in `hickory-proto 0.26.1` selbst, den wir nicht reparieren können.
 Bewertung, Auflagen und der Weg zurück: [ADR-0005](adr/0005-tsig-panic-in-hickory-proto.md).
-Weiterhin offen aus Phase 0: der CI-Lauf, dafür fehlt ein GitHub-Remote.
+Der damals offene CI-Lauf aus Phase 0 läuft inzwischen dauerhaft grün in GitHub Actions.
 
 **Fallstricke:** Port 53 braucht Rechte — in der Entwicklung auf 5353 gehen. UDP hat keine
 Verbindung: die Antwort muss an genau die Quelladresse zurück, von der die Anfrage kam,
@@ -270,7 +270,7 @@ Dieselbe Domain ohne `--client` läuft durch — die Regel gehört nur der einen
 **Abnahme:** Ein Außenstehender öffnet die UI und versteht in 30 Sekunden, was der Server
 gerade tut. Die Seite funktioniert ohne Internetzugang.
 
-**Umgesetzt am 2026-08-29; die Abnahme der UI steht aus.**
+**Umgesetzt am 2026-08-29; abgenommen am 2026-08-31.**
 
 Gegen den laufenden Server geprüft:
 
@@ -307,13 +307,14 @@ Am 2026-08-30 dazugekommen und ebenfalls gegen den laufenden Server geprüft:
   Build-Schritt, Prometheus von Hand):
   [ADR-0010](adr/0010-api-ui-und-metriken.md).
 
-**Offen: Schritt 8.** "Screenshot-Review gegen die Vorgaben in CLAUDE.md B.6" ist
-ein Blick eines Menschen auf eine gerenderte Seite. Automatisiert geprüft ist, was
-sich prüfen lässt: keine Verweise nach außen, die drei Fragen als Überschriften
-vorhanden, die semantischen Farben in beiden Schemata und nur in Selektoren
-mit Bedeutung, zentrierter Container, 8er-Abstände, vier Kennzahlenkarten,
-Sparkline als Inline-SVG ohne Bibliothek, erklärte Leerflächen, tabellarische
-Ziffern, kein `innerHTML`. Ob die Seite *ruhig* aussieht, kann kein Test sagen.
+**Schritt 8 — abgenommen am 2026-08-31.** Ein Mensch hat die gerenderte Seite
+gegen die Vorgaben in CLAUDE.md B.6 geprüft: die drei Fragen ohne Klick, beide
+Farbschemata, den "ruhig"-Eindruck, das "Auffällig"-Panel. Was sich
+automatisiert prüfen lässt, läuft ohnehin als Test: keine Verweise nach außen,
+die drei Fragen als Überschriften vorhanden, die semantischen Farben in beiden
+Schemata und nur in Selektoren mit Bedeutung, zentrierter Container,
+8er-Abstände, vier Kennzahlenkarten, Sparkline als Inline-SVG ohne Bibliothek,
+erklärte Leerflächen, tabellarische Ziffern, kein `innerHTML`.
 
 Die Gestaltung wurde am 2026-08-30 überarbeitet: zentrierter Container (max.
 1400 px), Kennzahlen als Karten mit Sparkline der letzten 60 Sekunden, Upstreams
@@ -479,11 +480,12 @@ eingeschaltetem ODoH still nichts.
   beantworten jede Frage mit demselben A-Record, auch eine nach DNSKEY — für
   einen validierenden Griff ist das keine unsignierte Zone, sondern eine kaputte
   Kette. Was dort geprüft wird, sind die Transporte.
-* **Weiterhin offen aus Phase 0:** der CI-Lauf, dafür fehlt ein GitHub-Remote.
-  Das Abnahmekriterium dieser Phase verlangt, dass Punkt 6 *dauerhaft in CI*
-  läuft; lokal läuft er bei jedem `cargo test`.
-* **Weiterhin offen aus Phase 6, Schritt 8:** der Blick eines Menschen auf die
-  gerenderte UI. Dazugekommen sind dort ein Eintrag im Privacy-Streifen
+* **Erledigt:** der CI-Lauf läuft inzwischen dauerhaft grün in GitHub Actions
+  (fmt, clippy, test, cargo-deny). Damit ist das Abnahmekriterium dieser Phase,
+  Punkt 6 *dauerhaft in CI*, erfüllt; der Test läuft ohnehin bei jedem
+  `cargo test` lokal.
+* **Erledigt am 2026-08-31:** der Blick eines Menschen auf die gerenderte UI
+  (Phase 6, Schritt 8). Dazugekommen sind dort ein Eintrag im Privacy-Streifen
   ("DNSSEC selbst geprüft" bzw. "dem Upstream geglaubt") und zwei Zähler in der
   Privacy-Kachel, darunter die verworfenen Antworten — die einzige Zahl der
   Reihe, die im Betrieb eine Frage aufwirft.
@@ -583,15 +585,15 @@ befristeten Freigabe aus Phase 5 und benutzt dieselbe Struktur.
   Teil der verbleibenden 0,077 % aus.
 * **Ein DNSSEC-Fehler aus Phase 7 kam hier heraus** und ist behoben — siehe den
   Nachtrag oben.
-* **Weiterhin offen aus Phase 0:** der CI-Lauf, dafür fehlt ein GitHub-Remote.
-* **Weiterhin offen aus Phase 6, Schritt 8:** der Blick eines Menschen auf die
-  gerenderte UI. Dazugekommen ist das Panel "Auffällig".
+* **Erledigt:** der CI-Lauf läuft dauerhaft grün in GitHub Actions (Phase 0).
+* **Erledigt am 2026-08-31:** der Blick eines Menschen auf die gerenderte UI
+  (Phase 6, Schritt 8). Dazugekommen ist das Panel "Auffällig".
 
-**Die Abnahme steht aus, und sie kann nicht anders ausstehen:** "eine Woche
-Betrieb im echten Netz mit allen Detektoren auf `flag`" braucht eine Woche und
-ein echtes Netz. Sie gehört damit zu demselben Praxistest, der aus Phase 4 nach
-Phase 9 verschoben wurde — vorher gibt es keine systemd-Unit und keinen Betrieb
-auf Port 53. Erst danach darf ein Detektor auf `block`.
+**Die Abnahme läuft:** "eine Woche Betrieb im echten Netz mit allen Detektoren
+auf `flag`" braucht eine Woche und ein echtes Netz. Der Praxistest hat am
+2026-08-30 begonnen — seitdem ist der Server der einzige Resolver im Homelab.
+Es ist derselbe Lauf wie der Praxistest aus Phase 9 (OPERATIONS.md §6). Erst
+nach Durchsicht der Falsch-Positiv-Liste darf ein Detektor auf `block`.
 
 ---
 
@@ -677,33 +679,31 @@ Freigabe für das LAN, Upgrade, Backup, Fehlersuche, was die
 Hardening-Direktiven bedeuten, Beobachtungswoche, Deinstallation. Liegt im
 Paket unter `/usr/share/doc/alpendns/`.
 
-**Was aussteht — und warum es aussteht:**
+**Was aussteht — und was inzwischen belegt ist:**
 
-* **Die Installation auf einer frischen Debian-VM ist nicht durchgeführt.** Es
-  gab keine. Geprüft ist, was ohne VM prüfbar ist: das Paket baut, `dpkg-deb -c`
-  zeigt den erwarteten Inhalt, die Maintainer-Skripte sind korrekt
-  zusammengesetzt, `systemd-analyze verify` findet keinen Fehler in der Unit und
-  `systemd-analyze security` gibt 1,5. Dazu ein Lauf des **ausgepackten
-  Paketbinaries** gegen die **ausgelieferte Konfiguration** (Ports und Pfade in
-  ein Temporärverzeichnis umgebogen, sonst unverändert): `check` grün,
-  `dig example.com` liefert über UDP und TCP eine Adresse, `doubleclick.net`
-  liefert NXDOMAIN, ein Sturm von 400 Anfragen aus einer Quelle wird nach genau
-  200 abgeschnitten — der konfigurierte Burst —, während ein zweiter Client
-  daneben alle 50 Antworten bekommt, und SIGTERM beendet sauber mit der
-  Cache-Bilanz im Log.
+* **Installation auf einem echten System — verifiziert, mit Abweichung.** Am
+  2026-08-30 wurde das `.deb` auf einem **Ubuntu-Container** installiert: Dienst
+  läuft, `check` grün, seitdem geht der gesamte Homelab-DNS-Verkehr über den
+  Server. Das belegt die Reihenfolge `adduser` → `deb-systemd-helper` → erster
+  Start auf einem fremden System, die der Lauf des ausgepackten Binaries vorher
+  offen ließ — und es widerlegt die Sorge, `SystemCallFilter` behindere den
+  Prozess im Betrieb.
 
-  Was das **nicht** belegt: dass `adduser`, `deb-systemd-helper` und der erste
-  Start auf einem fremden System in dieser Reihenfolge durchlaufen, und dass die
-  Hardening-Direktiven den Prozess im Betrieb nicht doch an einer Stelle
-  behindern, die hier nicht auftrat (der Kandidat dafür ist
-  `SystemCallFilter`). Das ist der erste Schritt der Abnahme.
-* **Der mehrtägige Praxistest steht aus.** Er braucht Tage und ein echtes Netz.
-  Die Anleitung dazu steht in OPERATIONS.md §6; sie umfasst zugleich die
-  ausstehende Abnahme von Phase 8 (Beobachtungswoche mit allen Detektoren auf
-  `flag`), weil beides derselbe Lauf ist.
-* **Weiterhin offen aus Phase 0:** der CI-Lauf, dafür fehlt ein GitHub-Remote.
-* **Weiterhin offen aus Phase 6, Schritt 8:** der Blick eines Menschen auf die
-  gerenderte UI.
+  Es bleibt eine **Abweichung zum Kriterium**: verlangt ist eine *frische
+  Debian-VM*, geliefert wurde ein Ubuntu-Container. Ubuntu ist Debian-verwandt
+  (das `.deb` zielt ohnehin auf Debian/Ubuntu, `rustc 1.85` = Debian 13), und
+  ein Container unterscheidet sich von einer nackten VM im systemd- und
+  Capabilities-Verhalten. Fürs Erste akzeptiert; eine frische Debian-VM wird
+  bei Gelegenheit nachgeholt.
+* **Der Praxistest läuft.** Begonnen am 2026-08-30: der Server ist einziger
+  Resolver im Homelab, alle Detektoren auf `flag`. Anleitung in OPERATIONS.md
+  §6; der Lauf umfasst zugleich die Abnahme von Phase 8 (Beobachtungswoche mit
+  allen Detektoren auf `flag`), weil beides derselbe Lauf ist. Am Ende steht die
+  Durchsicht der Falsch-Positiv-Liste — erst danach darf ein Detektor auf
+  `block`.
+* **Erledigt:** der CI-Lauf läuft dauerhaft grün in GitHub Actions (Phase 0).
+* **Erledigt am 2026-08-31:** der Blick eines Menschen auf die gerenderte UI
+  (Phase 6, Schritt 8).
 
 ---
 
