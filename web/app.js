@@ -446,6 +446,12 @@ async function refreshStatus() {
     note.textContent = "flüchtig · nichts davon wird gespeichert";
   }
 
+  // Dasselbe für die Begründung: ohne Namen gibt es keine anklickbare Zeile,
+  // und der Aufforderungssatz wäre eine Anleitung ins Leere.
+  $("why-empty-note").textContent = quiet
+    ? `Modus '${status.logging_mode}': der Server merkt sich keine Namen, deshalb steht hier nichts.`
+    : "Seit diese Seite offen ist, wurde nichts geblockt. Eine Zeile im Protokoll anklicken fragt die Entscheidungskette ab.";
+
   if (status.logging_mode === "none") {
     $("top-note").textContent = "Im Modus 'none' werden keine Namen gezählt.";
   } else if (quiet) {
