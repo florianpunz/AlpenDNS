@@ -147,7 +147,7 @@ fn a_detector_runs_through_the_pipeline_and_lands_in_the_trace() {
     // Und die Begründungskette ist für Menschen lesbar — dieselbe, die
     // `alpendns policy test` ausgibt.
     let text = ctx.explain();
-    assert!(text.contains("Score 0.930"), "{text}");
+    assert!(text.contains("score 0.930"), "{text}");
 }
 
 #[test]

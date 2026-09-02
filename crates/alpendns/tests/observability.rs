@@ -73,8 +73,8 @@ fn event(name: &str, blocked: bool) -> QueryEvent {
             ResponseCode::NoError
         },
         why: vec![
-            "Client 'kids-tablet' über die Quelladresse erkannt".to_owned(),
-            format!("Blockliste 'test' Zeile 1: '{name}'"),
+            "Client 'kids-tablet' recognized by source address".to_owned(),
+            format!("Blocklist 'test' line 1: '{name}'"),
         ],
         elapsed: Duration::from_micros(300),
         // Seit Phase 8 tragen die Detektor-Begründungen den Query-Namen. Genau
@@ -82,10 +82,10 @@ fn event(name: &str, blocked: bool) -> QueryEvent {
         // der Prozess ausgeben kann.
         findings: vec![alpendns::logging::Flagged {
             detector: "dga",
-            label: "Algorithmisch erzeugter Name",
+            label: "Algorithmically generated name",
             score: "0.930".to_owned(),
             action: "flag",
-            reason: format!("'{name}' passt nicht zu gewachsenen Namen"),
+            reason: format!("'{name}' does not fit naturally grown names"),
         }],
     }
 }
@@ -243,7 +243,7 @@ fn the_flagged_list_carries_the_finding_in_the_ring_mode() {
 
     let json = serde_json::to_string(&flagged).expect("JSON");
     assert!(json.contains(SECRET), "{json}");
-    assert!(json.contains("Algorithmisch erzeugter Name"), "{json}");
+    assert!(json.contains("Algorithmically generated name"), "{json}");
     assert!(json.contains("0.930"), "{json}");
 }
 
@@ -273,7 +273,7 @@ async fn the_live_stream_carries_names_in_the_ring_mode() {
     let received = stream.recv().await.expect("Ereignis");
     let json = serde_json::to_string(&received).expect("JSON");
     assert!(json.contains(SECRET), "{json}");
-    assert!(json.contains("Blockliste"), "die Begründung fehlt: {json}");
+    assert!(json.contains("Blocklist"), "die Begründung fehlt: {json}");
 }
 
 // ---------------------------------------------------------------------------
@@ -396,7 +396,7 @@ impl StatusSource for Fake {
             domain: domain.to_owned(),
             client: client.unwrap_or("default").to_owned(),
             blocked: true,
-            steps: vec![format!("Blockliste 'test' Zeile 1: '{domain}'")],
+            steps: vec![format!("Blocklist 'test' line 1: '{domain}'")],
         })
     }
 }
@@ -835,7 +835,7 @@ async fn a_row_can_be_explained_over_the_api() {
     assert!(
         body["steps"][0]
             .as_str()
-            .is_some_and(|s| s.contains("Blockliste")),
+            .is_some_and(|s| s.contains("Blocklist")),
         "{body}"
     );
 

@@ -211,7 +211,7 @@ fn build_event(request: &Message, response: &Message, ctx: &Ctx) -> QueryEvent {
             Step::ClientMatched { client, .. } => Some(Arc::clone(client)),
             _ => None,
         })
-        .unwrap_or_else(|| Arc::from("unbekannt"));
+        .unwrap_or_else(|| Arc::from("unknown"));
     let query = request.queries.first();
 
     let blocked = steps

@@ -76,11 +76,11 @@ impl Detector {
     /// Wie der Detektor in der Oberfläche heißt.
     pub const fn label(self) -> &'static str {
         match self {
-            Self::Dga => "Algorithmisch erzeugter Name",
+            Self::Dga => "Algorithmically generated name",
             Self::Tunneling => "Tunneling",
-            Self::Rebinding => "DNS-Rebinding",
+            Self::Rebinding => "DNS rebinding",
             Self::Typosquat => "Typosquatting",
-            Self::Nrd => "Neu registriert",
+            Self::Nrd => "Newly registered",
         }
     }
 }

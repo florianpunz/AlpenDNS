@@ -193,25 +193,6 @@ h2 {
 
 /* ── Kopfzeile ─────────────────────────────────────────────────────────── */
 
-/* Der Privacy-Streifen. Er steht neben dem Namen, weil er zur Identität des
-   Servers gehört und nicht zu seinen Messwerten: was dieser Server sich merkt,
-   ist eine Daueraussage (ADR-0004). Kein Kasten, keine Farbe — drei Angaben,
-   durch Haarlinien getrennt. */
-.privacy {
-  margin: 0;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  font-size: var(--t-micro);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--muted);
-}
-.privacy-item { padding-inline: var(--s-8); border-left: 1px solid var(--line-strong); }
-.privacy-item:first-child { padding-left: 0; border-left: 0; }
-/* Schreibt der Server auf die Platte, ist das keine Warnung im Sinne von
-   "kaputt", aber die einzige Angabe hier, die jemand übersehen darf. */
-.privacy-item.is-persisting { color: var(--warn); }
 /* Eine verworfene Antwort ist ein Ausfall: der Name hat nicht aufgelöst. */
 .counters dd.is-bogus { color: var(--danger); }
 
@@ -496,6 +477,9 @@ h2 {
   color: var(--danger);
   overflow-wrap: anywhere;
 }
+/* Durchgelassen ist grün: die Farbe wiederholt das Verdikt aus der Kontextzeile,
+   ersetzt es nicht. Geblockt bleibt der Default — dieses Panel handelt davon. */
+.why .subject.is-allowed { color: var(--success); }
 .why .context {
   margin: var(--s-8) 0 0;
   font-size: var(--t-small);
@@ -680,12 +664,13 @@ td.c-time { color: var(--muted); }
 
 /* ── Häufigste Namen ───────────────────────────────────────────────────── */
 
-/* Rechts vier Panels. Auf einem üblichen Bildschirm passen sie; auf einem
+/* Rechts fünf Panels. Auf einem üblichen Bildschirm passen sie; auf einem
    niedrigen bekommt die Spalte einen eigenen Rollbalken, statt das Layout
-   zu sprengen. Die Seite selbst scrollt weiterhin nicht. */
+   zu sprengen. Die Seite selbst scrollt weiterhin nicht. Das letzte Panel
+   (Häufigste Namen) ist das flexible: sein Listenbereich scrollt intern. */
 .side {
   display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto auto minmax(0, 1fr);
   gap: var(--s-16);
   min-height: 0;
   overflow-y: auto;
@@ -719,6 +704,9 @@ td.c-time { color: var(--muted); }
 /* ── Hinweise, Anmeldung ───────────────────────────────────────────────── */
 
 .note { margin: 0; font-size: var(--t-small); color: var(--muted); }
+/* Einzige gelbe Warnung neben dem Protokoll: der Modus "full" schreibt jede
+   Zeile auf die Platte. Die übrigen Modi bleiben neutral. */
+.note.is-persisting { color: var(--warn); }
 .error { color: var(--danger); font-size: var(--t-small); }
 
 .login {

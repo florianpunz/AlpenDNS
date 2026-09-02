@@ -70,10 +70,10 @@ impl Verdict {
 impl std::fmt::Display for Verdict {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let text = match self {
-            Self::Secure => "signiert und gültig",
-            Self::Insecure => "unsignierte Zone",
-            Self::Bogus => "Signatur ungültig oder fehlt",
-            Self::Indeterminate => "keine Aussage möglich",
+            Self::Secure => "signed and valid",
+            Self::Insecure => "unsigned zone",
+            Self::Bogus => "signature invalid or missing",
+            Self::Indeterminate => "no determination possible",
         };
         f.write_str(text)
     }

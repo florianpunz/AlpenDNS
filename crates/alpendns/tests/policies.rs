@@ -249,7 +249,7 @@ fn the_trace_records_every_step_of_a_block() {
     // Die Erklärung muss ohne Konfiguration daneben lesbar sein.
     let text = ctx.explain();
     assert!(text.contains("kids-tablet"), "{text}");
-    assert!(text.contains("Zeile 2"), "{text}");
+    assert!(text.contains("line 2"), "{text}");
 }
 
 /// Roadmap Schritt 4: derselbe Query zu zwei simulierten Uhrzeiten.

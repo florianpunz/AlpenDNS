@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -8,8 +8,8 @@
 </head>
 <body>
 <noscript>
-  <p class="note">Diese Seite braucht JavaScript für den Live-Strom. Die Daten
-  selbst liegen unter <code>/api/status</code>.</p>
+  <p class="note">This page needs JavaScript for the live stream. The data
+  itself is served under <code>/api/status</code>.</p>
 </noscript>
 
 <form id="login" class="login" hidden>
@@ -21,19 +21,19 @@
     </svg>
     <span class="wordmark"><b>Alpen</b>DNS</span>
   </h1>
-  <p class="note">Der API-Token befindet sich in der Datei
+  <p class="note">The API token is stored in the file
   <code>/AlpenDNS/lists/api.token_file</code>.</p>
   <label for="token">Token</label>
   <input id="token" type="password" autocomplete="off" spellcheck="false">
-  <button type="submit">Anmelden</button>
+  <button type="submit">Sign in</button>
   <p id="login-error" class="error" hidden></p>
 </form>
 
 <div id="app" class="shell" hidden>
 
-  <!-- Der Rahmen: wer hier läuft, seit wann, und was er sich merkt. Der
-       Privacy-Streifen steht neben dem Namen und nicht in einem Dialog: der
-       aktive Modus ist eine Daueraussage, keine Einstellung (ADR-0004). -->
+  <!-- Der Rahmen: wer hier läuft, seit wann, und in welchem Log-Modus. Der
+       Modus steht als Kennzahl neben Version und Laufzeit und nicht in einem
+       Dialog: er ist eine Daueraussage, keine Einstellung (ADR-0004). -->
   <header class="masthead">
     <div class="wrap masthead-inner">
       <h1 class="mark">
@@ -45,16 +45,10 @@
         <span class="wordmark"><b>Alpen</b>DNS</span>
       </h1>
 
-      <p class="privacy" id="privacy">
-        <span class="privacy-item" id="p-mode">–</span>
-        <span class="privacy-item" id="p-k">–</span>
-        <span class="privacy-item" id="p-dnssec">–</span>
-        <span class="privacy-item" id="p-store">–</span>
-      </p>
-
       <dl class="facts">
+        <div class="fact"><dt>Mode</dt><dd id="mode">–</dd></div>
         <div class="fact"><dt>Version</dt><dd id="version">–</dd></div>
-        <div class="fact"><dt>Läuft</dt>
+        <div class="fact"><dt>Uptime</dt>
           <dd class="reach" id="reach"><span class="dot" aria-hidden="true"></span><span id="uptime">–</span></dd>
         </div>
       </dl>
@@ -66,20 +60,20 @@
     <!-- Frage 1, als vier Karten. Die Sparkline gehört zur Anfragenzahl:
          die Summe sagt wie viel, die Linie sagt wann. -->
     <section class="figures" aria-labelledby="h-status">
-      <h2 id="h-status" class="sr-only">Läuft er?</h2>
+      <h2 id="h-status" class="sr-only">Is it running?</h2>
 
       <div class="card">
         <span class="value" id="queries">–</span>
-        <span class="label">Anfragen</span>
+        <span class="label">Queries</span>
         <svg class="spark" viewBox="0 0 240 40" preserveAspectRatio="none"
-             role="img" aria-label="Anfragen der letzten 60 Sekunden">
+             role="img" aria-label="Queries in the last 60 seconds">
           <path id="spark" class="spark-line" vector-effect="non-scaling-stroke" d=""/>
         </svg>
       </div>
 
       <div class="card">
         <span class="value" id="blocked">–</span>
-        <span class="label">Geblockt</span>
+        <span class="label">Blocked</span>
       </div>
 
       <div class="card">
@@ -89,7 +83,7 @@
 
       <div class="card">
         <span class="value" id="entries">–</span>
-        <span class="label">Listeneinträge</span>
+        <span class="label">List entries</span>
       </div>
     </section>
 
@@ -101,7 +95,7 @@
           <!-- Frage 3, und der wertvollste Teil der Seite: die größte Schrift. -->
           <section class="why panel" aria-labelledby="h-why" aria-live="polite">
             <div class="panel-head">
-              <h2 id="h-why">Warum wurde das geblockt?</h2>
+              <h2 id="h-why">Why was this blocked?</h2>
               <p class="note" id="why-source" hidden></p>
             </div>
             <div id="why-body" hidden></div>
@@ -109,27 +103,26 @@
               <svg class="empty-icon" viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M12 3l7 3v5c0 4.4-2.9 8.4-7 9.7C7.9 19.4 5 15.4 5 11V6l7-3z"/>
               </svg>
-              <p id="why-empty-note">Seit diese Seite offen ist, wurde nichts
-              geblockt. Eine Zeile im Protokoll anklicken fragt die
-              Entscheidungskette ab.</p>
+              <p id="why-empty-note">Nothing has been blocked since this page was
+              opened. Click a row in the log to ask for its decision chain.</p>
             </div>
           </section>
 
           <!-- Frage 2, und der Inhalt: der Strom. Er scrollt, die Seite nicht. -->
           <div class="panel log-panel">
             <div class="panel-head">
-              <h2 id="h-live">Was gerade passiert</h2>
-              <p class="note" id="live-note">flüchtig · nichts davon wird gespeichert</p>
+              <h2 id="h-live">What's happening</h2>
+              <p class="note" id="live-note">ephemeral</p>
             </div>
             <div class="log" id="log-scroll" tabindex="0">
               <table class="log-table" id="log-table">
-                <caption class="sr-only">Die jüngsten Anfragen</caption>
+                <caption class="sr-only">The most recent queries</caption>
                 <thead>
                   <tr>
-                    <th class="c-time">Zeit</th>
+                    <th class="c-time">Time</th>
                     <th class="c-name">Name</th>
                     <th class="c-client">Client</th>
-                    <th class="c-rcode">Antwort</th>
+                    <th class="c-rcode">Answer</th>
                     <th class="c-ms">ms</th>
                   </tr>
                 </thead>
@@ -139,7 +132,7 @@
                 <svg class="empty-icon" viewBox="0 0 24 24" aria-hidden="true">
                   <path d="M3 12h4l3-7 4 14 3-7h4"/>
                 </svg>
-                <p>Noch keine Anfrage beantwortet. Neue erscheinen hier von selbst.</p>
+                <p>No query answered yet. New ones appear here on their own.</p>
               </div>
             </div>
           </div>
@@ -152,20 +145,19 @@
                "was" steht in keiner Zeitreihe (ADR-0004). -->
           <section class="panel" aria-labelledby="h-day">
             <div class="panel-head">
-              <h2 id="h-day">Letzte 24 Stunden</h2>
-              <p class="note">nur Zähler</p>
+              <h2 id="h-day">Last 24 hours</h2>
             </div>
 
             <figure class="chart" id="chart-traffic">
               <figcaption>
-                <span>Anfragen</span>
+                <span>Queries</span>
                 <span class="key">
-                  <span class="swatch sw-total" aria-hidden="true"></span>gesamt
-                  <span class="swatch sw-blocked" aria-hidden="true"></span>geblockt
+                  <span class="swatch sw-total" aria-hidden="true"></span>total
+                  <span class="swatch sw-blocked" aria-hidden="true"></span>blocked
                 </span>
               </figcaption>
               <svg class="graph" viewBox="0 0 240 52" preserveAspectRatio="none"
-                   role="img" aria-label="Anfragen und geblockte Anfragen der letzten 24 Stunden">
+                   role="img" aria-label="Queries and blocked queries in the last 24 hours">
                 <path id="day-queries" class="line-total" vector-effect="non-scaling-stroke" d=""/>
                 <path id="day-blocked" class="line-blocked" vector-effect="non-scaling-stroke" d=""/>
               </svg>
@@ -173,23 +165,23 @@
 
             <figure class="chart" id="chart-cache">
               <figcaption>
-                <span>Cache-Trefferquote</span>
-                <span class="key"><span class="swatch sw-cache" aria-hidden="true"></span>Treffer</span>
+                <span>Cache hit rate</span>
+                <span class="key"><span class="swatch sw-cache" aria-hidden="true"></span>hits</span>
               </figcaption>
               <svg class="graph" viewBox="0 0 240 52" preserveAspectRatio="none"
-                   role="img" aria-label="Cache-Trefferquote der letzten 24 Stunden">
+                   role="img" aria-label="Cache hit rate in the last 24 hours">
                 <path id="day-cache" class="line-cache" vector-effect="non-scaling-stroke" d=""/>
               </svg>
             </figure>
 
-            <p class="axis"><span>vor 24 h</span><span>jetzt</span></p>
+            <p class="axis"><span>24 h ago</span><span>now</span></p>
 
             <div class="empty" id="day-empty">
               <svg class="empty-icon" viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M4 19h16M4 19V5M8 15l4-5 3 3 4-6"/>
               </svg>
-              <p>Die Zeitreihe beginnt beim Start und liegt nur im Arbeitsspeicher.
-              Nach fünf Minuten steht hier der erste Punkt.</p>
+              <p>The time series starts on startup and lives only in memory.
+              The first point appears after five minutes.</p>
             </div>
           </section>
 
@@ -202,9 +194,9 @@
             </div>
 
             <figure class="chart" id="chart-split">
-              <figcaption><span>Aufteilung über 24 h</span></figcaption>
+              <figcaption><span>Split over 24 h</span></figcaption>
               <svg class="graph graph-area" viewBox="0 0 240 44" preserveAspectRatio="none"
-                   role="img" aria-label="Anteil der Upstreams über die letzten 24 Stunden">
+                   role="img" aria-label="Share of upstreams over the last 24 hours">
                 <path id="split-1" class="band band-1" d=""/>
                 <path id="split-2" class="band band-2" d=""/>
                 <path id="split-3" class="band band-3" d=""/>
@@ -214,28 +206,28 @@
 
             <ul class="upstreams" id="upstreams" aria-labelledby="h-up"></ul>
 
-            <dl class="counters" aria-label="Privacy-Zähler">
-              <div><dt>ECS entfernt</dt><dd id="pc-ecs">–</dd></div>
+            <dl class="counters" aria-label="Privacy counters">
+              <div><dt>ECS stripped</dt><dd id="pc-ecs">–</dd></div>
               <div><dt>Padding</dt><dd id="pc-pad">–</dd></div>
               <div><dt>0x20</dt><dd id="pc-case">–</dd></div>
               <div><dt>Cookies</dt><dd id="pc-cookie">–</dd></div>
-              <div><dt>DNSSEC gültig</dt><dd id="pc-secure">–</dd></div>
+              <div><dt>DNSSEC valid</dt><dd id="pc-secure">–</dd></div>
               <!-- Die einzige Zahl in dieser Reihe, die eine Frage aufwirft:
                    verworfene Antworten. Deshalb steht sie hier und nicht in
                    einem Untermenü. -->
-              <div><dt>DNSSEC verworfen</dt><dd id="pc-bogus">–</dd></div>
+              <div><dt>DNSSEC dropped</dt><dd id="pc-bogus">–</dd></div>
             </dl>
           </section>
 
           <section class="panel" aria-labelledby="h-reasons">
-            <div class="panel-head"><h2 id="h-reasons">Block-Gründe</h2></div>
+            <div class="panel-head"><h2 id="h-reasons">Block reasons</h2></div>
             <div class="bar" id="reason-bar" hidden></div>
             <ul class="legend" id="reason-legend"></ul>
             <div class="empty" id="reason-empty">
               <svg class="empty-icon" viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M5 12h14M12 5v14"/>
               </svg>
-              <p>Noch nichts geblockt. Sobald eine Regel greift, steht hier, welche.</p>
+              <p>Nothing blocked yet. As soon as a rule matches, it will be listed here.</p>
             </div>
           </section>
 
@@ -245,7 +237,7 @@
                muss man sehen, ohne danach zu suchen. -->
           <section class="panel" aria-labelledby="h-flagged">
             <div class="panel-head">
-              <h2 id="h-flagged">Auffällig</h2>
+              <h2 id="h-flagged">Flagged</h2>
               <p class="note" id="flagged-note"></p>
             </div>
             <ul class="flagged" id="flagged" aria-labelledby="h-flagged"></ul>
@@ -253,13 +245,13 @@
               <svg class="empty-icon" viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M12 4v10M12 18h.01"/>
               </svg>
-              <p id="flagged-note-empty">Keine Heuristik hat angeschlagen.</p>
+              <p id="flagged-note-empty">No heuristic has flagged anything.</p>
             </div>
           </section>
 
           <section class="panel top-panel" aria-labelledby="h-top">
             <div class="panel-head">
-              <h2 id="h-top">Häufigste Namen</h2>
+              <h2 id="h-top">Top names</h2>
               <p class="note" id="top-hidden"></p>
             </div>
             <ol class="top" id="top" aria-labelledby="h-top"></ol>
@@ -267,7 +259,7 @@
               <svg class="empty-icon" viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M8 6h11M8 12h11M8 18h11M4 6h.01M4 12h.01M4 18h.01"/>
               </svg>
-              <p id="top-note">Noch kein Name oft genug gesehen.</p>
+              <p id="top-note">No name seen often enough yet.</p>
             </div>
           </section>
 

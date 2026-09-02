@@ -70,7 +70,7 @@ async function api(path) {
 // Dezimalzeichen. Eine Oberfläche, die "1,234" und "1.234" mischt, lässt jede
 // Zahl zweimal lesen.
 
-const LOCALE = "de-AT";
+const LOCALE = "en-US";
 
 const thousands = (value) => Number(value ?? 0).toLocaleString(LOCALE);
 
@@ -118,8 +118,8 @@ function setReachable(reachable) {
   const box = $("reach");
   box.classList.toggle("is-stale", !reachable);
   box.title = reachable
-    ? "Der Status ist abrufbar"
-    : "Keine Antwort — die Zahlen sind der letzte bekannte Stand";
+    ? "Status is reachable"
+    : "No response — the numbers are the last known state";
 }
 
 /** Leere Flächen sagen, warum sie leer sind. Die Tabelle weicht dabei ganz:
@@ -288,12 +288,12 @@ function renderUpstreams(list) {
     const name = document.createElement("span");
     name.className = "up-name";
     name.textContent = upstream.name;
-    name.title = `${upstream.name} über ${upstream.transport.toUpperCase()}`;
+    name.title = `${upstream.name} over ${upstream.transport.toUpperCase()}`;
 
     const rtt = document.createElement("span");
     rtt.className = "up-rtt";
     if (upstream.down) {
-      rtt.textContent = "ausgefallen";
+      rtt.textContent = "down";
     } else if (upstream.rtt_ms === null) {
       rtt.textContent = "–";
     } else {
@@ -317,52 +317,28 @@ function renderUpstreams(list) {
     .join(" · ");
 }
 
-/** Der Privacy-Streifen: Modus, Schwelle, und wohin die Daten gehen. */
-function renderPrivacy(status) {
-  $("p-mode").textContent = `Modus ${status.logging_mode}`;
+/** Der aktive Log-Modus, als Kennzahl im Kopf neben Version und Laufzeit. */
+function renderMode(status) {
+  $("mode").textContent = status.logging_mode;
   quietMode =
     status.logging_mode === "none" || status.logging_mode === "aggregate"
       ? status.logging_mode
       : "";
-
-  if (status.logging_mode === "none") {
-    $("p-k").textContent = "keine Namen";
-  } else {
-    $("p-k").textContent = `Namen ab ${thousands(status.aggregate_k)} Treffern`;
-  }
-
-  // Ob die Signaturkette selbst nachgerechnet wird. Steht im Streifen und
-  // nicht bei den Zählern, weil es eine Daueraussage ist wie der Log-Modus:
-  // entweder man glaubt dem Upstream, oder man rechnet nach.
-  $("p-dnssec").textContent = status.dnssec.enabled
-    ? "DNSSEC selbst geprüft"
-    : "DNSSEC: dem Upstream geglaubt";
-
-  // Nicht behaupten, sondern nachsehen: im Modus full schreibt der Server
-  // sehr wohl auf die Platte, und dann muss das hier stehen.
-  const store = $("p-store");
-  store.textContent = status.persists_to_disk
-    ? "schreibt auf Platte"
-    : "Daten nur im RAM";
-  store.classList.toggle("is-persisting", status.persists_to_disk);
-  $("privacy").title = status.persists_to_disk
-    ? "Der Log-Modus 'full' schreibt jede Anfrage mit Namen in eine Datei."
-    : "Nichts von dem, was hier zu sehen ist, überlebt einen Neustart.";
 }
 
 /** Die Verteilung der Block-Gründe als ein Balken. */
 function renderReasons(reasons) {
   const LABELS = {
-    blocklist: "Blockliste",
-    regex: "Regex-Regel",
-    schedule: "Zeitplan",
-    temporary_deny: "befristet gesperrt",
-    dga: "Erzeugter Name",
+    blocklist: "Blocklist",
+    regex: "Regex rule",
+    schedule: "Schedule",
+    temporary_deny: "temporarily denied",
+    dga: "Generated name",
     tunneling: "Tunneling",
     rebinding: "Rebinding",
     typosquat: "Typosquatting",
-    nrd: "Neu registriert",
-    other: "ohne Zuordnung",
+    nrd: "Newly registered",
+    other: "unassigned",
   };
   const total = reasons.reduce((sum, entry) => sum + entry.count, 0);
   const bar = $("reason-bar");
@@ -422,7 +398,7 @@ async function refreshStatus() {
   $("entries").textContent = thousands(status.list_entries);
 
   renderUpstreams(status.upstreams);
-  renderPrivacy(status);
+  renderMode(status);
   renderReasons(status.block_reasons ?? []);
 
   $("pc-ecs").textContent = thousands(status.privacy.ecs_stripped);
@@ -438,26 +414,29 @@ async function refreshStatus() {
   const quiet = status.logging_mode === "none" || status.logging_mode === "aggregate";
   namesAvailable = !quiet;
   const note = $("live-note");
+  // Nur der Modus "full" schreibt jede Zeile auf die Platte — das ist hier die
+  // einzige gelbe Warnung. Die übrigen Modi bleiben neutral und ohne Zusatz.
+  note.classList.toggle("is-persisting", status.persists_to_disk);
   if (quiet) {
-    note.textContent = `flüchtig · Modus '${status.logging_mode}': sichtbar ist, dass etwas passiert — nicht was`;
+    note.textContent = `ephemeral · mode '${status.logging_mode}': you can see that something happens — not what`;
   } else if (status.persists_to_disk) {
-    note.textContent = "Modus 'full' · jede Zeile geht zusätzlich in eine Datei";
+    note.textContent = "mode 'full' · every row is additionally written to a file";
   } else {
-    note.textContent = "flüchtig · nichts davon wird gespeichert";
+    note.textContent = "ephemeral";
   }
 
   // Dasselbe für die Begründung: ohne Namen gibt es keine anklickbare Zeile,
   // und der Aufforderungssatz wäre eine Anleitung ins Leere.
   $("why-empty-note").textContent = quiet
-    ? `Modus '${status.logging_mode}': der Server merkt sich keine Namen, deshalb steht hier nichts.`
-    : "Seit diese Seite offen ist, wurde nichts geblockt. Eine Zeile im Protokoll anklicken fragt die Entscheidungskette ab.";
+    ? `mode '${status.logging_mode}': the server keeps no names, so nothing can appear here.`
+    : "Nothing has been blocked since this page was opened. Click a row in the log to ask for its decision chain.";
 
   if (status.logging_mode === "none") {
-    $("top-note").textContent = "Im Modus 'none' werden keine Namen gezählt.";
+    $("top-note").textContent = "In mode 'none', no names are counted.";
   } else if (quiet) {
-    $("top-note").textContent = "Namen erscheinen erst ab der k-Schwelle.";
+    $("top-note").textContent = "Names only appear above the k-threshold.";
   } else {
-    $("top-note").textContent = "Noch kein Name oft genug gesehen.";
+    $("top-note").textContent = "No name seen often enough yet.";
   }
 }
 
@@ -469,13 +448,17 @@ function showReason(event) {
 
   const subject = document.createElement("span");
   subject.className = "subject";
+  // Die Farbe des Namens wiederholt nur das Verdikt aus der Kontextzeile: rot
+  // für geblockt, grün für durchgelassen. Geblockt ist der Regelfall dieses
+  // Panels, also bleibt der Name ohne Klasse rot.
+  if (!event.blocked) subject.classList.add("is-allowed");
   subject.textContent = event.name;
   box.append(subject);
 
   const context = document.createElement("p");
   context.className = "context";
   context.textContent =
-    `um ${clockTime(event.at)} · ${event.client ?? "unbekannt"} · beantwortet mit ${event.rcode}`;
+    `at ${clockTime(event.at)} · ${event.client ?? "unknown"} · answered with ${event.rcode}`;
   box.append(context);
 
   const chain = document.createElement("ol");
@@ -506,7 +489,18 @@ async function explainRow(name, client, row) {
   row.classList.add("is-asked");
 
   const query = new URLSearchParams({ domain: name });
-  if (client && client !== "–" && client !== "unbekannt") query.set("client", client);
+  // "default" ist kein Client, sondern der Name für "keine Regel passt". Den
+  // kann der Server nicht in eine Adresse übersetzen — also wird er nicht
+  // mitgeschickt, und /api/explain wertet mit der Loopback-Adresse aus, was
+  // dieselbe Default-Policy trifft.
+  if (
+    client &&
+    client !== "–" &&
+    client !== "unknown" &&
+    client !== "default"
+  ) {
+    query.set("client", client);
+  }
 
   const source = $("why-source");
   try {
@@ -515,13 +509,14 @@ async function explainRow(name, client, row) {
       name: answer.domain,
       at: new Date().toTimeString().slice(0, 8),
       client: answer.client,
-      rcode: answer.blocked ? "geblockt" : "durchgelassen",
+      blocked: answer.blocked,
+      rcode: answer.blocked ? "blocked" : "allowed",
       why: answer.steps,
     });
-    source.textContent = "jetzt ausgewertet, nicht aus dem Protokoll";
+    source.textContent = "evaluated now, not from the log";
     source.hidden = false;
   } catch {
-    source.textContent = "Die Auswertung war nicht möglich.";
+    source.textContent = "Evaluation was not possible.";
     source.hidden = false;
   }
 }
@@ -552,7 +547,7 @@ function row(event) {
   if (event.blocked) tr.className = "is-blocked";
   tr.append(cell(clockTime(event.at), "c-time"));
 
-  const name = cell(event.name ?? "ohne Namen", "c-name");
+  const name = cell(event.name ?? "no name", "c-name");
   if (!event.name) name.classList.add("unnamed");
   tr.append(name);
 
@@ -574,7 +569,7 @@ function row(event) {
   if (event.name) {
     tr.classList.add("askable");
     tr.tabIndex = 0;
-    tr.title = "Entscheidungskette abfragen";
+    tr.title = "Ask for decision chain";
     tr.dataset.domain = event.name;
     if (event.client) tr.dataset.client = event.client;
   }
@@ -675,8 +670,8 @@ async function refreshTop() {
   const hidden = $("top-hidden");
   if (report.below_threshold_queries > 0) {
     hidden.textContent =
-      `${thousands(report.below_threshold_queries)} Anfragen auf ` +
-      `${thousands(report.below_threshold_names)} Namen unter der k-Schwelle`;
+      `${thousands(report.below_threshold_queries)} queries across ` +
+      `${thousands(report.below_threshold_names)} names below the k-threshold`;
     hidden.hidden = false;
   } else {
     hidden.hidden = true;
@@ -702,15 +697,15 @@ async function refreshFlagged() {
     }
   }
   $("flagged-note").textContent = entries.length
-    ? `${thousands(entries.length)} in den letzten Minuten`
+    ? `${thousands(entries.length)} in the last few minutes`
     : "";
   $("flagged-note").hidden = entries.length === 0;
   // Leer heißt nicht immer "nichts gefunden": in den leisen Log-Modi behält der
   // Server keine Namen, und dann kann hier nichts stehen. Das gehört gesagt,
   // sonst sieht ein zurückhaltend eingestellter Server aus wie ein untätiger.
   $("flagged-note-empty").textContent = quietMode
-    ? `Modus '${quietMode}': der Server merkt sich keine Namen, deshalb steht hier nichts.`
-    : "Keine Heuristik hat angeschlagen.";
+    ? `mode '${quietMode}': the server keeps no names, so nothing can appear here.`
+    : "No heuristic has flagged anything.";
   syncEmptyStates();
 }
 
@@ -729,7 +724,7 @@ function flaggedRow(entry, finding) {
   score.className = "score";
   score.textContent = finding.score;
   const action = document.createElement("span");
-  action.textContent = finding.action === "block" ? "geblockt" : "gemeldet";
+  action.textContent = finding.action === "block" ? "blocked" : "flagged";
   meta.append(label, score, action);
 
   // Die Merkmale, die zum Score geführt haben. Ohne sie ist ein Fehlalarm
@@ -742,8 +737,8 @@ function flaggedRow(entry, finding) {
   const actions = document.createElement("div");
   actions.className = "actions";
   actions.append(
-    decideButton("Freigeben", `/api/allow`, entry.name),
-    decideButton("Sperren", `/api/deny`, entry.name),
+    decideButton("Allow", `/api/allow`, entry.name),
+    decideButton("Deny", `/api/deny`, entry.name),
   );
 
   item.append(subject, meta, why, actions);
@@ -761,7 +756,7 @@ function decideButton(caption, path, domain) {
       await post(path, { domain, seconds: 3600 });
       button.textContent = `${caption} ✓`;
     } catch {
-      button.textContent = "ging nicht";
+      button.textContent = "failed";
       button.disabled = false;
     }
   });
@@ -872,7 +867,7 @@ $("login").addEventListener("submit", async (submitEvent) => {
     localStorage.setItem(TOKEN_KEY, token);
   } catch {
     const error = $("login-error");
-    error.textContent = "Der Token wurde nicht akzeptiert.";
+    error.textContent = "The token was not accepted.";
     error.hidden = false;
   }
 });

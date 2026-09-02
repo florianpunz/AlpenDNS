@@ -356,9 +356,9 @@ impl<C: Clock> NameDetector for Tunneling<C> {
             Detector::Tunneling,
             score,
             format!(
-                "Zone '{zone}': {unique} einmalige Subdomains in {queries} Anfragen, \
-                 Label-Entropie {mean_entropy:.1} Bit/Zeichen, mittlere Labellänge \
-                 {mean_length:.0}, davon {txt} × TXT/NULL"
+                "Zone '{zone}': {unique} unique subdomains in {queries} queries, \
+                 label entropy {mean_entropy:.1} bits/character, mean label length \
+                 {mean_length:.0}, {txt} of them TXT/NULL"
             ),
         ))
     }
@@ -456,7 +456,7 @@ mod tests {
             last = ask(&detector, &iodine_like(i), RecordType::TXT).or(last);
         }
         let reason = last.expect("ein Fund").reason;
-        for expected in ["einmalige Subdomains", "Entropie", "Labellänge", "TXT/NULL"] {
+        for expected in ["unique subdomains", "entropy", "label length", "TXT/NULL"] {
             assert!(reason.contains(expected), "'{expected}' fehlt in: {reason}");
         }
     }

@@ -282,8 +282,8 @@ impl NameDetector for Dga {
             Detector::Dga,
             score,
             format!(
-                "'{label}' passt nicht zu gewachsenen Namen: {:.1} Bit Überraschung je \
-                 Zeichentripel, längste Konsonantenkette {}, Ziffernanteil {:.0} %",
+                "'{label}' does not fit naturally grown names: {:.1} bits of surprise per \
+                 character triple, longest consonant run {}, digit share {:.0} %",
                 mean_surprise(label),
                 longest_consonant_run(label),
                 digit_ratio(label) * 100.0
@@ -392,7 +392,7 @@ mod tests {
     #[test]
     fn the_reason_names_the_features() {
         let finding = inspect("kqxvbnzmrtwp.com").expect("ein Fund");
-        for expected in ["Überraschung", "Konsonantenkette", "Ziffernanteil"] {
+        for expected in ["surprise", "consonant run", "digit share"] {
             assert!(
                 finding.reason.contains(expected),
                 "'{expected}' fehlt in: {}",

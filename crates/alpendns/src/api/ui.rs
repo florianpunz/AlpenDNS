@@ -80,9 +80,9 @@ mod tests {
     fn the_page_answers_the_three_questions_without_a_click() {
         // Die Vorgabe aus CLAUDE.md B.6.
         for heading in [
-            "Läuft er?",
-            "Warum wurde das geblockt?",
-            "Was gerade passiert",
+            "Is it running?",
+            "Why was this blocked?",
+            "What's happening",
         ] {
             assert!(INDEX.contains(heading), "Überschrift fehlt: {heading}");
         }
@@ -227,7 +227,7 @@ mod tests {
             SCRIPT.contains("quietMode"),
             "der Leertext unterscheidet die beiden Fälle nicht"
         );
-        assert!(SCRIPT.contains("merkt sich keine Namen"), "{SCRIPT}");
+        assert!(SCRIPT.contains("keeps no names"), "{SCRIPT}");
     }
 
     /// Auch das "Warum"-Panel unterscheidet leer von stumm.
@@ -251,8 +251,8 @@ mod tests {
     #[test]
     fn a_flagged_query_can_be_allowed_or_denied_with_one_click() {
         // Roadmap Phase 8, Schritt 7.
-        assert!(SCRIPT.contains("\"Freigeben\""), "kein Knopf zum Freigeben");
-        assert!(SCRIPT.contains("\"Sperren\""), "kein Knopf zum Sperren");
+        assert!(SCRIPT.contains("\"Allow\""), "kein Knopf zum Freigeben");
+        assert!(SCRIPT.contains("\"Deny\""), "kein Knopf zum Sperren");
         assert!(SCRIPT.contains("/api/allow"));
         assert!(SCRIPT.contains("/api/deny"));
     }
@@ -265,6 +265,25 @@ mod tests {
         assert!(
             SCRIPT.contains("badge.title = event.rcode"),
             "RCODE geht verloren"
+        );
+    }
+
+    #[test]
+    fn the_reason_subject_is_green_for_allowed_and_red_for_blocked() {
+        // Der Name im Begründungs-Panel trägt die Farbe des Verdikts: grün für
+        // durchgelassen, rot für geblockt. Rot ist der Default, weil das Panel
+        // von Geblocktem handelt — grün kommt nur über die Klasse `is-allowed`.
+        assert!(
+            SCRIPT.contains("if (!event.blocked)"),
+            "das Verdikt wird nicht geprüft"
+        );
+        assert!(
+            SCRIPT.contains("classList.add(\"is-allowed\")"),
+            "ein durchgelassener Name bekommt die grüne Klasse nicht"
+        );
+        assert!(
+            STYLE.contains(".subject.is-allowed { color: var(--success)"),
+            "durchgelassen ist nicht grün"
         );
     }
 
@@ -339,38 +358,28 @@ mod tests {
         );
     }
 
-    /// Der aktive Log-Modus steht dauerhaft auf der Seite (ADR-0004).
-    ///
-    /// Drei Angaben, nicht eine: der Modus allein sagt nichts darüber, ab wann
-    /// ein Name genannt wird und ob etwas auf der Platte landet.
+    /// Der aktive Log-Modus steht dauerhaft auf der Seite (ADR-0004), als
+    /// Kennzahl im Kopf neben Version und Laufzeit — nicht mehr als eigener
+    /// Streifen mit Schwelle, DNSSEC und Speicherort.
     #[test]
-    fn the_privacy_strip_states_mode_threshold_and_storage() {
+    fn the_mode_stands_next_to_version_and_uptime() {
+        assert!(INDEX.contains("id=\"mode\""), "kein Modus im Kopf");
+        assert!(
+            SCRIPT.contains("$(\"mode\").textContent = status.logging_mode"),
+            "der Modus kommt nicht vom Server"
+        );
+        // Der Streifen mit Schwelle, DNSSEC und Speicherort ist ersatzlos weg.
         for id in [
             "id=\"p-mode\"",
             "id=\"p-k\"",
             "id=\"p-dnssec\"",
             "id=\"p-store\"",
         ] {
-            assert!(INDEX.contains(id), "im Privacy-Streifen fehlt {id}");
+            assert!(
+                !INDEX.contains(id),
+                "der alte Privacy-Streifen steht noch: {id}"
+            );
         }
-        assert!(
-            SCRIPT.contains("status.aggregate_k"),
-            "die k-Schwelle wird nicht angezeigt"
-        );
-        // "Daten nur im RAM" darf keine Behauptung sein, sondern muss aus dem
-        // laufenden Prozess kommen — sonst steht sie auch im Modus full da.
-        assert!(
-            SCRIPT.contains("status.persists_to_disk"),
-            "die Aussage über die Platte kommt nicht vom Server"
-        );
-        assert!(SCRIPT.contains("Daten nur im RAM"));
-        assert!(SCRIPT.contains("schreibt auf Platte"));
-        // Ob selbst validiert wird, ist wie der Log-Modus eine Daueraussage —
-        // und sie muss ebenfalls aus dem laufenden Prozess kommen.
-        assert!(
-            SCRIPT.contains("status.dnssec.enabled"),
-            "der DNSSEC-Zustand kommt nicht vom Server"
-        );
     }
 
     /// Verworfene Antworten stehen sichtbar da, nicht in einem Untermenü.
@@ -388,11 +397,11 @@ mod tests {
     #[test]
     fn the_live_stream_says_that_it_keeps_nothing() {
         assert!(
-            INDEX.contains("flüchtig"),
+            INDEX.contains("ephemeral"),
             "keine Kennzeichnung am Protokoll"
         );
         assert!(
-            SCRIPT.contains("flüchtig"),
+            SCRIPT.contains("ephemeral"),
             "die Kennzeichnung folgt nicht dem Modus"
         );
     }
@@ -439,11 +448,11 @@ mod tests {
         }
     }
 
-    /// Zahlen stehen im deutschen Format.
+    /// Zahlen stehen im englischen Format.
     #[test]
-    fn numbers_are_formatted_in_german() {
+    fn numbers_are_formatted_in_english() {
         assert!(
-            SCRIPT.contains("const LOCALE = \"de-AT\";"),
+            SCRIPT.contains("const LOCALE = \"en-US\";"),
             "kein festgelegtes Zahlenformat"
         );
         // Jede Zahl, die jemand liest, geht durch die drei Hilfsfunktionen.
@@ -481,6 +490,19 @@ mod tests {
         assert!(
             STYLE.contains(".log-table tr.askable:focus-visible"),
             "die Zeile ist mit der Tastatur nicht erreichbar"
+        );
+    }
+
+    /// "default" ist kein Client, sondern der Name für "keine Regel passt".
+    /// Schickte die UI ihn an `/api/explain`, fände der Server keine Adresse
+    /// dazu und antwortete mit einem Fehler statt mit der Entscheidungskette —
+    /// genau das, was ein Klick auf eine Zeile eines unkonfigurierten Clients
+    /// auslöst.
+    #[test]
+    fn the_default_client_is_not_sent_to_explain() {
+        assert!(
+            SCRIPT.contains("client !== \"default\""),
+            "der Pseudo-Client \"default\" wird an /api/explain geschickt"
         );
     }
 

@@ -281,7 +281,7 @@ impl NameDetector for Typosquat {
             // registrierbaren Teils ohne Belang — geprüft wird der ganze Name.
             if embeds(&name, &protected.domain) {
                 let reason = format!(
-                    "'{name}' trägt '{}' im Namen, gehört aber zu '{candidate}'",
+                    "'{name}' carries '{}' in the name but belongs to '{candidate}'",
                     protected.domain
                 );
                 if best.as_ref().is_none_or(|(current, _)| 950 > *current) {
@@ -301,8 +301,8 @@ impl NameDetector for Typosquat {
                 Some((
                     1000_u16,
                     format!(
-                        "'{}' sieht aus wie '{}', benutzt aber Zeichen aus einem anderen \
-                         Schriftsystem",
+                        "'{}' looks like '{}' but uses characters from a different \
+                         script",
                         candidate, protected.domain
                     ),
                 ))
@@ -310,7 +310,7 @@ impl NameDetector for Typosquat {
                 Some((
                     900,
                     format!(
-                        "'{}' ist '{}' mit einer anderen Endung",
+                        "'{}' is '{}' with a different ending",
                         candidate, protected.domain
                     ),
                 ))
@@ -322,7 +322,7 @@ impl NameDetector for Typosquat {
                         (
                             score,
                             format!(
-                                "'{}' unterscheidet sich in {d} Zeichen von '{}'",
+                                "'{}' differs by {d} characters from '{}'",
                                 candidate, protected.domain
                             ),
                         )
@@ -434,7 +434,7 @@ mod tests {
         let finding = inspect("spаrkasse.at").expect("Homograph nicht erkannt");
         assert_eq!(finding.score, 1000);
         assert!(
-            finding.reason.contains("Schriftsystem"),
+            finding.reason.contains("different script"),
             "{}",
             finding.reason
         );
@@ -486,7 +486,11 @@ mod tests {
         // stärkerer Treffer. Es soll die stärkere Begründung erscheinen.
         let finding = inspect("hale.com").expect("nicht erkannt");
         assert_eq!(finding.score, 900);
-        assert!(finding.reason.contains("Endung"), "{}", finding.reason);
+        assert!(
+            finding.reason.contains("different ending"),
+            "{}",
+            finding.reason
+        );
     }
 
     #[test]

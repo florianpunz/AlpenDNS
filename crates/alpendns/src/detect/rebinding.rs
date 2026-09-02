@@ -119,8 +119,8 @@ impl AnswerDetector for Rebinding {
             Detector::Rebinding,
             1000,
             format!(
-                "Antwort auf den öffentlichen Namen '{name}' enthält die private \
-                 Adresse {offending}"
+                "Answer to public name '{name}' contains the private \
+                 address {offending}"
             ),
         ))
     }

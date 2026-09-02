@@ -224,8 +224,8 @@ impl<W: crate::clock::WallClock> NameDetector for Nrd<W> {
             Detector::Nrd,
             score,
             format!(
-                "'{domain}' wurde am {registered} registriert, vor {age_days} Tagen \
-                 (Schwelle: {} Tage)",
+                "'{domain}' was registered on {registered}, {age_days} days ago \
+                 (threshold: {} days)",
                 self.max_age_days
             ),
         ))
@@ -276,7 +276,7 @@ mod tests {
         let detector = nrd_with(&[("frisch.example", "2026-08-15")], "2026-08-30");
         let finding = inspect(&detector, "frisch.example").expect("nicht geflaggt");
         assert!(finding.reason.contains("2026-08-15"), "{}", finding.reason);
-        assert!(finding.reason.contains("15 Tagen"), "{}", finding.reason);
+        assert!(finding.reason.contains("15 days"), "{}", finding.reason);
         assert_eq!(finding.detector, Detector::Nrd);
     }
 

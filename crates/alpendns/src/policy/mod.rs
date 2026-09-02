@@ -105,7 +105,7 @@ pub fn explain<C: Clock + Clone, W: WallClock>(
             Step::ClientMatched { client, .. } => Some(client.to_string()),
             _ => None,
         })
-        .unwrap_or_else(|| "unbekannt".to_owned());
+        .unwrap_or_else(|| "unknown".to_owned());
 
     Ok(Explanation {
         domain: domain.to_owned(),

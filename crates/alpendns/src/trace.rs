@@ -110,43 +110,43 @@ impl std::fmt::Display for Step {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::ClientMatched { client, by } => match by {
-                MatchKind::Address => write!(f, "Client '{client}' über die Quelladresse erkannt"),
-                MatchKind::Default => write!(f, "kein Client-Eintrag passt, es gilt '{client}'"),
+                MatchKind::Address => write!(f, "Client '{client}' recognized by source address"),
+                MatchKind::Default => write!(f, "no client entry matches, '{client}' applies"),
             },
             Self::PolicyApplied { policy } => write!(f, "Policy '{policy}'"),
             Self::TemporaryAllow { remaining } => {
-                write!(f, "befristete Freigabe, noch {remaining:.0?}")
+                write!(f, "temporary allow, {remaining:.0?} left")
             }
             Self::TemporaryDeny { remaining } => {
-                write!(f, "befristete Sperre, noch {remaining:.0?}")
+                write!(f, "temporary deny, {remaining:.0?} left")
             }
             Self::AllowlistHit {
                 list,
                 line,
                 matched,
-            } => write!(f, "Allowlist '{list}' Zeile {line}: '{matched}'"),
+            } => write!(f, "Allowlist '{list}' line {line}: '{matched}'"),
             Self::BlocklistHit {
                 list,
                 line,
                 matched,
-            } => write!(f, "Blockliste '{list}' Zeile {line}: '{matched}'"),
+            } => write!(f, "Blocklist '{list}' line {line}: '{matched}'"),
             Self::RegexHit { policy, pattern } => {
-                write!(f, "Regex-Regel von Policy '{policy}': /{pattern}/")
+                write!(f, "Regex rule from policy '{policy}': /{pattern}/")
             }
             Self::ScheduleHit { schedule, effect } => match effect {
                 ScheduleEffect::BlockAllExceptAllowlist => write!(
                     f,
-                    "Zeitplan '{schedule}' aktiv: alles außer der Allowlist wird geblockt"
+                    "Schedule '{schedule}' active: everything except the allowlist is blocked"
                 ),
             },
             Self::CacheHit { ttl_left, stale } => {
-                let label = if *stale { "abgelaufen" } else { "gültig" };
-                write!(f, "aus dem Cache ({label}, noch {ttl_left} s)")
+                let label = if *stale { "expired" } else { "valid" };
+                write!(f, "from cache ({label}, {ttl_left} s left)")
             }
             Self::UpstreamUsed { resolver, rtt } => {
-                write!(f, "Upstream '{resolver}' antwortete in {rtt:.1?}")
+                write!(f, "Upstream '{resolver}' answered in {rtt:.1?}")
             }
-            Self::DnssecChecked { verdict } => write!(f, "DNSSEC selbst geprüft: {verdict}"),
+            Self::DnssecChecked { verdict } => write!(f, "DNSSEC verified locally: {verdict}"),
             Self::Detected {
                 detector,
                 score,
@@ -154,17 +154,17 @@ impl std::fmt::Display for Step {
                 action,
             } => {
                 let verb = match action {
-                    crate::detect::Action::Block => "blockt",
-                    crate::detect::Action::Flag => "meldet",
-                    crate::detect::Action::Log | crate::detect::Action::Off => "notiert",
+                    crate::detect::Action::Block => "blocks",
+                    crate::detect::Action::Flag => "flags",
+                    crate::detect::Action::Log | crate::detect::Action::Off => "logs",
                 };
                 write!(
                     f,
-                    "{detector} {verb} (Score {}): {reason}",
+                    "{detector} {verb} (score {}): {reason}",
                     crate::detect::format_score(*score)
                 )
             }
-            Self::Synthesized { mode } => write!(f, "Antwort selbst erzeugt, Modus {mode:?}"),
+            Self::Synthesized { mode } => write!(f, "Answer synthesized locally, mode {mode:?}"),
         }
     }
 }
@@ -265,7 +265,7 @@ mod tests {
         let text = ctx.explain();
         assert!(text.contains("1. Client 'kids-tablet'"), "{text}");
         assert!(
-            text.contains("2. Blockliste 'stevenblack' Zeile 42"),
+            text.contains("2. Blocklist 'stevenblack' line 42"),
             "{text}"
         );
     }
