@@ -230,6 +230,23 @@ mod tests {
         assert!(SCRIPT.contains("merkt sich keine Namen"), "{SCRIPT}");
     }
 
+    /// Auch das "Warum"-Panel unterscheidet leer von stumm.
+    ///
+    /// In `none` und `aggregate` trägt kein Ereignis einen Namen; damit ist
+    /// keine Zeile anklickbar. Der Satz "eine Zeile anklicken" wäre dort eine
+    /// Anleitung ins Leere und schöbe die Ursache auf den Benutzer.
+    #[test]
+    fn the_reason_panel_distinguishes_quiet_from_empty() {
+        assert!(
+            INDEX.contains("id=\"why-empty-note\""),
+            "der Satz hat kein Ziel"
+        );
+        assert!(
+            SCRIPT.contains("$(\"why-empty-note\").textContent = quiet"),
+            "der Leertext hängt nicht am Log-Modus"
+        );
+    }
+
     /// Neben einer auffälligen Anfrage stehen beide Knöpfe.
     #[test]
     fn a_flagged_query_can_be_allowed_or_denied_with_one_click() {
