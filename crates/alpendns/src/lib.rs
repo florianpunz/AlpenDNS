@@ -20,6 +20,7 @@ pub mod metrics;
 pub mod policy;
 pub mod privacy;
 pub mod ratelimit;
+pub mod reload;
 pub mod resolve;
 pub mod router;
 pub mod server;

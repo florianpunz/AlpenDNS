@@ -25,9 +25,9 @@ use hickory_proto::rr::Name;
 
 use crate::clock::{Clock, WallClock};
 use crate::config::{BlockingConfig, ConfigError};
+use crate::filter::LoadedLists;
 use crate::filter::block::{self, BlockMode};
 use crate::filter::matcher::Matcher;
-use crate::filter::{Lists, LoadedLists};
 use crate::resolve::{ResolveBackend, ResolveError};
 use crate::trace::{Ctx, Step};
 use clients::Clients;
@@ -559,11 +559,16 @@ fn build_schedule(entry: &crate::config::ScheduleEntry) -> Result<Schedule, Conf
 }
 
 /// Lädt die Listen regelmäßig neu und tauscht den Regelstand aus.
+///
+/// Liest Blueprint und Listenquellen je Zyklus aus [`crate::reload::PolicySource`],
+/// damit ein Reload sofort greift statt auf den nächsten Refresh-Tick zu warten.
+/// `wake` stößt genau diesen Zyklus an: der Reload signalisiert hier, sobald er
+/// einen neuen Stand eingetauscht hat.
 pub async fn run_updater<C: Clock + Clone, W: WallClock>(
     engine: Arc<Engine<C, W>>,
-    blueprint: Arc<Blueprint>,
-    lists: Arc<Lists>,
+    source: Arc<crate::reload::PolicySource>,
     interval: std::time::Duration,
+    wake: Arc<tokio::sync::Notify>,
     shutdown: tokio_util::sync::CancellationToken,
 ) {
     let mut ticker = tokio::time::interval(interval);
@@ -572,7 +577,10 @@ pub async fn run_updater<C: Clock + Clone, W: WallClock>(
         tokio::select! {
             () = shutdown.cancelled() => return,
             _ = ticker.tick() => {}
+            () = wake.notified() => {}
         }
+        let blueprint = source.blueprint();
+        let lists = source.lists();
         // Nicht strikt: ein Ausfall jetzt darf den laufenden Betrieb nicht
         // ungefiltert machen (B.1 Regel 6).
         match lists.load(false).await {

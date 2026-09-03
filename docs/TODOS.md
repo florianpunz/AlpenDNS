@@ -20,15 +20,14 @@ Beim Durchsehen für diesen Plan sind drei Dinge aufgefallen, die in keinem TODO
 aber mehrere davon beeinflussen. Sie gehören zuerst geklärt, sonst setzen mehrere Pläne
 auf einer falschen Annahme auf.
 
-**B1 — Es gibt keinen `SIGHUP`-Reload.** [ARCHITECTURE.md](ARCHITECTURE.md) §7 beschreibt
-einen Reload, bei dem eine kaputte Konfiguration verworfen wird und die alte aktiv bleibt;
-die Fehlertabelle in §10 führt ihn ebenfalls. Im Code gibt es ihn nicht: `wait_for_signal`
-in [main.rs:1030-1044](../crates/alpendns/src/main.rs#L1030-L1044) kennt `SIGTERM` und
-`Ctrl-C`, sonst nichts. Jede Konfigurationsänderung ist heute ein `systemctl restart`. Das
-ist nicht schlimm — `ExecStartPre=alpendns check` fängt genau den Fall ab, für den der
-Reload gedacht war —, aber die Doku behauptet etwas, das nicht da ist. **Entweder** der
-Absatz wird auf den Ist-Zustand gezogen, **oder** der Reload wird gebaut. Das ist eine
-Entscheidung, keine Aufgabe, und sie hängt an den Punkten 7, 9 und 10.
+**B1 — Es gibt keinen `SIGHUP`-Reload — erledigt.** [ARCHITECTURE.md](ARCHITECTURE.md) §7
+beschreibt einen Reload, bei dem eine kaputte Konfiguration verworfen wird und die alte
+aktiv bleibt. Der ist jetzt gebaut: `reload_on_hangup` in `main.rs` lädt auf `SIGHUP` die
+Policy-Schicht neu — Clients, Policies, Regex, Zeitpläne und Listenquellen, atomar
+eingetauscht — und lässt bei einer kaputten Konfiguration den alten Stand stehen. Was nicht
+hot-reloadbar ist (Listener, Upstreams/TLS, Cache, Drosselung, Block-Modus, Detektoren),
+nennt das Log bei jedem Reload. §7 ist entsprechend angepasst; die Querverweise auf B1 in
+den Punkten 7, 9 und 10 sind damit überholt.
 
 **B2 — Blocklisten werden nur beim Start geladen.** In
 [filter/](../crates/alpendns/src/filter/) und [main.rs](../crates/alpendns/src/main.rs)

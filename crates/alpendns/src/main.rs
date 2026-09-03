@@ -8,14 +8,15 @@ use std::time::Duration;
 use alpendns::api::{ApiState, HistoryView, ListInfo, PolicyInfo, StatusSource};
 use alpendns::caching::CachingBackend;
 use alpendns::clock::{SystemClock, SystemWallClock};
-use alpendns::config::{Config, ListConfig};
+use alpendns::config::Config;
 use alpendns::filter::Lists;
-use alpendns::filter::source::{ListSpec, Loader, Source};
+use alpendns::filter::source::Loader;
 use alpendns::history::{History, Sample};
 use alpendns::logging::QueryLog;
 use alpendns::policy::{Blueprint, Engine, Explanation, PolicyBackend};
 use alpendns::privacy;
 use alpendns::ratelimit::RateLimiter;
+use alpendns::reload::PolicySource;
 use alpendns::router::ZoneRouter;
 use alpendns::server::Server;
 use alpendns::upstream::odoh::{OdohBackend, OdohTransport};
@@ -23,6 +24,7 @@ use alpendns::upstream::pool::{Pool, Upstream};
 use alpendns::upstream::transport::Transport;
 use alpendns::upstream::{Encrypted, ForwardBackend};
 use anyhow::Context as _;
+use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 
 /// Abstand, in dem die Cache-Bilanz im Log erscheint.
@@ -150,7 +152,7 @@ fn run() -> anyhow::Result<()> {
     let config = Config::load(&path)?;
     // Vor dem Zerlegen der Konfiguration: der Blueprint liest quer über
     // Clients, Policies und Listennamen.
-    let blueprint = Arc::new(Blueprint::from_config(&config)?);
+    let blueprint = Blueprint::from_config(&config)?;
     let client_count = config.client.len();
     let policy_count = config.policy.len();
     // Für die API zusammenstellen, solange die Konfiguration noch vollständig ist.
@@ -282,7 +284,7 @@ fn run() -> anyhow::Result<()> {
 
     // Der Blueprint muss vor dem Zerlegen der Konfiguration gebaut werden.
     let blocking_config = config.blocking;
-    let specs = to_specs(&config.blocklist, &config.allowlist);
+    let specs = alpendns::filter::source::specs_from_config(&config.blocklist, &config.allowlist);
     // Name → Format, um die geladenen Listen später der Metrik zuzuordnen.
     let list_formats: std::collections::HashMap<String, alpendns::filter::parser::Format> = specs
         .iter()
@@ -297,9 +299,10 @@ fn run() -> anyhow::Result<()> {
         .map(|list| list.refresh)
         .min()
         .unwrap_or(Duration::from_secs(24 * 60 * 60));
-    let lists = Arc::new(Lists::new(
-        Loader::new(blocking_config.cache_dir.clone())?,
-        specs,
+    let loader = Loader::new(blocking_config.cache_dir.clone())?;
+    let policy_source = Arc::new(PolicySource::new(
+        blueprint,
+        Lists::new(loader.clone(), specs),
     ));
 
     // Die Runtime wird von Hand gebaut statt über #[tokio::main]: ein Fehler
@@ -319,7 +322,8 @@ fn run() -> anyhow::Result<()> {
 
         // Erststart ist strikt: lieber gar kein DNS als ungefiltertes DNS
         // (B.1 Regel 6). Spätere Ausfälle behandelt run_updater nachsichtig.
-        let loaded = lists
+        let loaded = policy_source
+            .lists()
             .load(true)
             .await
             .context("Blocklisten konnten beim Start nicht geladen werden")?;
@@ -338,7 +342,7 @@ fn run() -> anyhow::Result<()> {
             .collect();
         let engine = Arc::new(
             Engine::new(
-                blueprint.build(&loaded)?,
+                policy_source.blueprint().build(&loaded)?,
                 entries,
                 &blocking_config,
                 SystemClock,
@@ -485,11 +489,25 @@ fn run() -> anyhow::Result<()> {
             });
         }
 
+        // Weckt run_updater, sobald ein Reload einen neuen Stand eingetauscht hat,
+        // damit er sofort lädt statt auf den nächsten Refresh-Tick zu warten.
+        let reload_wake = Arc::new(Notify::new());
         tokio::spawn(alpendns::policy::run_updater(
             Arc::clone(&engine),
-            Arc::clone(&blueprint),
-            Arc::clone(&lists),
+            Arc::clone(&policy_source),
             refresh,
+            Arc::clone(&reload_wake),
+            shutdown.clone(),
+        ));
+
+        // SIGHUP lädt die Konfiguration neu. Der Rest — Listener, TLS, Cache,
+        // Drosselung, Block-Modus, Detektoren — wird beim Start fest eingebaut
+        // und braucht einen Neustart; das sagt das Log bei jedem Reload.
+        tokio::spawn(reload_on_hangup(
+            path,
+            Arc::clone(&policy_source),
+            loader,
+            Arc::clone(&reload_wake),
             shutdown.clone(),
         ));
 
@@ -512,10 +530,6 @@ fn run() -> anyhow::Result<()> {
 /// Nur Summen, keine Namen — das ist unabhängig vom Log-Modus zulässig
 /// (CLAUDE.md B.1, Regel 3). Ohne Verkehr wird nichts geschrieben, damit ein
 /// Server im Leerlauf still bleibt.
-/// Übersetzt die Konfiguration in das, was der Loader braucht.
-///
-/// Abgeschaltete Listen fallen hier heraus; die Validierung hat schon
-/// sichergestellt, dass genau eine Quelle angegeben ist.
 /// Zählt die geladenen Listen je Format, häufigstes zuerst.
 ///
 /// Für die Metrik `alpendns_lists`: sie soll belegen, welche Formate im Betrieb
@@ -531,26 +545,6 @@ fn count_formats(lists: &[ListInfo]) -> Vec<(String, u64)> {
         .collect();
     counted.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
     counted
-}
-
-fn to_specs(blocklists: &[ListConfig], allowlists: &[ListConfig]) -> Vec<ListSpec> {
-    blocklists
-        .iter()
-        .chain(allowlists.iter())
-        .filter(|list| list.enabled)
-        .filter_map(|list| {
-            let source = match (&list.url, &list.path) {
-                (Some(url), _) => Source::Url(url.clone()),
-                (None, Some(path)) => Source::File(path.clone()),
-                (None, None) => return None,
-            };
-            Some(ListSpec {
-                name: list.name.clone(),
-                source,
-                format: list.format,
-            })
-        })
-        .collect()
 }
 
 async fn report_stats<C: alpendns::clock::Clock>(
@@ -988,7 +982,7 @@ fn policy_test(path: &std::path::Path, domain: &str, client: Option<&str>) -> an
     let loaded = runtime.block_on(async {
         let lists = Lists::new(
             Loader::new(config.blocking.cache_dir.clone())?,
-            to_specs(&config.blocklist, &config.allowlist),
+            alpendns::filter::source::specs_from_config(&config.blocklist, &config.allowlist),
         );
         // Nachsichtig: die Simulation soll auch ohne Netz etwas sagen können,
         // dann eben auf Basis der zwischengespeicherten Listen.
@@ -1041,5 +1035,56 @@ async fn wait_for_signal() {
     tokio::select! {
         _ = tokio::signal::ctrl_c() => {}
         _ = terminate.recv() => {}
+    }
+}
+
+/// Lädt auf `SIGHUP` die Konfiguration neu und tauscht die Policy-Schicht.
+///
+/// Schlägt das Laden oder Bauen fehl, bleibt die alte Konfiguration aktiv —
+/// ein Reload darf nie dazu führen, dass gefiltert werden sollte, aber nicht
+/// gefiltert wird (ARCHITECTURE.md §7). Was nicht hot-reloadbar ist (Listener,
+/// TLS, Cache, Drosselung, Block-Modus, Detektoren), nennt das Log ausdrücklich.
+async fn reload_on_hangup(
+    path: PathBuf,
+    policy_source: Arc<PolicySource>,
+    loader: Loader,
+    wake: Arc<Notify>,
+    shutdown: CancellationToken,
+) {
+    use tokio::signal::unix::{SignalKind, signal};
+
+    let mut hangup = match signal(SignalKind::hangup()) {
+        Ok(stream) => stream,
+        Err(error) => {
+            tracing::warn!(%error, "SIGHUP nicht abonnierbar, Reload steht nicht zur Verfügung");
+            return;
+        }
+    };
+
+    loop {
+        tokio::select! {
+            () = shutdown.cancelled() => return,
+            _ = hangup.recv() => {}
+        }
+        match Config::load(&path) {
+            Err(error) => tracing::error!(
+                %error,
+                "Reload abgelehnt, alte Konfiguration bleibt aktiv"
+            ),
+            Ok(config) => match policy_source.reload(&config, &loader) {
+                Ok(()) => {
+                    tracing::info!(
+                        clients = config.client.len(),
+                        policies = config.policy.len(),
+                        "Konfiguration neu geladen; Listener, TLS, Cache, Drosselung und Block-Modus erfordern einen Neustart"
+                    );
+                    wake.notify_one();
+                }
+                Err(error) => tracing::error!(
+                    %error,
+                    "Reload abgelehnt, alte Konfiguration bleibt aktiv"
+                ),
+            },
+        }
     }
 }

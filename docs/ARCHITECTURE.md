@@ -201,8 +201,15 @@ Eine TOML-Datei, `serde` mit `deny_unknown_fields`. Zwei Wege, sie neu zu laden:
 * `alpendns check -c /etc/alpendns/alpendns.toml` → validiert ohne Neustart, nutzbar als
   `ExecStartPre` in der systemd-Unit.
 
-Nicht alles ist hot-reloadbar. Listener-Adressen und TLS-Material erfordern einen Neustart;
-der Reload sagt das explizit, statt es stillschweigend zu ignorieren.
+Hot-reloadbar ist die **Policy-Schicht**: Clients, Policies, Regex, Zeitpläne und die
+Listenquellen (URLs/Formate) werden beim Reload neu gebaut und atomar eingetauscht. Das ist
+genau der Zustand, den `run_updater` ohnehin periodisch aus `Blueprint` + `Lists` aufbaut —
+der Reload weckt ihn nur, statt auf den nächsten Refresh-Tick zu warten.
+
+Alles andere erfordert einen Neustart: Listener-Adressen, Upstreams/TLS, `forward_zone`,
+Cache-Konfiguration, Drosselung, `blocking.mode`/Sinkholes, Detektoren und
+`privacy.logging.mode`. Der Reload nennt diese Grenze im Log ausdrücklich, statt eine
+Änderung stillschweigend zu ignorieren.
 
 ## 8. Nebenläufigkeit
 

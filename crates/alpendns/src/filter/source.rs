@@ -54,6 +54,35 @@ pub struct Loaded {
     pub origin: Origin,
 }
 
+/// Übersetzt die Listen aus der Konfiguration in das, was der Loader braucht.
+///
+/// Abgeschaltete Listen fallen hier heraus; die Validierung hat schon
+/// sichergestellt, dass genau eine Quelle angegeben ist. Der Reload nutzt
+/// dieselbe Übersetzung wie der Erststart, damit beide denselben Listenbestand
+/// sehen.
+pub fn specs_from_config(
+    blocklists: &[crate::config::ListConfig],
+    allowlists: &[crate::config::ListConfig],
+) -> Vec<ListSpec> {
+    blocklists
+        .iter()
+        .chain(allowlists.iter())
+        .filter(|list| list.enabled)
+        .filter_map(|list| {
+            let source = match (&list.url, &list.path) {
+                (Some(url), _) => Source::Url(url.clone()),
+                (None, Some(path)) => Source::File(path.clone()),
+                (None, None) => return None,
+            };
+            Some(ListSpec {
+                name: list.name.clone(),
+                source,
+                format: list.format,
+            })
+        })
+        .collect()
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum LoadError {
     #[error("Liste '{name}' konnte nicht gelesen werden: {source}")]
@@ -81,7 +110,11 @@ pub fn install_crypto_provider() {
 }
 
 /// Lädt Listen aus Dateien oder über HTTP und pflegt den Platten-Cache.
-#[derive(Debug)]
+///
+/// `Clone` ist billig: `reqwest::Client` klont intern nur einen `Arc`. Der
+/// Reload baut daraus ein zweites [`Lists`](super::Lists) mit demselben
+/// Cache-Verzeichnis.
+#[derive(Debug, Clone)]
 pub struct Loader {
     client: reqwest::Client,
     cache_dir: PathBuf,
