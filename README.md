@@ -1,29 +1,29 @@
 # AlpenDNS
 
-Ein privacy-fokussierter DNS-Server für Linux, in Rust. Ein **forwarding
-Resolver**: er nimmt Anfragen aus dem LAN entgegen, filtert sie gegen
-Blocklisten und Policies und leitet sie verschlüsselt (DoT/DoH/DoQ) an Upstreams
-weiter. Eigene Rekursion ab den Root-Servern ist bewusst kein Ziel.
+A privacy-focused DNS server for Linux, in Rust. A **forwarding resolver**:
+it accepts queries from the LAN, filters them against blocklists and policies,
+and forwards them encrypted (DoT/DoH/DoQ) to upstreams. Recursion from the
+root servers is deliberately not a goal.
 
-> **Status: Phase 9.** Phasen 1–9 sind umgesetzt — 1 Forwarder, 2 Cache,
-> 3 verschlüsselte Upstreams, 4 Blocklisten, 5 Clients & Policies,
-> 6 Sichtbarkeit, 7 Privacy, 8 Heuristik, 9 Betrieb. Abgenommen sind 1–7;
-> Phase 8 und 9 laufen gerade im echten Netz. Plan und Abnahmekriterien:
+> **Status: Phase 9.** Phases 1–9 are implemented — 1 forwarder, 2 cache,
+> 3 encrypted upstreams, 4 blocklists, 5 clients & policies, 6 visibility,
+> 7 privacy, 8 heuristics, 9 operations. Phases 1–7 are accepted; 8 and 9 are
+> currently running in the real network. Plan and acceptance criteria:
 > [docs/ROADMAP.md](docs/ROADMAP.md).
 
-## Schnellstart
+## Quick start
 
 ```bash
 cargo run -- -c config/alpendns.minimal.toml
 dig @127.0.0.1 -p 5353 example.com
 
-# Warum wurde etwas geblockt? Ohne laufenden Server:
+# Why was something blocked? Without a running server:
 cargo run -- -c config/alpendns.minimal.toml policy test doubleclick.net
 
-# Web-UI: http://127.0.0.1:8053 — der Token steht in api.token_file
+# Web UI: http://127.0.0.1:8053 — the token is in api.token_file
 ```
 
-### Als Dienst auf einem Server
+### As a service on a server
 
 ```bash
 cargo install cargo-deb --locked
@@ -33,79 +33,78 @@ sudo apt install ./target/debian/alpendns_0.0.1-1_amd64.deb
 dig @127.0.0.1 example.com
 ```
 
-Danach läuft der Resolver als unprivilegierter Dienst — vorerst nur auf
-Loopback. Für das eigene Netz die LAN-Adresse in
-`/etc/alpendns/alpendns.toml` eintragen und
-`sudo alpendns -c /etc/alpendns/alpendns.toml check` laufen lassen. Alles
-Weitere in [docs/OPERATIONS.md](docs/OPERATIONS.md).
+Afterwards the resolver runs as an unprivileged service — for now only on
+loopback. To serve your own network, add the LAN address to
+`/etc/alpendns/alpendns.toml` and run
+`sudo alpendns -c /etc/alpendns/alpendns.toml check`. Everything else in
+[docs/OPERATIONS.md](docs/OPERATIONS.md).
 
-## Warum noch ein DNS-Server?
+## Why another DNS server?
 
-Pi-hole und AdGuard Home lösen "Werbung blocken im LAN" gut. Was sie nicht lösen:
+Pi-hole and AdGuard Home solve "blocking ads on the LAN" well. What they don't solve:
 
-* **Dein Upstream sieht weiterhin alles.** Ein einzelner verschlüsselter Upstream ersetzt
-  den neugierigen Provider durch einen neugierigen Anbieter. AlpenDNS verteilt Anfragen
-  deterministisch über mehrere Upstreams (`split_by_zone`), sodass keiner das vollständige
-  Profil sieht.
-* **Blocken ist eine Blackbox.** "Warum geht diese Seite nicht?" ist in den meisten Setups
-  eine Suche im Log. AlpenDNS gibt zu jeder Antwort eine Entscheidungskette aus: welche
-  Liste, welche Regel, welche Policy.
-* **Filterung ist rein listenbasiert.** Listen kennen nur, was gestern schon bekannt war.
-  AlpenDNS bewertet zusätzlich lokal und ohne Cloud: DGA-Muster, DNS-Tunneling, Rebinding,
-  Typosquatting auf Domains, die dir wichtig sind.
-* **Logging ist an oder aus.** AlpenDNS hat einen aggregierenden Default mit
-  k-Anonymitäts-Schwelle: du siehst Muster, aber die Kiste speichert nicht, wer wann was
-  aufgerufen hat.
+* **Your upstream still sees everything.** A single encrypted upstream replaces the nosy
+  provider with a nosy vendor. AlpenDNS distributes queries deterministically across
+  multiple upstreams (`split_by_zone`), so no single one sees your complete profile.
+* **Blocking is a black box.** "Why doesn't this site work?" is, in most setups, a search
+  through the log. AlpenDNS emits a decision chain for every answer: which list, which
+  rule, which policy.
+* **Filtering is purely list-based.** Lists only know what was already known yesterday.
+  AlpenDNS additionally evaluates locally and without the cloud: DGA patterns, DNS
+  tunneling, rebinding, typosquatting against domains that matter to you.
+* **Logging is on or off.** AlpenDNS has an aggregating default with a k-anonymity
+  threshold: you see patterns, but the box doesn't store who called what when.
 
-Das erklärte Ziel ist nicht, Pi-hole zu ersetzen, sondern die Fragen zu beantworten, die
-Pi-hole offen lässt.
+The stated goal is not to replace Pi-hole, but to answer the questions Pi-hole leaves
+open.
 
-## Was v1 kann
+## What v1 can do
 
 | | |
 |---|---|
-| Rolle | Forwarding Resolver (keine eigene Rekursion) |
-| Client-Transporte | UDP/53, TCP/53 |
-| Upstream-Transporte | DoT, DoH, DoQ; Klartext nur für explizite interne Zonen |
-| Filterung | Blocklisten (hosts, domains, wildcard), Allowlists, Regex-Regeln |
-| Policies | pro Client (IP/Subnetz), Zeitfenster, temporäre Freigaben |
-| Privacy | ECS-Stripping, Padding, DNS Cookies, 0x20, Upstream-Splitting, DNSSEC-Validierung, ODoH, aggregiertes Logging |
-| Heuristik | DGA, Tunneling, Rebinding, Typosquatting, neu registrierte Domains — alle auf `flag`, blocken nichts |
-| Betrieb | systemd-Unit, .deb-Paket, Prometheus-Metriken, Web-UI, Drosselung pro Client, SIGHUP-Reload |
+| Role | Forwarding resolver (no own recursion) |
+| Client transports | UDP/53, TCP/53 |
+| Upstream transports | DoT, DoH, DoQ; cleartext only for explicit internal zones |
+| Filtering | Blocklists (hosts, domains, wildcard), allowlists, regex rules |
+| Policies | per client (IP/subnet), time windows, temporary grants |
+| Privacy | ECS stripping, padding, DNS cookies, 0x20, upstream splitting, DNSSEC validation, ODoH, aggregated logging |
+| Heuristics | DGA, tunneling, rebinding, typosquatting, newly registered domains — all on `flag`, block nothing |
+| Operations | systemd unit, .deb package, Prometheus metrics, web UI, per-client rate limiting, SIGHUP reload |
 
-Verschlüsselte Listener für Clients (DoT/DoH/DoQ) und Client-Identifikation über
-DoH-Pfad-Token oder mTLS sind geplant, aber noch nicht gebaut — die Policy unterscheidet
-Clients heute über die IP.
+Encrypted listeners for clients (DoT/DoH/DoQ) and client identification via DoH path
+tokens or mTLS are planned but not yet built — the policy currently distinguishes clients
+by IP.
 
-## Was v1 ausdrücklich nicht ist
+## What v1 is explicitly not
 
-* **Kein rekursiver Resolver.** AlpenDNS fragt Upstreams, nicht die Root-Server. Die
-  Architektur hält die Stelle frei, an der eine Rekursion später eingehängt würde
-  ([ADR-0003](docs/adr/0003-forwarder-first.md)), aber es wird nichts dafür vorgebaut.
-* **Kein autoritativer Nameserver.** Wer eine Zone hosten will, nimmt Knot oder NSD.
-* **Kein DHCP-Server.** Pi-hole macht das mit; das ist eine andere Aufgabe.
-* **Kein Ersatz für ein VPN.** DNS-Privacy schützt die Namensauflösung. Die IP-Verbindung
-  danach sieht dein Provider trotzdem. Siehe [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md).
+* **Not a recursive resolver.** AlpenDNS queries upstreams, not the root servers. The
+  architecture keeps the slot open where recursion could later be hooked in
+  ([ADR-0003](docs/adr/0003-forwarder-first.md)), but nothing is built for it in advance.
+* **Not an authoritative name server.** If you want to host a zone, use Knot or NSD.
+* **Not a DHCP server.** Pi-hole does that too; that's a different job.
+* **Not a VPN replacement.** DNS privacy protects name resolution. The IP connection
+  afterwards is still visible to your provider. See
+  [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md).
 
 ## Repository
 
 ```
-CLAUDE.md                    Regeln für Coding-Agenten in diesem Repo
-config/alpendns.example.toml Ziel-Konfiguration (dient als Spezifikation)
-crates/                      Rust-Workspace
-docs/ROADMAP.md              Phasenplan mit Abnahmekriterien
-docs/ARCHITECTURE.md         Aufbau, Request-Pipeline, Datenmodell
-docs/FEATURES.md             Feature-Katalog mit Aufwand/Nutzen-Bewertung
-docs/THREAT-MODEL.md         Wogegen das hier schützt — und wogegen nicht
-docs/TESTING.md              Teststrategie
-docs/OPERATIONS.md           Installation, Upgrade, Backup, Fehlersuche
-packaging/                   systemd-Unit, Debian-Skripte, Auslieferungskonfiguration
-docs/adr/                    Architekturentscheidungen mit Begründung
+CLAUDE.md                    Rules for coding agents in this repo
+config/alpendns.example.toml Target configuration (serves as the specification)
+crates/                      Rust workspace
+docs/ROADMAP.md              Phase plan with acceptance criteria
+docs/ARCHITECTURE.md         Structure, request pipeline, data model
+docs/FEATURES.md             Feature catalog with cost/benefit assessment
+docs/THREAT-MODEL.md         What this protects against — and what it doesn't
+docs/TESTING.md              Test strategy
+docs/OPERATIONS.md           Installation, upgrade, backup, troubleshooting
+packaging/                   systemd unit, Debian scripts, shipping configuration
+docs/adr/                    Architecture decisions with rationale
 ```
 
-## Entwicklung
+## Development
 
-Voraussetzung: Rust stable (die `rust-toolchain.toml` zieht die passende Version).
+Prerequisite: Rust stable (`rust-toolchain.toml` pins the appropriate version).
 
 ```bash
 cargo build
@@ -117,11 +116,11 @@ cargo test --all-features
 cargo deny check
 ```
 
-Ein Change gilt als fertig, wenn alle vier Prüfkommandos durchlaufen. Einzelne Tests,
-Fuzzing und der `dig`-Smoke-Test stehen in [CLAUDE.md](CLAUDE.md) B.4.
+A change counts as done when all four check commands pass. Individual tests, fuzzing, and
+the `dig` smoke test are in [CLAUDE.md](CLAUDE.md) B.4.
 
-## Lizenz
+## License
 
-[AGPL-3.0-or-later](LICENSE). Die Lizenz ist bewusst gewählt: Auch wer AlpenDNS nur als
-Netzwerk-Dienst anbietet, muss den Quelltext seiner Änderungen offenlegen (AGPL §13) —
-das passt zur Privacy-Motivation des Projekts.
+[AGPL-3.0-or-later](LICENSE). The license is a deliberate choice: even someone who only
+offers AlpenDNS as a network service must disclose the source of their changes (AGPL
+§13) — that fits the project's privacy motivation.
