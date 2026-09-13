@@ -1,0 +1,1652 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AlpenDNS — Glassmorphism preview</title>
+<!--
+  VORSCHAU, NICHT DIE AUSGELIEFERTE UI.
+
+  Diese Datei ist eine Machbarkeitsstudie: dieselbe Struktur wie index.html,
+  dieselbe Semantik, anderes Material. Sie wird vom Server NICHT ausgeliefert
+  (ui.rs kennt nur /, /app.css, /app.js) und von keinem Test geprüft. Zum
+  Ansehen direkt im Browser öffnen:
+
+      xdg-open web/preview.html
+
+  Alles ist inline — kein Netz, keine Schrift, keine Bibliothek. Die Daten sind
+  erfunden, aber in den Formen der echten API (/api/status, /api/events),
+  damit die Vorschau unter denselben Bedingungen beurteilt werden kann wie das
+  Original.
+
+  Was hier bewusst GLEICH geblieben ist, weil es nichts mit dem Material zu tun
+  hat: Farben bedeuten weiterhin genau eines (--danger/--success/--warn/--muted),
+  Domainnamen stehen in Monospace, Zahlen sind tabular, die Seite füllt einen
+  Bildschirm und scrollt nicht, leere Flächen erklären sich, Bewegung nur auf
+  Wunsch. Neu ist ausschließlich die Fläche: transluzent, geblurrt, mit
+  Lichtkante — über einem Hintergrund, der etwas zu brechen hat.
+-->
+<style>
+/* ══════════════════════════════════════════════════════════════════════════
+   AlpenDNS — Vorschau "Glas".
+
+   Gegenüber app.css sind genau zwei Dinge anders:
+
+   1. DAS MATERIAL. Aus "1px Rahmen, 12px Radius, leicht abgesetzter Grund"
+      wird eine Glaskante: transluzente Fläche, backdrop-filter, Lichtkante
+      oben, weicher Schatten. Der Hintergrund ist deshalb nicht mehr einfarbig,
+      sondern ein Himmelsverlauf aus vier Feldern — Glas ohne etwas dahinter
+      ist nur ein graues Rechteck.
+
+   2. DER HINTERGRUND TRÄGT FARBE, DIE NICHTS BEDEUTET. Das ist der Bruch mit
+      B.6, und der einzige, der wirklich einer ist: die vier Felder sind
+      Dekoration. Sie sind tief entsättigt und liegen weit unter der
+      Textschwelle, aber sie sind da.
+
+   Alles andere ist absichtlich unverändert übernommen.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  color-scheme: light;
+
+  /* ── Die vier Bedeutungen. Unverändert: Farbe sagt weiterhin genau eines. ── */
+  --danger: #a81f28;
+  --success: #0d6240;
+  --warn: #7d4a00;
+  --muted: #4a5163;
+  /* Die Marke: kein Zustand, sondern der Absender. Steht weiterhin nur in der
+     ersten Hälfte des Schriftzugs. */
+  --brand: #1a55b8;
+
+  /* Vier Graustufen für gestapelte Flächen. Auf Glas brauchen sie etwas mehr
+     Zeichnung als auf Weiß, sonst verschwinden die Bänder im Blur. */
+  --band-1: #6d7a93;
+  --band-2: #8b97ae;
+  --band-3: #adb7c8;
+  --band-4: #ccd3e0;
+
+  /* ── Neu: das Material ─────────────────────────────────────────────────── */
+  /* Der Himmel. Vier Felder, sehr tief entsättigt — sie sollen durch das Glas
+     scheinen, nicht mit dem Inhalt konkurrieren. */
+  --base: #d7dfee;
+  --field-1: rgba(76, 132, 255, 0.60);   /* Himmel */
+  --field-2: rgba(255, 142, 88, 0.46);   /* Alpenglühen */
+  --field-3: rgba(62, 190, 152, 0.38);   /* Wiese */
+  --field-4: rgba(142, 112, 255, 0.36);  /* Schatten */
+
+  /* Das Glas selbst. Die Deckkraft ist der Kompromiss der ganzen Designsprache:
+     höher, und es ist kein Glas mehr; niedriger, und der Text verliert seinen
+     Grund. */
+  --glass: rgba(255, 255, 255, 0.55);
+  --glass-strong: rgba(255, 255, 255, 0.78);
+  --hairline: rgba(255, 255, 255, 0.60);
+  --edge: rgba(255, 255, 255, 0.95);
+  --shadow:
+    0 12px 40px rgba(18, 24, 44, 0.13),
+    0 2px 10px rgba(18, 24, 44, 0.06);
+  --blur: blur(26px) saturate(170%);
+
+  --text: #101420;
+  --faint: #4c5466;
+  --row-alt: rgba(255, 255, 255, 0.30);
+  --row-hover: rgba(255, 255, 255, 0.62);
+  --grain: 0.040;
+
+  /* ── 4 — Typografie (unverändert) ──────────────────────────────────────── */
+  --t-micro: 0.6875rem;
+  --t-small: 0.8125rem;
+  --t-body: 0.9375rem;
+  --t-mark: 1.0625rem;
+  --t-figure: 2rem;
+  --t-lead: clamp(1.35rem, 2.6vw, 2.125rem);
+
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+          "Liberation Mono", monospace;
+
+  /* ── 2 — Abstände, 8er-Basis; der Name ist der Pixelwert (unverändert) ─── */
+  --s-4: 0.25rem;
+  --s-8: 0.5rem;
+  --s-16: 1rem;
+  --s-24: 1.5rem;
+  --s-32: 2rem;
+  --s-48: 3rem;
+
+  /* ── 3 — Der Container. Radius größer, weil Glas weicher bricht. ───────── */
+  --radius: 18px;
+  --page: 1400px;
+}
+
+/* Die dunkle Fassung. Sie wird per data-theme gesetzt, nicht per Media-Query:
+   dieselben Werte gelten für "System ist dunkel" und "Knopf gedrückt", und
+   damit bleibt jeder Wert genau einmal hell und einmal dunkel festgelegt. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --danger: #ff8f7a;
+  --success: #5fd39c;
+  --warn: #e8b166;
+  --muted: #a8adb9;
+  --brand: #6aa2ff;
+
+  --band-1: #5c6577;
+  --band-2: #474f5e;
+  --band-3: #363d4a;
+  --band-4: #2a303a;
+
+  --base: #0d1017;
+  --field-1: rgba(48, 96, 200, 0.50);
+  --field-2: rgba(190, 96, 60, 0.34);
+  --field-3: rgba(40, 140, 116, 0.30);
+  --field-4: rgba(112, 84, 200, 0.34);
+
+  --glass: rgba(30, 34, 44, 0.52);
+  --glass-strong: rgba(30, 34, 44, 0.82);
+  --hairline: rgba(255, 255, 255, 0.11);
+  --edge: rgba(255, 255, 255, 0.14);
+  --shadow:
+    0 16px 48px rgba(0, 0, 0, 0.45),
+    0 2px 10px rgba(0, 0, 0, 0.30);
+
+  --text: #eef1f6;
+  --faint: #99a0af;
+  --row-alt: rgba(255, 255, 255, 0.035);
+  --row-hover: rgba(255, 255, 255, 0.085);
+  --grain: 0.055;
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--base);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: var(--t-body);
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Der Himmel ──────────────────────────────────────────────────────────── */
+
+/* Fest positioniert, damit die Panels beim Scrollen des Protokolls etwas zu
+   brechen haben. Wandert der Hintergrund mit, ist er nur Tapete. */
+.sky {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background:
+    radial-gradient(58vw 58vw at 4% -14%, var(--field-1), transparent 68%),
+    radial-gradient(46vw 52vw at 96% 4%, var(--field-2), transparent 68%),
+    radial-gradient(72vw 52vw at 74% 112%, var(--field-3), transparent 70%),
+    radial-gradient(44vw 44vw at 26% 62%, var(--field-4), transparent 72%),
+    var(--base);
+}
+
+/* Ein feines Korn über dem Blur. Ohne das banden die großen Verläufe auf
+   8-Bit-Displays sichtbar — das ist kein Effekt, das ist Reparatur. */
+.sky::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: var(--grain);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23g)'/%3E%3C/svg%3E");
+}
+
+/* ── Das Glas ────────────────────────────────────────────────────────────── */
+
+/* Eine einzige Sorte Container, weiterhin nicht verschachtelt. Sie ist jetzt
+   eine Scheibe statt eines Blattes: transluzent, geblurrt, mit Lichtkante. */
+.panel, .card {
+  background: var(--glass);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow), inset 0 1px 0 var(--edge);
+}
+
+.panel-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-16);
+  padding: var(--s-16) var(--s-16) var(--s-8);
+}
+
+h1, h2 { margin: 0; }
+h2 {
+  font-size: var(--t-micro);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--faint);
+}
+
+/* ── Rahmen ──────────────────────────────────────────────────────────────── */
+
+.shell {
+  height: 100dvh;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.wrap {
+  width: 100%;
+  max-width: var(--page);
+  margin-inline: auto;
+  padding-inline: var(--s-32);
+}
+
+.masthead {
+  border-bottom: 1px solid var(--hairline);
+  background: var(--glass);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
+  box-shadow: inset 0 1px 0 var(--edge);
+}
+.masthead-inner {
+  display: flex;
+  align-items: center;
+  gap: var(--s-16);
+  flex-wrap: wrap;
+  padding-block: var(--s-16);
+}
+.head-right {
+  display: flex;
+  align-items: center;
+  gap: var(--s-24);
+  margin-left: auto;
+}
+
+.mark {
+  display: flex;
+  align-items: center;
+  gap: var(--s-8);
+  font-size: var(--t-mark);
+  font-weight: 400;
+  letter-spacing: 0.01em;
+}
+.wordmark b { font-weight: 650; color: var(--brand); }
+.wordmark { color: var(--text); }
+
+.logo { width: 30px; height: 18px; flex: none; display: block; }
+.logo .ridge-back { fill: var(--faint); opacity: 0.55; }
+.logo .ridge-front { fill: var(--muted); }
+.logo .snow { fill: var(--base); }
+
+/* Sagt, dass hier erfundene Daten stehen. Steht direkt neben dem Schriftzug,
+   damit niemand die Vorschau für den laufenden Server hält. */
+.pill {
+  font-size: var(--t-micro);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--faint);
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  padding: 2px var(--s-8);
+  background: var(--row-alt);
+}
+
+.facts { display: flex; gap: var(--s-32); margin: 0; }
+.fact { display: flex; flex-direction: column; gap: 1px; }
+.facts dt {
+  font-size: var(--t-micro);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--faint);
+}
+.facts dd { margin: 0; font-size: var(--t-small); color: var(--muted); }
+
+.reach { display: inline-flex; align-items: center; gap: var(--s-8); }
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--success);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 18%, transparent);
+}
+.reach.is-stale .dot {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--faint);
+}
+
+/* ── Kennzahlen ──────────────────────────────────────────────────────────── */
+
+.board {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: var(--s-24);
+  padding-block: var(--s-24);
+  min-height: 0;
+}
+
+.figures {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--s-16);
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+  padding: var(--s-16);
+  min-width: 0;
+}
+.value {
+  font-size: var(--t-figure);
+  font-weight: 450;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+}
+.value .trail {
+  font-size: var(--t-small);
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--muted);
+  margin-left: var(--s-8);
+}
+.label {
+  font-size: var(--t-micro);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--faint);
+}
+
+.spark {
+  margin-top: auto;
+  padding-top: var(--s-16);
+  width: 100%;
+  height: 40px;
+  display: block;
+  overflow: visible;
+}
+.spark-line {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+/* ── Kurven ──────────────────────────────────────────────────────────────── */
+
+.chart { margin: 0; padding: 0 var(--s-16) var(--s-8); }
+.chart figcaption {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--s-8);
+  font-size: var(--t-micro);
+  color: var(--faint);
+  padding-bottom: var(--s-4);
+}
+.key { display: inline-flex; align-items: center; gap: var(--s-4); }
+.swatch {
+  width: 8px;
+  height: 2px;
+  display: inline-block;
+  margin-left: var(--s-4);
+}
+.sw-total { background: var(--muted); }
+.sw-blocked { background: var(--danger); }
+.sw-cache { background: var(--success); }
+
+.graph {
+  width: 100%;
+  height: 52px;
+  display: block;
+  overflow: visible;
+}
+.graph-area { height: 44px; }
+
+.line-total, .line-blocked, .line-cache {
+  fill: none;
+  stroke-width: 1;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.line-total { stroke: var(--muted); }
+.line-blocked { stroke: var(--danger); }
+.line-cache { stroke: var(--success); }
+
+.axis {
+  display: flex;
+  justify-content: space-between;
+  margin: 0;
+  padding: 0 var(--s-16) var(--s-16);
+  font-size: var(--t-micro);
+  color: var(--faint);
+}
+
+.band { stroke: none; }
+.band-1 { fill: var(--band-1); }
+.band-2 { fill: var(--band-2); }
+.band-3 { fill: var(--band-3); }
+.band-4 { fill: var(--band-4); }
+
+/* ── Block-Gründe ────────────────────────────────────────────────────────── */
+
+.bar {
+  display: flex;
+  height: 10px;
+  margin: 0 var(--s-16);
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--row-alt);
+  box-shadow: inset 0 0 0 1px var(--hairline);
+}
+.bar span { display: block; height: 100%; }
+.bar .band-1 { background: var(--band-1); }
+.bar .band-2 { background: var(--band-2); }
+.bar .band-3 { background: var(--band-3); }
+.bar .band-4 { background: var(--band-4); }
+
+.legend {
+  margin: var(--s-8) 0 0;
+  padding: 0 var(--s-16) var(--s-16);
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 var(--s-16);
+}
+.legend li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-8);
+  font-size: var(--t-small);
+  line-height: 1.8;
+}
+.legend .swatch { width: 8px; height: 8px; border-radius: 2px; margin-left: 0; flex: none; }
+.legend .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.legend .c { margin-left: auto; color: var(--faint); }
+
+/* ── Privacy-Zähler ──────────────────────────────────────────────────────── */
+
+.counters {
+  margin: 0;
+  padding: var(--s-8) var(--s-16) var(--s-16);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--s-8);
+  border-top: 1px solid var(--hairline);
+}
+.counters dt {
+  font-size: var(--t-micro);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.counters dd { margin: 0; font-size: var(--t-small); }
+.counters dd.is-bogus { color: var(--danger); }
+
+/* ── Auffällige Anfragen ─────────────────────────────────────────────────── */
+
+.flagged { margin: 0; padding: 0 var(--s-16) var(--s-16); list-style: none; }
+.flagged li { padding: var(--s-8) 0; border-top: 1px solid var(--hairline); }
+.flagged li:first-child { border-top: 0; }
+
+.flagged .subject {
+  display: block;
+  font-family: var(--mono);
+  font-size: var(--t-small);
+  overflow-wrap: anywhere;
+}
+.flagged .meta {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-8);
+  margin-top: var(--s-4);
+  font-size: var(--t-micro);
+  color: var(--faint);
+}
+.flagged .score { font-variant-numeric: tabular-nums; }
+.flagged .why {
+  margin: var(--s-4) 0 0;
+  font-size: var(--t-micro);
+  color: var(--faint);
+}
+.flagged .actions { display: flex; gap: var(--s-8); margin-top: var(--s-8); }
+
+/* Glas-Knöpfe: dieselbe Scheibe in klein. */
+.flagged button, .ghost {
+  font: inherit;
+  font-size: var(--t-micro);
+  color: var(--text);
+  background: var(--glass);
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  padding: var(--s-4) var(--s-8);
+  cursor: pointer;
+  box-shadow: inset 0 1px 0 var(--edge);
+}
+.flagged button:hover, .ghost:hover { background: var(--glass-strong); }
+.flagged button[disabled] { color: var(--faint); cursor: default; }
+.ghost { font-size: var(--t-small); padding: var(--s-4) var(--s-16); }
+
+/* ── Begründung: das Größte auf der Seite ────────────────────────────────── */
+
+.why { padding-bottom: var(--s-16); }
+.why #why-body { padding: 0 var(--s-16); }
+
+.why .subject {
+  display: block;
+  font-family: var(--mono);
+  font-size: var(--t-lead);
+  font-weight: 500;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  color: var(--danger);
+  overflow-wrap: anywhere;
+}
+.why .subject.is-allowed { color: var(--success); }
+.why .context {
+  margin: var(--s-8) 0 0;
+  font-size: var(--t-small);
+  color: var(--muted);
+}
+
+.chain { margin: var(--s-16) 0 0; padding: 0; list-style: none; counter-reset: step; }
+.chain li {
+  position: relative;
+  padding: 0 0 0 var(--s-24);
+  font-size: var(--t-small);
+  color: var(--muted);
+  line-height: 1.7;
+}
+.chain li::before {
+  content: counter(step);
+  counter-increment: step;
+  position: absolute;
+  left: 0;
+  font-size: var(--t-micro);
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+.chain li:last-child { color: var(--text); }
+
+/* ── Leere Flächen ───────────────────────────────────────────────────────── */
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-8);
+  padding: var(--s-32) var(--s-16);
+  text-align: center;
+  color: var(--faint);
+}
+.empty p { margin: 0; font-size: var(--t-small); max-width: 28ch; }
+.log .empty { min-height: 100%; }
+.top-panel .empty, .top { grid-area: 2 / 1; }
+.empty-icon {
+  width: 28px;
+  height: 28px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.7;
+}
+
+/* ── Protokoll ───────────────────────────────────────────────────────────── */
+
+.stream { display: grid; min-height: 0; }
+
+.panes {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 19rem;
+  gap: var(--s-16);
+  min-height: 0;
+}
+
+.column {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: var(--s-16);
+  min-height: 0;
+}
+
+.log-panel { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; }
+
+.log {
+  min-height: 0;
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
+  padding: 0 var(--s-8) var(--s-16) var(--s-16);
+}
+
+.log-table { width: 100%; border-collapse: collapse; }
+
+/* Der Kopf ist die Stelle, an der das Material am besten zu sehen ist: die
+   Zeilen laufen beim Scrollen unter ihm durch und werden dabei geblurrt. */
+.log-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--glass-strong);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
+  text-align: left;
+  font-size: var(--t-micro);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--faint);
+  padding: var(--s-8) var(--s-8) var(--s-8) 0;
+  border-bottom: 1px solid var(--hairline);
+}
+.log-table td {
+  padding: var(--s-4) var(--s-8);
+  font-size: var(--t-small);
+  line-height: 1.7;
+  white-space: nowrap;
+}
+.log-table td:first-child { padding-left: var(--s-4); border-radius: 4px 0 0 4px; }
+.log-table td:last-child { padding-right: var(--s-4); border-radius: 0 4px 4px 0; }
+
+/* Zebra über die Zelle, nicht über die Zeile — sonst greifen die Radien nicht. */
+.log-table tbody td { transition: background-color 80ms ease; }
+.log-table tbody tr:nth-child(even) td { background: var(--row-alt); }
+.log-table tbody tr:hover td { background: var(--row-hover); }
+
+.c-time, .c-ms, .c-rcode { width: 1%; }
+.c-ms, td.c-ms { text-align: right; }
+.c-client { color: var(--muted); }
+.c-name { width: 99%; }
+td.c-name {
+  font-family: var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 0;
+}
+td.c-time { color: var(--muted); }
+.unnamed { color: var(--faint); font-family: system-ui, sans-serif; }
+
+.is-blocked td.c-name { color: var(--danger); }
+
+.log-table tr.askable { cursor: pointer; }
+.log-table tr.askable:focus-visible { outline: 2px solid var(--text); outline-offset: -2px; }
+.log-table tr.is-asked td { background: var(--row-hover); }
+
+.badge {
+  display: inline-block;
+  padding: 0 var(--s-8);
+  border: 1px solid var(--faint);
+  border-radius: 999px;
+  font-size: var(--t-micro);
+  font-weight: 550;
+  letter-spacing: 0.04em;
+  line-height: 1.6;
+}
+.badge.is-muted { color: var(--muted); }
+.badge.is-blocked {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
+
+.ms-fast { color: var(--success); }
+.ms-slow { color: var(--warn); }
+
+/* ── Upstreams ───────────────────────────────────────────────────────────── */
+
+.upstreams { margin: 0; padding: 0 var(--s-16) var(--s-16); list-style: none; }
+.upstreams li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-8);
+  font-size: var(--t-small);
+  line-height: 2;
+}
+.up-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.up-rtt { margin-left: auto; }
+.up-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+  align-self: center;
+}
+.up-dot.is-up { background: var(--success); }
+.up-dot.is-down { background: var(--danger); }
+
+/* ── Häufigste Namen ─────────────────────────────────────────────────────── */
+
+.side {
+  display: grid;
+  grid-template-rows: auto auto auto auto minmax(0, 1fr);
+  gap: var(--s-16);
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+.top-panel { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; }
+
+.top {
+  margin: 0;
+  padding: 0 var(--s-16) var(--s-16);
+  list-style: none;
+  min-height: 0;
+  overflow-y: auto;
+}
+.top li {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--s-8);
+  font-size: var(--t-small);
+  line-height: 1.9;
+}
+.top .n {
+  font-family: var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.top li.is-blocked .n { color: var(--danger); }
+.top .c { color: var(--faint); }
+
+/* ── Hinweise ────────────────────────────────────────────────────────────── */
+
+.note { margin: 0; font-size: var(--t-small); color: var(--muted); }
+.note.is-persisting { color: var(--warn); }
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px;
+  padding: 0; margin: -1px; overflow: hidden;
+  clip-path: inset(50%); white-space: nowrap;
+}
+
+/* Die zweite und letzte Übergangsregel der Seite (die erste sind die
+   Protokollzeilen). Mehr Bewegung gibt es nicht. */
+.ghost, .flagged button { transition: background-color 120ms ease; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
+
+/* Der Blur ist der teuerste Teil der Seite. Wer ihn nicht will, bekommt eine
+   deckende Fläche — lesbar bleibt es, nur ohne Material. */
+@media (prefers-reduced-transparency: reduce) {
+  .panel, .card, .masthead, .log-table th {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  .panel, .card { background: var(--glass-strong); }
+  .masthead { background: var(--glass-strong); }
+}
+
+@media (max-width: 60rem) {
+  .wrap { padding-inline: var(--s-16); }
+  .shell { height: auto; min-height: 100dvh; }
+  .board { grid-template-rows: none; }
+  .figures { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .panes { grid-template-columns: minmax(0, 1fr); }
+  .column { grid-template-rows: none; }
+  .log { max-height: 60vh; }
+  .side { grid-template-rows: none; overflow-y: visible; }
+  .counters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .facts { gap: var(--s-24); }
+  .c-client { display: none; }
+}
+</style>
+</head>
+<body>
+
+<div class="sky" aria-hidden="true"></div>
+
+<div class="shell">
+
+  <header class="masthead">
+    <div class="wrap masthead-inner">
+      <h1 class="mark">
+        <svg class="logo" viewBox="0 0 44 26" role="img" aria-label="Alpen">
+          <path class="ridge-back" d="M0 26 L12 6 L19 16 L23 10 L44 26 Z"/>
+          <path class="ridge-front" d="M6 26 L20 1 L34 26 Z"/>
+          <path class="snow" d="M20 1 L26 11.5 L22.9 9.6 L20 12 L17.1 9.6 L14 11.5 Z"/>
+        </svg>
+        <span class="wordmark"><b>Alpen</b>DNS</span>
+      </h1>
+      <span class="pill">Preview · sample data</span>
+
+      <div class="head-right">
+        <dl class="facts">
+          <div class="fact"><dt>Mode</dt><dd id="mode">–</dd></div>
+          <div class="fact"><dt>Version</dt><dd id="version">–</dd></div>
+          <div class="fact"><dt>Uptime</dt>
+            <dd class="reach" id="reach"><span class="dot" aria-hidden="true"></span><span id="uptime">–</span></dd>
+          </div>
+        </dl>
+        <button id="theme" class="ghost" type="button">Theme: auto</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap board">
+
+    <section class="figures" aria-labelledby="h-status">
+      <h2 id="h-status" class="sr-only">Is it running?</h2>
+
+      <div class="card">
+        <span class="value" id="queries">–</span>
+        <span class="label">Queries</span>
+        <svg class="spark" viewBox="0 0 240 40" preserveAspectRatio="none"
+             role="img" aria-label="Queries in the last 60 seconds">
+          <path id="spark" class="spark-line" vector-effect="non-scaling-stroke" d=""/>
+        </svg>
+      </div>
+
+      <div class="card">
+        <span class="value" id="blocked">–</span>
+        <span class="label">Blocked</span>
+      </div>
+
+      <div class="card">
+        <span class="value" id="hitrate">–</span>
+        <span class="label">Cache</span>
+      </div>
+
+      <div class="card">
+        <span class="value" id="entries">–</span>
+        <span class="label">List entries</span>
+      </div>
+    </section>
+
+    <section class="stream" aria-labelledby="h-live">
+      <div class="panes">
+
+        <div class="column">
+
+          <section class="why panel" aria-labelledby="h-why" aria-live="polite">
+            <div class="panel-head">
+              <h2 id="h-why">Why was this blocked?</h2>
+              <p class="note" id="why-source" hidden></p>
+            </div>
+            <div id="why-body" hidden></div>
+            <div class="empty" id="why-empty">
+              <svg class="empty-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 3l7 3v5c0 4.4-2.9 8.4-7 9.7C7.9 19.4 5 15.4 5 11V6l7-3z"/>
+              </svg>
+              <p id="why-empty-note">Nothing has been blocked since this page was
+              opened. Click a row in the log to ask for its decision chain.</p>
+            </div>
+          </section>
+
+          <div class="panel log-panel">
+            <div class="panel-head">
+              <h2 id="h-live">What's happening</h2>
+              <p class="note" id="live-note">ephemeral</p>
+            </div>
+            <div class="log" id="log-scroll" tabindex="0">
+              <table class="log-table" id="log-table">
+                <caption class="sr-only">The most recent queries</caption>
+                <thead>
+                  <tr>
+                    <th class="c-time">Time</th>
+                    <th class="c-name">Name</th>
+                    <th class="c-client">Client</th>
+                    <th class="c-rcode">Answer</th>
+                    <th class="c-ms">ms</th>
+                  </tr>
+                </thead>
+                <tbody id="log"></tbody>
+              </table>
+              <div class="empty" id="log-empty" hidden>
+                <svg class="empty-icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M3 12h4l3-7 4 14 3-7h4"/>
+                </svg>
+                <p>No query answered yet. New ones appear here on their own.</p>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <aside class="side">
+
+          <section class="panel" aria-labelledby="h-day">
+            <div class="panel-head">
+              <h2 id="h-day">Last 24 hours</h2>
+            </div>
+
+            <figure class="chart" id="chart-traffic">
+              <figcaption>
+                <span>Queries</span>
+                <span class="key">
+                  <span class="swatch sw-total" aria-hidden="true"></span>total
+                  <span class="swatch sw-blocked" aria-hidden="true"></span>blocked
+                </span>
+              </figcaption>
+              <svg class="graph" viewBox="0 0 240 52" preserveAspectRatio="none"
+                   role="img" aria-label="Queries and blocked queries in the last 24 hours">
+                <path id="day-queries" class="line-total" vector-effect="non-scaling-stroke" d=""/>
+                <path id="day-blocked" class="line-blocked" vector-effect="non-scaling-stroke" d=""/>
+              </svg>
+            </figure>
+
+            <figure class="chart" id="chart-cache">
+              <figcaption>
+                <span>Cache hit rate</span>
+                <span class="key"><span class="swatch sw-cache" aria-hidden="true"></span>hits</span>
+              </figcaption>
+              <svg class="graph" viewBox="0 0 240 52" preserveAspectRatio="none"
+                   role="img" aria-label="Cache hit rate in the last 24 hours">
+                <path id="day-cache" class="line-cache" vector-effect="non-scaling-stroke" d=""/>
+              </svg>
+            </figure>
+
+            <p class="axis"><span>24 h ago</span><span>now</span></p>
+          </section>
+
+          <section class="panel" aria-labelledby="h-up">
+            <div class="panel-head">
+              <h2 id="h-up">Upstreams</h2>
+              <p class="note" id="up-note"></p>
+            </div>
+
+            <figure class="chart" id="chart-split">
+              <figcaption><span>Split over 24 h</span></figcaption>
+              <svg class="graph graph-area" viewBox="0 0 240 44" preserveAspectRatio="none"
+                   role="img" aria-label="Share of upstreams over the last 24 hours">
+                <path id="split-1" class="band band-1" d=""/>
+                <path id="split-2" class="band band-2" d=""/>
+                <path id="split-3" class="band band-3" d=""/>
+                <path id="split-4" class="band band-4" d=""/>
+              </svg>
+            </figure>
+
+            <ul class="upstreams" id="upstreams" aria-labelledby="h-up"></ul>
+
+            <dl class="counters" aria-label="Privacy counters">
+              <div><dt>ECS stripped</dt><dd id="pc-ecs">–</dd></div>
+              <div><dt>Padding</dt><dd id="pc-pad">–</dd></div>
+              <div><dt>0x20</dt><dd id="pc-case">–</dd></div>
+              <div><dt>Cookies</dt><dd id="pc-cookie">–</dd></div>
+              <div><dt>DNSSEC valid</dt><dd id="pc-secure">–</dd></div>
+              <div><dt>DNSSEC dropped</dt><dd id="pc-bogus">–</dd></div>
+            </dl>
+          </section>
+
+          <section class="panel" aria-labelledby="h-reasons">
+            <div class="panel-head"><h2 id="h-reasons">Block reasons</h2></div>
+            <div class="bar" id="reason-bar"></div>
+            <ul class="legend" id="reason-legend"></ul>
+          </section>
+
+          <section class="panel" aria-labelledby="h-flagged">
+            <div class="panel-head">
+              <h2 id="h-flagged">Flagged</h2>
+              <p class="note" id="flagged-note"></p>
+            </div>
+            <ul class="flagged" id="flagged" aria-labelledby="h-flagged"></ul>
+          </section>
+
+          <section class="panel top-panel" aria-labelledby="h-top">
+            <div class="panel-head">
+              <h2 id="h-top">Top names</h2>
+              <p class="note" id="top-hidden"></p>
+            </div>
+            <ol class="top" id="top" aria-labelledby="h-top"></ol>
+          </section>
+
+        </aside>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<script>
+"use strict";
+// Erfundene Daten in den Formen der echten API. Nichts hier wird geladen,
+// nichts wird gesendet — die Datei funktioniert ohne Netz.
+
+const $ = (id) => document.getElementById(id);
+const SPARK_SECONDS = 60;
+const SPLIT_BANDS = 4;
+const MS_FAST = 20;
+const MS_SLOW = 100;
+
+// ── Theme ────────────────────────────────────────────────────────────────
+// Drei Zustände: auto (System), light, dark. Der Knopf schaltet weiter.
+
+const THEMES = ["auto", "light", "dark"];
+let themeIndex = 0;
+
+// ?theme=dark erzwingt eine Fassung. Für den Vergleich der beiden Modi
+// nebeneinander und für den Screenshot im Test.
+const wanted = new URLSearchParams(location.search).get("theme");
+if (THEMES.includes(wanted)) themeIndex = THEMES.indexOf(wanted);
+
+function applyTheme() {
+  const choice = THEMES[themeIndex];
+  const systemDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+  const dark = choice === "dark" || (choice === "auto" && systemDark);
+  document.documentElement.dataset.theme = dark ? "dark" : "light";
+  const button = $("theme");
+  button.textContent = `Theme: ${choice}`;
+  button.title = "auto follows the system setting";
+}
+
+$("theme").addEventListener("click", () => {
+  themeIndex = (themeIndex + 1) % THEMES.length;
+  applyTheme();
+});
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", applyTheme);
+applyTheme();
+
+// ── Formatierung ─────────────────────────────────────────────────────────
+
+function thousands(value) {
+  return Math.round(value).toLocaleString("en-US");
+}
+function decimal(value, places) {
+  return Number(value).toFixed(places);
+}
+function percent(value) {
+  return `${Math.round(value * 100)}%`;
+}
+function clockTime(at) {
+  return at;
+}
+function latencyClass(ms) {
+  if (ms === null || ms === undefined) return "";
+  if (ms >= MS_SLOW) return "ms-slow";
+  if (ms < MS_FAST) return "ms-fast";
+  return "";
+}
+function formatUptime(seconds) {
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
+}
+
+// ── Die Daten ────────────────────────────────────────────────────────────
+
+const STATUS = {
+  version: "0.1.0",
+  uptime_seconds: 4 * 86400 + 7 * 3600 + 12 * 60,
+  logging_mode: "aggregate",
+  persists_to_disk: false,
+  queries: 8421,
+  blocked: 1180,
+  cache_hit_rate: 0.617,
+  list_entries: 184302,
+  dnssec: { secure: 7395, bogus: 3 },
+  privacy: { ecs_stripped: 1284, padded: 8421, case_randomized: 8421, cookies: 96 },
+  upstreams: [
+    { name: "dns.quad9.net", transport: "doh", rtt_ms: 14, down: false },
+    { name: "one.one.one.one", transport: "dot", rtt_ms: 23, down: false },
+    { name: "dns.nextdns.io", transport: "doq", rtt_ms: 48, down: false },
+    { name: "unfiltered.opendns.com", transport: "dot", rtt_ms: null, down: true },
+  ],
+};
+
+const REASONS = [
+  { name: "adblock", count: 812 },
+  { name: "policy: kids", count: 212 },
+  { name: "rpz: malware", count: 96 },
+  { name: "custom", count: 60 },
+];
+
+const FLAGGED = [
+  {
+    domain: "xj3k9f2m1p8qz7.example.net",
+    detector: "DGA",
+    score: 0.91,
+    why: "31 characters, no vowels, 4.7 bits/char entropy, NXDOMAIN on first sight",
+  },
+  {
+    domain: "cdn-metrics-collector.telemetry-host.io",
+    detector: "Tunneling",
+    score: 0.74,
+    why: "6 labels, 38 characters, 2 subdomains seen in 10 minutes",
+  },
+  {
+    domain: "paypa1-secure-login.example.com",
+    detector: "Typosquat",
+    score: 0.83,
+    why: "distance 1 to protected name paypal.com (digit substitution)",
+  },
+];
+
+const TOP = [
+  { name: "github.com", count: 412, blocked: false },
+  { name: "ads.doubleclick.net", count: 388, blocked: true },
+  { name: "api.github.com", count: 301, blocked: false },
+  { name: "graph.facebook.com", count: 274, blocked: true },
+  { name: "deb.debian.org", count: 233, blocked: false },
+  { name: "app-measurement.com", count: 198, blocked: true },
+  { name: "registry.npmjs.org", count: 187, blocked: false },
+  { name: "time.cloudflare.com", count: 164, blocked: false },
+  { name: "px.ads.linkedin.com", count: 141, blocked: true },
+  { name: "mail.google.com", count: 128, blocked: false },
+];
+
+// [Name, Client, geblockt, RCODE, ms] — neueste zuerst.
+const RAW_LOG = [
+  ["github.com", "10.0.10.4", false, "NOERROR", 4],
+  ["ads.doubleclick.net", "10.0.10.22", true, "NXDOMAIN", 0],
+  ["api.github.com", "10.0.10.4", false, "NOERROR", 6],
+  ["cdn.discordapp.com", "10.0.10.31", false, "NOERROR", 9],
+  ["app-measurement.com", "10.0.10.22", true, "NXDOMAIN", 0],
+  ["registry.npmjs.org", "10.0.10.7", false, "NOERROR", 11],
+  ["_ldap._tcp.local", "192.168.20.5", false, "NXDOMAIN", 2],
+  ["graph.facebook.com", "10.0.10.31", true, "NXDOMAIN", 0],
+  ["deb.debian.org", "10.0.10.7", false, "NOERROR", 8],
+  ["time.cloudflare.com", "10.0.10.4", false, "NOERROR", 13],
+  ["analytics.tiktok.com", "10.0.10.22", true, "NXDOMAIN", 0],
+  ["mail.google.com", "10.0.10.31", false, "NOERROR", 17],
+  ["github.com", "10.0.10.7", false, "NOERROR", 3],
+  ["wpad.local", "192.168.20.5", false, "NXDOMAIN", 1],
+  ["cdn.branch.io", "10.0.10.22", true, "NXDOMAIN", 0],
+  ["security.debian.org", "10.0.10.7", false, "NOERROR", 12],
+  ["api.themoviedb.org", "10.0.10.31", false, "NOERROR", 21],
+  ["telemetry.mozilla.org", "10.0.10.4", true, "NXDOMAIN", 0],
+  ["registry.npmjs.org", "10.0.10.7", false, "NOERROR", 7],
+  ["device-metrics-us.amazon.com", "10.0.10.22", true, "NXDOMAIN", 0],
+  ["api.github.com", "10.0.10.4", false, "NOERROR", 5],
+  ["cdn.jsdelivr.net", "10.0.10.31", false, "NOERROR", 18],
+  ["px.ads.linkedin.com", "10.0.10.22", true, "NXDOMAIN", 0],
+  ["github.com", "10.0.10.31", false, "NOERROR", 4],
+  ["nonexistent.example.com", "10.0.10.7", false, "NXDOMAIN", 26],
+  ["ads.doubleclick.net", "10.0.10.22", true, "NXDOMAIN", 0],
+  ["deb.debian.org", "10.0.10.7", false, "NOERROR", 10],
+  ["fonts.gstatic.com", "10.0.10.31", false, "NOERROR", 15],
+  ["app-measurement.com", "10.0.10.22", true, "NXDOMAIN", 0],
+  ["mail.google.com", "10.0.10.4", false, "NOERROR", 24],
+  ["time.cloudflare.com", "10.0.10.7", false, "NOERROR", 14],
+  ["graph.facebook.com", "10.0.10.22", true, "NXDOMAIN", 0],
+  ["registry.npmjs.org", "10.0.10.31", false, "NOERROR", 9],
+  ["slow-upstream.example.org", "10.0.10.7", false, "NOERROR", 142],
+  ["cdn.discordapp.com", "10.0.10.31", false, "NOERROR", 12],
+  ["analytics.tiktok.com", "10.0.10.22", true, "NXDOMAIN", 0],
+  ["api.github.com", "10.0.10.4", false, "NOERROR", 6],
+  ["very-slow-replica.example.org", "10.0.10.7", false, "NOERROR", 244],
+  ["github.com", "10.0.10.22", false, "NOERROR", 5],
+  ["security.debian.org", "10.0.10.7", false, "NOERROR", 13],
+];
+
+// Die Entscheidungskette, wie sie /api/explain liefert: eine Liste von
+// Schritten, die Reihenfolge ist die Aussage.
+const CHAINS = {
+  "ads.doubleclick.net": [
+    "Query from 10.0.10.22 for ads.doubleclick.net. (A, IN)",
+    "Client matched policy \"kids\" (10.0.10.0/24).",
+    "List \"adblock\" matched: ||doubleclick.net^",
+    "Rule action: block.",
+    "Answered with NXDOMAIN, never forwarded upstream.",
+  ],
+  "app-measurement.com": [
+    "Query from 10.0.10.22 for app-measurement.com. (A, IN)",
+    "Client matched policy \"kids\" (10.0.10.0/24).",
+    "List \"adblock\" matched: ||app-measurement.com^",
+    "Rule action: block.",
+    "Answered with NXDOMAIN, never forwarded upstream.",
+  ],
+  "graph.facebook.com": [
+    "Query from 10.0.10.31 for graph.facebook.com. (A, IN)",
+    "No client rule matched, default policy applied.",
+    "List \"rpz: malware\" matched: graph.facebook.com CNAME .",
+    "Rule action: block.",
+    "Answered with NXDOMAIN, never forwarded upstream.",
+  ],
+  "github.com": [
+    "Query from 10.0.10.4 for github.com. (A, IN)",
+    "No client rule matched, default policy applied.",
+    "No list matched; 3 lists consulted.",
+    "Forwarded over DoH to dns.quad9.net.",
+    "Answered with NOERROR in 4 ms, DNSSEC validated.",
+  ],
+};
+
+function chainFor(event) {
+  return (
+    CHAINS[event.name] ?? [
+      `Query from ${event.client} for ${event.name}. (A, IN)`,
+      "No client rule matched, default policy applied.",
+      "No list matched.",
+      event.blocked
+        ? "Rule action: block."
+        : `Forwarded to the fastest healthy upstream.`,
+      event.blocked
+        ? "Answered with NXDOMAIN, never forwarded upstream."
+        : `Answered with ${event.rcode} in ${event.ms} ms.`,
+    ]
+  );
+}
+
+// ── Kennzahlen ───────────────────────────────────────────────────────────
+
+function renderStatus(status) {
+  $("queries").textContent = thousands(status.queries);
+  $("blocked").textContent = thousands(status.blocked);
+  $("hitrate").textContent = percent(status.cache_hit_rate);
+  $("entries").textContent = thousands(status.list_entries);
+  $("mode").textContent = status.logging_mode;
+  $("version").textContent = status.version;
+  $("uptime").textContent = formatUptime(status.uptime_seconds);
+
+  const note = $("live-note");
+  note.textContent = status.persists_to_disk ? "writing to disk" : "ephemeral";
+  note.classList.toggle("is-persisting", status.persists_to_disk);
+
+  $("pc-ecs").textContent = thousands(status.privacy.ecs_stripped);
+  $("pc-pad").textContent = thousands(status.privacy.padded);
+  $("pc-case").textContent = thousands(status.privacy.case_randomized);
+  $("pc-cookie").textContent = thousands(status.privacy.cookies);
+  $("pc-secure").textContent = thousands(status.dnssec.secure);
+  const bogus = $("pc-bogus");
+  bogus.textContent = thousands(status.dnssec.bogus);
+  bogus.classList.toggle("is-bogus", status.dnssec.bogus > 0);
+
+  renderUpstreams(status.upstreams);
+}
+
+function renderUpstreams(list) {
+  const box = $("upstreams");
+  box.replaceChildren();
+  list.forEach((upstream, index) => {
+    const item = document.createElement("li");
+
+    const swatch = document.createElement("span");
+    swatch.className = `swatch band-${Math.min(index + 1, SPLIT_BANDS)}`;
+
+    const dot = document.createElement("span");
+    dot.className = `up-dot ${upstream.down ? "is-down" : "is-up"}`;
+
+    const name = document.createElement("span");
+    name.className = "up-name";
+    name.textContent = upstream.name;
+    name.title = `${upstream.name} over ${upstream.transport.toUpperCase()}`;
+
+    const rtt = document.createElement("span");
+    rtt.className = "up-rtt";
+    if (upstream.down) {
+      rtt.textContent = "down";
+    } else {
+      rtt.textContent = `${decimal(upstream.rtt_ms, 0)} ms`;
+      const slot = latencyClass(upstream.rtt_ms);
+      if (slot) rtt.classList.add(slot);
+    }
+
+    item.append(swatch, dot, name, rtt);
+    box.append(item);
+  });
+
+  const mix = new Map();
+  for (const upstream of list) {
+    mix.set(upstream.transport, (mix.get(upstream.transport) ?? 0) + 1);
+  }
+  $("up-note").textContent = [...mix]
+    .map(([transport, count]) => `${count}× ${transport.toUpperCase()}`)
+    .join(" · ");
+}
+
+// ── Block-Gründe ─────────────────────────────────────────────────────────
+
+function renderReasons(reasons) {
+  const total = reasons.reduce((sum, reason) => sum + reason.count, 0) || 1;
+
+  const bar = $("reason-bar");
+  bar.replaceChildren();
+  const legend = $("reason-legend");
+  legend.replaceChildren();
+
+  reasons.forEach((reason, index) => {
+    const band = Math.min(index + 1, SPLIT_BANDS);
+
+    const segment = document.createElement("span");
+    segment.className = `band-${band}`;
+    segment.style.width = `${(reason.count / total) * 100}%`;
+    bar.append(segment);
+
+    const item = document.createElement("li");
+    const swatch = document.createElement("span");
+    swatch.className = `swatch band-${band}`;
+    const name = document.createElement("span");
+    name.className = "n";
+    name.textContent = reason.name;
+    const count = document.createElement("span");
+    count.className = "c";
+    count.textContent = thousands(reason.count);
+    item.append(swatch, name, count);
+    legend.append(item);
+  });
+}
+
+// ── Auffällige Anfragen ──────────────────────────────────────────────────
+
+function flaggedRow(entry) {
+  const item = document.createElement("li");
+
+  const subject = document.createElement("span");
+  subject.className = "subject";
+  subject.textContent = entry.domain;
+
+  const meta = document.createElement("span");
+  meta.className = "meta";
+  const detector = document.createElement("span");
+  detector.textContent = entry.detector;
+  const score = document.createElement("span");
+  score.className = "score";
+  score.textContent = decimal(entry.score, 2);
+  meta.append(detector, score);
+
+  const why = document.createElement("p");
+  why.className = "why";
+  why.textContent = entry.why;
+
+  const actions = document.createElement("div");
+  actions.className = "actions";
+  for (const caption of ["Allow", "Deny"]) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = caption;
+    actions.append(button);
+  }
+
+  item.append(subject, meta, why, actions);
+  return item;
+}
+
+// ── Häufigste Namen ──────────────────────────────────────────────────────
+
+function renderTop(names) {
+  const box = $("top");
+  box.replaceChildren();
+  names.forEach((entry) => {
+    const item = document.createElement("li");
+    if (entry.blocked) item.className = "is-blocked";
+    const name = document.createElement("span");
+    name.className = "n";
+    name.textContent = entry.name;
+    const count = document.createElement("span");
+    count.className = "c";
+    count.textContent = thousands(entry.count);
+    item.append(name, count);
+    box.append(item);
+  });
+}
+
+// ── Das Protokoll ────────────────────────────────────────────────────────
+
+function cell(text, className) {
+  const td = document.createElement("td");
+  td.className = className;
+  td.textContent = text;
+  return td;
+}
+
+function rcodeCell(event) {
+  const td = document.createElement("td");
+  td.className = "c-rcode";
+  const badge = document.createElement("span");
+  badge.className = "badge";
+  if (event.blocked) {
+    badge.classList.add("is-blocked");
+    badge.textContent = "BLOCKED";
+    badge.title = event.rcode;
+  } else {
+    badge.textContent = event.rcode;
+    if (event.rcode === "NXDOMAIN") badge.classList.add("is-muted");
+  }
+  td.append(badge);
+  return td;
+}
+
+function row(event, index) {
+  const tr = document.createElement("tr");
+  if (event.blocked) tr.className = "is-blocked";
+  tr.append(cell(event.at, "c-time"));
+  tr.append(cell(event.name, "c-name"));
+  tr.append(cell(event.client, "c-client"));
+  tr.append(rcodeCell(event));
+  const ms = cell(decimal(event.ms, 1), "c-ms");
+  const slot = latencyClass(event.ms);
+  if (slot) ms.classList.add(slot);
+  tr.append(ms);
+
+  tr.classList.add("askable");
+  tr.tabIndex = 0;
+  tr.title = "Ask for decision chain";
+  // Der Index ist die Zuordnung zur Zeile — über den Namen zu suchen wäre
+  // mehrdeutig, sobald derselbe Name zweimal im Protokoll steht.
+  tr.dataset.index = String(index);
+  return tr;
+}
+
+function buildLog() {
+  // Rückwärts laufende Zeitstempel, damit die neueste Zeile oben steht.
+  const now = new Date();
+  now.setSeconds(now.getSeconds() - 3);
+  return RAW_LOG.map(([name, client, blocked, rcode, ms], index) => {
+    const at = new Date(now.getTime() - index * 2400);
+    return {
+      at: at.toTimeString().slice(0, 8),
+      name,
+      client,
+      blocked,
+      rcode,
+      ms,
+      why: null,
+    };
+  });
+}
+
+const EVENTS = buildLog();
+
+function renderLog() {
+  const body = $("log");
+  body.replaceChildren();
+  EVENTS.forEach((event, index) => body.append(row(event, index)));
+}
+
+// ── Die Begründung ───────────────────────────────────────────────────────
+
+function showReason(event, source) {
+  const box = $("why-body");
+  box.replaceChildren();
+
+  const subject = document.createElement("span");
+  subject.className = "subject";
+  if (!event.blocked) subject.classList.add("is-allowed");
+  subject.textContent = event.name;
+  box.append(subject);
+
+  const context = document.createElement("p");
+  context.className = "context";
+  context.textContent =
+    `at ${event.at} · ${event.client} · answered with ${event.rcode}`;
+  box.append(context);
+
+  const chain = document.createElement("ol");
+  chain.className = "chain";
+  for (const step of chainFor(event)) {
+    const item = document.createElement("li");
+    item.textContent = step;
+    chain.append(item);
+  }
+  box.append(chain);
+
+  const note = $("why-source");
+  note.textContent = source ?? "";
+  note.hidden = !source;
+  $("why-empty").hidden = true;
+  box.hidden = false;
+}
+
+let askedRow = null;
+
+function ask(tr, source) {
+  if (askedRow) askedRow.classList.remove("is-asked");
+  askedRow = tr;
+  tr.classList.add("is-asked");
+  showReason(EVENTS[Number(tr.dataset.index)], source);
+}
+
+function activate(tr) {
+  ask(tr, "evaluated now, not from the log");
+}
+
+// Ein Zuhörer für die ganze Tabelle statt zwei je Zeile.
+$("log-table").addEventListener("click", (trigger) => {
+  const tr = trigger.target.closest("tr.askable");
+  if (tr) activate(tr);
+});
+$("log-table").addEventListener("keydown", (trigger) => {
+  if (trigger.key !== "Enter" && trigger.key !== " ") return;
+  const tr = trigger.target.closest("tr.askable");
+  if (!tr) return;
+  trigger.preventDefault();
+  activate(tr);
+});
+
+// ── Die Sparkline ────────────────────────────────────────────────────────
+
+function setPath(id, d) {
+  $(id).setAttribute("d", d);
+}
+
+/** Eine Linie über gleich breite Punkte, von links nach rechts. */
+function linePath(values, peak, step, base, span) {
+  let d = "";
+  values.forEach((value, index) => {
+    const x = (index * step).toFixed(1);
+    const y = (base - (value / peak) * span).toFixed(1);
+    d += `${index === 0 ? "M" : " L"}${x} ${y}`;
+  });
+  return d;
+}
+
+// Eine ruhige Minute mit ein paar Ausschlägen — von Hand, nicht zufällig,
+// damit die Vorschau bei jedem Aufruf gleich aussieht.
+const SPARK = [
+  4, 3, 6, 5, 8, 7, 5, 4, 6, 9, 12, 8, 6, 5, 7, 11, 14, 9, 6, 4,
+  5, 7, 6, 8, 13, 10, 7, 5, 6, 8, 9, 7, 5, 4, 6, 8, 11, 9, 6, 5,
+  7, 6, 8, 10, 7, 5, 4, 6, 9, 12, 8, 6, 5, 7, 6, 4, 5, 7, 6, 5,
+];
+
+function drawSpark() {
+  setPath("spark", linePath(SPARK, Math.max(1, ...SPARK), 240 / (SPARK_SECONDS - 1), 39, 38));
+}
+
+// ── Die Zeitreihe ────────────────────────────────────────────────────────
+
+const DAY_WIDTH = 240;
+const DAY_HEIGHT = 52;
+const SPLIT_HEIGHT = 44;
+
+function drawDay(values, id, peak, base, span) {
+  const step = DAY_WIDTH / Math.max(1, values.length - 1);
+  setPath(id, linePath(values, peak, step, base, span));
+}
+
+/** 24 Stunden in 288 Eimern à fünf Minuten, als geglättete Kurve. */
+function historyCurve(shape) {
+  const values = [];
+  for (let index = 0; index < 72; index += 1) {
+    const hour = (index / 3 + 21) % 24;      // beginnt vor 24 h
+    const day = Math.sin(((hour - 7) / 24) * Math.PI * 2) * 0.5 + 0.5;
+    const evening = Math.exp(-((hour - 21) ** 2) / 8) * 0.6;
+    const base = 0.25 + day * 0.55 + evening;
+    values.push(base * shape);
+  }
+  return values;
+}
+
+function drawCharts() {
+  const queries = historyCurve(120);
+  const blocked = historyCurve(17);
+  const cache = historyCurve(1).map((value, index) =>
+    Math.min(0.78, 0.48 + Math.sin(index / 5) * 0.08 + value * 0.06)
+  );
+
+  // Beide Kurven teilen sich den Maßstab: sonst sähen zwei geblockte Anfragen
+  // aus wie tausend, und der Vergleich, um den es geht, wäre gelogen.
+  const peak = Math.max(1, ...queries);
+  drawDay(queries, "day-queries", peak, DAY_HEIGHT - 1, DAY_HEIGHT - 2);
+  drawDay(blocked, "day-blocked", peak, DAY_HEIGHT - 1, DAY_HEIGHT - 2);
+  // Die Trefferquote ist ein Anteil und hat deshalb den festen Maßstab 0 bis 1.
+  drawDay(cache, "day-cache", 1, DAY_HEIGHT - 1, DAY_HEIGHT - 2);
+
+  drawSplit();
+}
+
+/** Die Aufteilung auf die Upstreams als gestapelte Flächen. Die Frage dahinter
+ *  ist keine Auslastungsfrage, sondern eine Privacy-Frage: sieht ein Resolver
+ *  mehr als seinen Teil der Namen? Deshalb Anteile und keine Absolutwerte —
+ *  und deshalb liegen die Bänder lückenlos übereinander. */
+function drawSplit() {
+  const BASE = [0.46, 0.31, 0.17, 0.06];
+  const buckets = 72;
+  const step = DAY_WIDTH / (buckets - 1);
+
+  // Ein leichter Tagesgang, damit die Grenzen atmen. Normalisiert, sonst
+  // klaffen Lücken oder das oberste Band läuft aus dem Bild.
+  const shares = [];
+  for (let index = 0; index < buckets; index += 1) {
+    const drift = Math.sin((index / buckets) * Math.PI * 2) * 0.06;
+    const values = BASE.map((share, band) =>
+      Math.max(0.01, band === 0 ? share + drift : share - drift / 3)
+    );
+    const total = values.reduce((sum, value) => sum + value, 0);
+    shares.push(values.map((value) => value / total));
+  }
+
+  // Obere Kante hin, untere Kante zurück: eine geschlossene Fläche je Band.
+  for (let band = 0; band < SPLIT_BANDS; band += 1) {
+    const upper = [];
+    const lower = [];
+    shares.forEach((values, index) => {
+      const x = (index * step).toFixed(1);
+      let below = 0;
+      for (let i = 0; i < band; i += 1) below += values[i];
+      const top = below + values[band];
+      upper.push(`${x} ${(SPLIT_HEIGHT - top * SPLIT_HEIGHT).toFixed(1)}`);
+      lower.push(`${x} ${(SPLIT_HEIGHT - below * SPLIT_HEIGHT).toFixed(1)}`);
+    });
+    lower.reverse();
+    setPath(`split-${band + 1}`, `M${upper.join(" L")} L${lower.join(" L")} Z`);
+  }
+}
+
+// ── Start ────────────────────────────────────────────────────────────────
+
+function start() {
+  renderStatus(STATUS);
+  renderReasons(REASONS);
+  renderTop(TOP);
+  renderLog();
+  drawSpark();
+  drawCharts();
+
+  const box = $("flagged");
+  box.replaceChildren();
+  for (const entry of FLAGGED) box.append(flaggedRow(entry));
+  $("flagged-note").textContent = `${FLAGGED.length} open`;
+
+  // Die erste geblockte Zeile ist vorausgewählt: das Panel "Warum?" ist der
+  // wertvollste Teil der Seite, und in der Vorschau soll es nicht leer starten.
+  const firstBlocked = EVENTS.findIndex((event) => event.blocked);
+  if (firstBlocked >= 0) {
+    const tr = document.querySelector(`tr[data-index="${firstBlocked}"]`);
+    if (tr) ask(tr, "");
+  }
+}
+
+start();
+</script>
+</body>
+</html>
