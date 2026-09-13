@@ -18,6 +18,12 @@
 //! und alles hier ein Treffer. `forward_zone`-Einträge trägt die
 //! Konfiguration von selbst ein (siehe `crate::config`), damit der eigene
 //! LAN-Nameserver den Schutz nicht beim ersten Start auslöst.
+//!
+//! **Was als privat zählt, ist eng gefasst**: nur Adressen, auf denen ein
+//! Gerät im lokalen Netz sitzen kann. Sinkholes (`0.0.0.0`, `::`) und
+//! IANA-Sonderraum fallen heraus, weil dort kein Angriffsziel stehen kann.
+//! Die Beobachtungswoche war der Anlass: 1 763 Meldungen, kein einziger
+//! Angriff, und die beiden Gruppen erklären alle davon (ADR-0021).
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
@@ -56,6 +62,12 @@ impl Rebinding {
 /// Ob diese Adresse in einer Antwort auf einen öffentlichen Namen nichts zu
 /// suchen hat.
 ///
+/// **Geflaggt wird nur, worauf ein Gerät im lokalen Netz sitzen kann.** Diese
+/// Einschränkung ist der Kern der Liste: Ein Sinkhole (`0.0.0.0`, `::`) zeigt
+/// auf nichts, und IANA-Sonderraum wie `192.0.0.0/24` gehört keinem Gerät.
+/// Beides als Angriff zu melden hat in der Beobachtungswoche 1 763 Meldungen
+/// erzeugt, von denen keine einzige ein Angriff war (ADR-0021).
+///
 /// Von Hand aufgezählt statt über die Hilfsmethoden der Standardbibliothek:
 /// `Ipv4Addr::is_shared` und `is_benchmarking` sind dort noch nicht stabil, und
 /// eine Liste, die man lesen kann, ist an dieser Stelle mehr wert als eine, die
@@ -73,21 +85,18 @@ pub fn is_private(addr: IpAddr) -> bool {
 
 fn is_private_v4(addr: Ipv4Addr) -> bool {
     let [a, b, ..] = addr.octets();
-    addr.is_unspecified()          // 0.0.0.0/8      RFC 1122
-        || addr.is_loopback()      // 127.0.0.0/8    RFC 1122
-        || addr.is_private()       // 10/8, 172.16/12, 192.168/16  RFC 1918
-        || addr.is_link_local()    // 169.254.0.0/16 RFC 3927
-        || addr.is_broadcast()     // 255.255.255.255
-        || (a == 100 && (64..128).contains(&b))  // 100.64/10  RFC 6598 (CGNAT)
-        || (a == 192 && b == 0)    // 192.0.0/24     RFC 6890 (IETF-Protokolle)
+    addr.is_loopback()       // 127.0.0.0/8    RFC 1122
+        || addr.is_private() // 10/8, 172.16/12, 192.168/16  RFC 1918
+        || addr.is_link_local() // 169.254.0.0/16 RFC 3927
+        || addr.is_broadcast() // 255.255.255.255
+        || (a == 100 && (64..128).contains(&b)) // 100.64/10  RFC 6598 (CGNAT)
         || (a == 198 && (18..20).contains(&b)) // 198.18/15 RFC 2544 (Benchmark)
 }
 
 fn is_private_v6(addr: Ipv6Addr) -> bool {
     let first = addr.segments().first().copied().unwrap_or(0);
-    addr.is_unspecified()                 // ::            RFC 4291
-        || addr.is_loopback()             // ::1           RFC 4291
-        || (first & 0xfe00) == 0xfc00     // fc00::/7      RFC 4193 (unique local)
+    addr.is_loopback()            // ::1           RFC 4291
+        || (first & 0xfe00) == 0xfc00 // fc00::/7      RFC 4193 (unique local)
         || (first & 0xffc0) == 0xfe80 // fe80::/10     RFC 4291 (link local)
 }
 
@@ -164,7 +173,6 @@ mod tests {
             "172.16.0.1",
             "127.0.0.1",
             "169.254.1.1",
-            "0.0.0.0",
             "100.64.0.1",
         ] {
             let parsed: IpAddr = address.parse().expect("Adresse");
@@ -187,7 +195,7 @@ mod tests {
 
     #[test]
     fn private_ipv6_is_found_too() {
-        for address in ["::1", "fd00::1", "fe80::1", "::"] {
+        for address in ["::1", "fd00::1", "fe80::1"] {
             let parsed: IpAddr = address.parse().expect("Adresse");
             let response = answer("boese.example.com.", &[parsed]);
             assert!(
@@ -209,6 +217,43 @@ mod tests {
             assert!(
                 detector().inspect("example.com", &response).is_none(),
                 "{address} fälschlich erkannt"
+            );
+        }
+    }
+
+    #[test]
+    fn a_sinkhole_address_is_not_a_rebinding_attack() {
+        // Aus der Beobachtungswoche: 1 467 Antworten mit 0.0.0.0 und 281 mit
+        // "::", alle von den Sinkholes der Upstreams. "Diesen Endpunkt gibt es
+        // nicht" ist die übliche Art, eine Telemetrie-Domain stillzulegen
+        // (Apple, Amazon, Microsoft), und der eigene Block-Modus `zero_ip`
+        // antwortet genau so. Wer 0.0.0.0 nicht erreicht, erreicht darüber
+        // auch keinen Router im LAN.
+        for address in ["0.0.0.0", "::"] {
+            let parsed: IpAddr = address.parse().expect("Adresse");
+            let response = answer("telemetry.example.com.", &[parsed]);
+            assert!(
+                detector()
+                    .inspect("telemetry.example.com", &response)
+                    .is_none(),
+                "{address} als Rebinding gemeldet"
+            );
+        }
+    }
+
+    #[test]
+    fn an_address_the_iana_keeps_for_itself_is_not_a_finding() {
+        // github.blog → 192.0.66.2 und gravatar.com → 192.0.80.241 sind
+        // geroutete Adressen; Quad9 und Cloudflare antworten unabhängig
+        // voneinander damit. 192.0.0.170 ist die NAT64-Erkennung aus RFC 7050
+        // und liefert per Design eine Adresse aus 192.0.0.0/24. Auf keinem
+        // dieser Ziele sitzt ein Gerät im LAN.
+        for address in ["192.0.66.2", "192.0.80.241", "192.0.0.170"] {
+            let parsed: IpAddr = address.parse().expect("Adresse");
+            let response = answer("github.blog.", &[parsed]);
+            assert!(
+                detector().inspect("github.blog", &response).is_none(),
+                "{address} fälschlich als privat erkannt"
             );
         }
     }
@@ -286,14 +331,12 @@ mod tests {
         // Die Liste in `is_private_v4` ist die Zusicherung; dieser Test hält
         // fest, dass sie vollständig gelesen wird.
         let private = [
-            "0.0.0.0",
             "10.255.255.255",
             "100.64.0.0",
             "100.127.255.255",
             "127.0.0.1",
             "169.254.0.1",
             "172.31.255.255",
-            "192.0.0.1",
             "192.168.0.1",
             "198.19.255.255",
             "255.255.255.255",
@@ -302,10 +345,16 @@ mod tests {
             let parsed: Ipv4Addr = address.parse().expect("Adresse");
             assert!(is_private_v4(parsed), "{address} gilt als öffentlich");
         }
-        // Direkt neben den Grenzen liegt öffentlicher Adressraum.
+        // Direkt neben den Grenzen liegt öffentlicher Adressraum — und die
+        // Adressen, die kein Gerät sein können: das Sinkhole 0.0.0.0 und der
+        // IANA-Sonderraum um 192.0.0.0/24, in dem auch geroutete Adressen
+        // liegen (192.0.66.2 ist github.blog).
         for address in [
+            "0.0.0.0",
             "100.63.255.255",
             "100.128.0.0",
+            "192.0.0.1",
+            "192.0.66.2",
             "198.17.255.255",
             "198.20.0.0",
         ] {
