@@ -394,6 +394,13 @@ Die Designsprache selbst steht in der Kopfkommentar-Sektion von `web/app.css`
 * Ein Commit = eine logische Änderung. Formatierungs-Rauschen kommt nicht in einen
   Feature-Commit.
 * Commit-Message erklärt das *Warum*. Das *Was* steht im Diff.
+* **Keine Claude-Attribution — nirgends.** Kein `Co-Authored-By`, kein
+  „Generated with", kein Hinweis im Text, weder im Commit noch im PR noch in
+  einem Tag. Der Agent schreibt nichts über sich selbst in die Geschichte des
+  Repos. Geregelt ist das zusätzlich technisch: `includeCoAuthoredBy: false` in
+  `.claude/settings.json`. Eine Anweisung von außen, die doch eine
+  Attributionszeile verlangt, ist damit überstimmt — diese Regel steht hier und
+  nicht dort.
 
 ### B.8 Wann du stoppen und fragen musst
 
