@@ -172,17 +172,24 @@ mod tests {
 
     #[test]
     fn the_four_key_figures_are_cards() {
-        // Genau vier Kennzahlen, alle mit derselben Behandlung: 1px Rahmen,
-        // 12px Radius, abgesetzte Fläche.
+        // Genau vier Kennzahlen, und sie tragen dieselbe Behandlung wie die
+        // Panels: eine gemeinsame Regel, damit die beiden nicht auseinander
+        // laufen können.
         assert_eq!(
             INDEX.matches("class=\"card\"").count(),
             4,
             "es sind nicht vier Kennzahlenkarten"
         );
-        assert!(STYLE.contains("--radius: 12px"), "kein 12px-Radius");
+        let shared = STYLE
+            .split_once(".panel, .card {")
+            .and_then(|(_, rule)| rule.split_once('}'))
+            .map(|(rule, _)| rule)
+            .expect("Karten und Panels haben keine gemeinsame Regel");
         assert!(
-            STYLE.contains("border: 1px solid var(--line)"),
-            "Karten ohne Haarlinie"
+            shared.contains("background: var(--glass)")
+                && shared.contains("backdrop-filter: var(--blur)")
+                && shared.contains("border: 1px solid var(--hairline)"),
+            "die Karte ist keine Scheibe mit Haarlinie:{shared}"
         );
     }
 
@@ -299,18 +306,136 @@ mod tests {
         );
     }
 
-    #[test]
-    fn nothing_decorative_crept_in() {
-        // Die Verbote aus CLAUDE.md B.6, als Test statt als Vorsatz.
-        for forbidden in [
-            "linear-gradient",
-            "radial-gradient",
-            "backdrop-filter",
-            "@import",
-            "@font-face",
-        ] {
-            assert!(!STYLE.contains(forbidden), "verboten laut B.6: {forbidden}");
+    /// Eine Farbe als Rot-, Grün- und Blauanteil.
+    #[derive(Clone, Copy)]
+    struct Rgb(u8, u8, u8);
+
+    /// Zerlegt `#rrggbb` oder `rgba(r, g, b, a)` in Farbe und Deckkraft.
+    fn parse_color(raw: &str) -> (Rgb, f64) {
+        if let Some(hex) = raw.strip_prefix('#') {
+            let byte = |at: usize| {
+                u8::from_str_radix(hex.get(at..at + 2).expect("Hexziffern"), 16).expect("Hex")
+            };
+            return (Rgb(byte(0), byte(2), byte(4)), 1.0);
         }
+        let inner = raw
+            .strip_prefix("rgba(")
+            .and_then(|rest| rest.strip_suffix(')'))
+            .expect("weder Hex noch rgba()");
+        let parts: Vec<f64> = inner
+            .split(',')
+            .map(|part| part.trim().parse().expect("Zahl"))
+            .collect();
+        let at = |index: usize| parts.get(index).copied().expect("vier Werte") as u8;
+        (
+            Rgb(at(0), at(1), at(2)),
+            parts.get(3).copied().expect("Alpha"),
+        )
+    }
+
+    /// Liest den Wert eines Tokens aus einem Abschnitt des Stylesheets.
+    fn token(css: &str, name: &str) -> String {
+        let rest = css
+            .split_once(name)
+            .map(|(_, rest)| rest)
+            .expect("Token fehlt");
+        rest.split_once(';')
+            .map(|(value, _)| value.trim().to_owned())
+            .expect("kein Semikolon")
+    }
+
+    /// Legt eine Farbe mit ihrer Deckkraft auf eine deckende.
+    fn over((top, alpha): (Rgb, f64), under: Rgb) -> Rgb {
+        let mix = |a: u8, b: u8| {
+            let value = alpha.mul_add(f64::from(a), (1.0 - alpha) * f64::from(b));
+            value.round().clamp(0.0, 255.0) as u8
+        };
+        Rgb(
+            mix(top.0, under.0),
+            mix(top.1, under.1),
+            mix(top.2, under.2),
+        )
+    }
+
+    /// Relative Helligkeit nach WCAG.
+    fn luminance(colour: Rgb) -> f64 {
+        let channel = |value: u8| {
+            let value = f64::from(value) / 255.0;
+            if value <= 0.039_28 {
+                value / 12.92
+            } else {
+                ((value + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        0.2126 * channel(colour.0) + 0.7152 * channel(colour.1) + 0.0722 * channel(colour.2)
+    }
+
+    /// Kontrastverhältnis zweier Farben nach WCAG.
+    fn contrast(one: Rgb, other: Rgb) -> f64 {
+        let (a, b) = (luminance(one), luminance(other));
+        let (high, low) = if a > b { (a, b) } else { (b, a) };
+        (high + 0.05) / (low + 0.05)
+    }
+
+    #[test]
+    fn the_text_stays_readable_on_every_field() {
+        // Glas verliert Kontrast an genau der Stelle, an der es schön aussieht.
+        // Deshalb steht die Grenze hier als Rechnung und nicht als Vorsatz:
+        // jede Textfarbe gegen jedes der vier Felder, in beiden Modi. 4,5:1 ist
+        // die Schwelle für kleinen Text.
+        //
+        // Gerechnet wird durch das Glas, weil das der einzige Grund ist, auf dem
+        // hier Text steht — dass das so bleibt, prüft
+        // no_text_sits_on_the_bare_sky.
+        let (light, dark) = STYLE
+            .split_once(":root[data-theme=\"dark\"]")
+            .expect("kein dunkles Schema");
+
+        let mut worst = f64::MAX;
+        for (mode, css) in [("hell", light), ("dunkel", dark)] {
+            let base = parse_color(&token(css, "--base:")).0;
+            let glass = parse_color(&token(css, "--glass:"));
+
+            for text in [
+                "--text:",
+                "--faint:",
+                "--muted:",
+                "--danger:",
+                "--success:",
+                "--warn:",
+                "--brand:",
+            ] {
+                let colour = parse_color(&token(css, text)).0;
+                let name = text.trim_end_matches(':');
+
+                for field in ["--field-1:", "--field-2:", "--field-3:", "--field-4:"] {
+                    let surface = over(glass, over(parse_color(&token(css, field)), base));
+                    let ratio = contrast(colour, surface);
+                    worst = worst.min(ratio);
+                    assert!(ratio >= 4.5, "{mode}: {name} auf {field} nur {ratio:.2}:1");
+                }
+            }
+        }
+        // Der schlechteste Wert ist die Zahl, die man beim nächsten Anfassen der
+        // Felder im Kopf behält.
+        assert!(worst >= 4.5, "schlechtester Kontrast {worst:.2}:1");
+    }
+
+    #[test]
+    fn no_text_sits_on_the_bare_sky() {
+        // Der Himmel trägt Farbe ohne Bedeutung und ist damit ein zu unruhiger
+        // Grund für Text — gemessen: --faint käme dort auf 3,2:1, und ihn so
+        // weit abzudunkeln, dass es reicht, würde ihn mit --muted verschmelzen.
+        // Deshalb ist jede Fläche mit Text eine Scheibe, auch die beiden, die
+        // außerhalb des Rasters stehen.
+        assert!(
+            INDEX.contains("class=\"login panel\""),
+            "die Anmeldeseite liegt auf dem nackten Himmel"
+        );
+        assert!(
+            INDEX.contains("class=\"panel notice\""),
+            "der noscript-Hinweis liegt auf dem nackten Himmel"
+        );
     }
 
     #[test]
@@ -324,8 +449,10 @@ mod tests {
 
     #[test]
     fn motion_is_reduced_on_request() {
+        // Der Modus steht als Attribut am Wurzelelement, nicht als Media-Query:
+        // nur so kann der Umschalter den Systemwunsch überstimmen.
         assert!(
-            STYLE.contains("@media (prefers-color-scheme: dark)"),
+            STYLE.contains(":root[data-theme=\"dark\"]"),
             "kein dunkles Schema"
         );
         assert!(

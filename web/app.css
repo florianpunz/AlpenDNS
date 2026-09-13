@@ -1,74 +1,115 @@
 /* AlpenDNS — Web-UI.
  *
- * Bindend: CLAUDE.md B.6. Keine Verläufe, keine Glassmorphism-Flächen, keine
- * Emoji-Icons, keine animierten Zähler, keine externen Schriften, kein CDN.
- * Drei statische Dateien, kein Framework, kein Build.
+ * Bindend: CLAUDE.md B.6. Keine externen Ressourcen, keine Emoji-Icons, keine
+ * animierten Zähler, kein CDN, kein Build. Drei statische Dateien.
  *
- * Die Leitidee: ruhige Flächen statt Deko. Der Inhalt sitzt in einem zentrierten
- * Container, die Seite füllt genau einen Bildschirm und scrollt nicht — es
- * scrollt das Protokoll. Die drei Fragen aus B.6 stehen dadurch gleichzeitig da.
+ * Die Leitidee: Inhalt liegt als Glas auf einem Hintergrund, der etwas zu
+ * brechen hat. Der Hintergrund sind vier Farbfelder — Himmel, Alpenglühen,
+ * Wiese, Schatten —, der Inhalt transluzente Scheiben mit Lichtkante. Die Seite
+ * füllt genau einen Bildschirm und scrollt nicht; es scrollt das Protokoll.
+ * Die drei Fragen aus B.6 stehen dadurch gleichzeitig da.
  *
- * Fünf Entscheidungen, jede mit Grund:
+ * Sechs Entscheidungen, jede mit Grund:
  *
- * 1. FARBE IST AUSSCHLIESSLICH SEMANTISCH. Es gibt genau vier Bedeutungen —
- *    --danger (geblockt, ausgefallen), --success (aus dem Cache, gesunder
- *    Upstream, erreichbarer Server), --warn (hohe Latenz), --muted (neutral,
- *    ohne Aussage). Dazu --brand, das keinen Zustand meint, sondern den
- *    Absender, und deshalb an genau einer Stelle steht: in der ersten Hälfte
- *    des Schriftzugs. Alles andere ist Graustufe.
+ * 1. FARBE IM INHALT IST AUSSCHLIESSLICH SEMANTISCH. Es gibt genau vier
+ *    Bedeutungen — --danger (geblockt, ausgefallen), --success (aus dem Cache,
+ *    gesunder Upstream, erreichbarer Server), --warn (hohe Latenz), --muted
+ *    (neutral, ohne Aussage). Dazu --brand, das keinen Zustand meint, sondern
+ *    den Absender, und deshalb an genau einer Stelle steht: in der ersten Hälfte
+ *    des Schriftzugs. Alles andere im Inhalt ist Graustufe.
  *
- * 2. SPACING-SCALE AUF 8er-BASIS, als Variablen; der Name ist der Pixelwert,
+ * 2. DER HINTERGRUND TRÄGT FARBE OHNE BEDEUTUNG — und ist die einzige Stelle,
+ *    an der das erlaubt ist. Die vier Felder sind Material, keine Aussage: sie
+ *    liegen unter der Textschwelle, sie wiederholen nie einen Zustand, und die
+ *    Seite bleibt lesbar, wenn man sie nicht bemerkt. Ohne sie wäre Glas ein
+ *    graues Rechteck; mit zu viel davon wäre es Dekoration. Ihre Deckkraft ist
+ *    deshalb der empfindlichste Wert der ganzen Datei.
+ *
+ * 3. SPACING-SCALE AUF 8er-BASIS, als Variablen; der Name ist der Pixelwert,
  *    damit niemand raten muss. Nur --s-4 ist eine halbe Stufe, für Abstände
  *    innerhalb einer Textzeile. Ad-hoc-Pixelwerte im Regelwerk sind der Weg, auf
  *    dem eine Oberfläche über Monate unruhig wird: jede einzelne Abweichung ist
  *    begründbar, die Summe ist Willkür.
  *
- * 3. FLÄCHEN STATT LINIEN. Karten und Panels tragen dieselbe Behandlung —
- *    1px Rahmen, 12px Radius, leicht abgesetzter Grund. Eine einzige Sorte
- *    Container, nicht drei; verschachtelt wird sie nicht.
+ * 4. EINE SORTE CONTAINER, als Glaskante: transluzente Fläche, backdrop-filter,
+ *    Lichtkante an der Oberkante, weicher Schatten. Karten und Panels tragen
+ *    dieselbe Behandlung; verschachtelt wird sie nicht. Der Radius ist mit 18px
+ *    größer als bei einer bedruckten Fläche, weil Glas weicher bricht.
  *
- * 4. TYPOGRAFISCHE SKALA mit echten Sprüngen (11 · 13 · 15 · 17 · 32 · bis 34 px)
+ * 5. TYPOGRAFISCHE SKALA mit echten Sprüngen (11 · 13 · 15 · 17 · 32 · bis 34 px)
  *    statt "alles 14px". Der Sprung zwischen --t-figure und --t-lead ist der
  *    eigentliche Inhalt der Hierarchie: die Begründung einer Blockade ist
  *    wichtiger als jede Summe. Zahlen tabular, damit Spalten beim Nachladen
  *    nicht zucken und Größenordnungen untereinander vergleichbar bleiben.
  *
- * 5. DOMAINNAMEN IN MONOSPACE aus dem System-Stack. Ein Name ist Material,
+ * 6. DOMAINNAMEN IN MONOSPACE aus dem System-Stack. Ein Name ist Material,
  *    kein Fließtext; die Unterscheidung nimmt dem Auge die Arbeit ab, im
  *    Protokoll zwischen Prosa und Daten zu sortieren. Und Namen gleicher Länge
  *    stehen untereinander.
+ *
+ * Der Kontrast ist nachgerechnet, nicht geschätzt: der Test
+ * `the_text_stays_readable_on_every_field` in ui.rs rechnet für jede Textfarbe
+ * gegen jedes Feld in voller Deckkraft nach und schlägt fehl, sobald eine unter
+ * 4,5:1 fällt. Glas verliert Kontrast an genau der Stelle, an der es schön
+ * aussieht — deshalb steht die Grenze als Test da und nicht als Vorsatz.
  */
 
 :root {
-  color-scheme: light dark;
+  /* Der Modus steht als data-theme am Wurzelelement, gesetzt vom Skript:
+     "dark", wenn das System dunkel ist oder der Knopf gedrückt wurde, sonst
+     hell. Ein Attribut statt einer Media-Query, damit der Knopf den
+     Systemwunsch überstimmen kann — und damit jeder Wert genau einmal hell und
+     einmal dunkel dasteht statt dreimal. */
+  color-scheme: light;
 
-  /* Neutrale Graustufen, leicht warm — kalte Grautöne lassen eine Oberfläche
-     nach Standardvorlage aussehen. */
-  --bg: #fbfbfa;
-  --raised: #ffffff;
-  --line: #e6e4df;
-  --line-strong: #d5d2cb;
-  --text: #191917;
-  --faint: #9a978e;
-  --row-alt: #f7f6f4;
-  --row-hover: #efeeea;
+  /* ── Das Material. Der empfindlichste Teil der Datei. ──────────────────── */
 
-  /* Die vier Bedeutungen. Nur hierfür gibt es Farbe. */
-  --danger: #c0392b;
-  --success: #1a7f4b;
-  --warn: #9a6212;
-  --muted: #6a6862;
+  /* Der Himmel: vier Felder, tief entsättigt. Sie sollen durch das Glas
+     scheinen, nicht mit dem Inhalt konkurrieren. */
+  --base: #d7dfee;
+  --field-1: rgba(76, 132, 255, 0.60);   /* Himmel */
+  --field-2: rgba(255, 142, 88, 0.46);   /* Alpenglühen */
+  --field-3: rgba(62, 190, 152, 0.38);   /* Wiese */
+  --field-4: rgba(142, 112, 255, 0.36);  /* Schatten */
+
+  /* Das Glas selbst. Die Deckkraft ist der Kompromiss der ganzen
+     Designsprache: höher, und es ist kein Glas mehr; niedriger, und der Text
+     verliert seinen Grund. --glass-strong ist die Fassung für die eine Fläche,
+     unter der sich etwas bewegt (der Tabellenkopf) — dort darf weniger
+     durchscheinen, weil darunter Zeilen durchlaufen. */
+  --glass: rgba(255, 255, 255, 0.55);
+  --glass-strong: rgba(255, 255, 255, 0.78);
+  --hairline: rgba(255, 255, 255, 0.60);
+  --edge: rgba(255, 255, 255, 0.95);
+  --shadow:
+    0 12px 40px rgba(18, 24, 44, 0.13),
+    0 2px 10px rgba(18, 24, 44, 0.06);
+  --blur: blur(26px) saturate(170%);
+
+  --text: #101420;
+  --faint: #4c5466;
+  --row-alt: rgba(255, 255, 255, 0.30);
+  --row-hover: rgba(255, 255, 255, 0.62);
+
+  /* Die vier Bedeutungen. Nur hierfür gibt es Farbe im Inhalt. Auf Glas sind
+     sie dunkler als auf Weiß, weil die Fläche jede Farbe anhebt. */
+  --danger: #a81f28;
+  --success: #0d6240;
+  --warn: #7d4a00;
+  --muted: #4a5163;
   /* Dazu die Marke: kein Zustand, sondern die Absenderkennung. Sie steht
      ausschließlich in der ersten Hälfte des Schriftzugs. */
-  --brand: #1d63d1;
+  --brand: #1a55b8;
 
   /* Vier Graustufen für gestapelte Flächen. Sie bedeuten nichts — sie trennen
      nur benachbarte Bänder voneinander, damit die Legende zuordenbar bleibt.
-     Vier Upstreams mit vier Farben wären vier Bedeutungen, die es nicht gibt. */
-  --band-1: #cbc8c1;
-  --band-2: #ddd9d2;
-  --band-3: #eeebe5;
-  --band-4: #f6f4ef;
+     Vier Upstreams mit vier Farben wären vier Bedeutungen, die es nicht gibt.
+     Auf Glas brauchen sie mehr Zeichnung als auf Weiß, sonst verschwinden sie
+     im Blur. */
+  --band-1: #6d7a93;
+  --band-2: #8b97ae;
+  --band-3: #adb7c8;
+  --band-4: #ccd3e0;
 
   /* 4 — Typografie */
   --t-micro: 0.6875rem;
@@ -89,32 +130,44 @@
   --s-32: 2rem;
   --s-48: 3rem;
 
-  /* 3 — Die eine Sorte Container */
-  --radius: 12px;
+  /* 3 — Die eine Sorte Container. Größerer Radius als bei einer bedruckten
+     Fläche: Glas bricht weicher. */
+  --radius: 18px;
   --page: 1400px;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #131312;
-    --raised: #1b1b19;
-    --line: #2e2d29;
-    --line-strong: #3c3b36;
-    --text: #eceae5;
-    --faint: #6e6b64;
-    --row-alt: #201f1d;
-    --row-hover: #272622;
+:root[data-theme="dark"] {
+  color-scheme: dark;
 
-    --danger: #ef6a52;
-    --success: #4cc98d;
-    --warn: #e0a355;
-    --muted: #a3a098;
-    --brand: #5c9dff;
-    --band-1: #55534d;
-    --band-2: #423f3a;
-    --band-3: #332f2b;
-    --band-4: #262320;
-  }
+  --base: #0d1017;
+  --field-1: rgba(48, 96, 200, 0.50);
+  --field-2: rgba(190, 96, 60, 0.34);
+  --field-3: rgba(40, 140, 116, 0.30);
+  --field-4: rgba(112, 84, 200, 0.34);
+
+  --glass: rgba(30, 34, 44, 0.52);
+  --glass-strong: rgba(30, 34, 44, 0.82);
+  --hairline: rgba(255, 255, 255, 0.11);
+  --edge: rgba(255, 255, 255, 0.14);
+  --shadow:
+    0 16px 48px rgba(0, 0, 0, 0.45),
+    0 2px 10px rgba(0, 0, 0, 0.30);
+
+  --text: #eef1f6;
+  --faint: #99a0af;
+  --row-alt: rgba(255, 255, 255, 0.035);
+  --row-hover: rgba(255, 255, 255, 0.085);
+
+  --danger: #ff8f7a;
+  --success: #5fd39c;
+  --warn: #e8b166;
+  --muted: #a8adb9;
+  --brand: #6aa2ff;
+
+  --band-1: #5c6577;
+  --band-2: #474f5e;
+  --band-3: #363d4a;
+  --band-4: #2a303a;
 }
 
 * { box-sizing: border-box; }
@@ -127,13 +180,29 @@ html, body { height: 100%; }
 
 body {
   margin: 0;
-  background: var(--bg);
+  background: var(--base);
   color: var(--text);
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   font-size: var(--t-body);
   line-height: 1.5;
   font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
+}
+
+/* ── Der Himmel ────────────────────────────────────────────────────────── */
+
+/* Fest positioniert, damit die Panels beim Scrollen des Protokolls etwas zu
+   brechen haben. Wanderte er mit, wäre er nur Tapete. */
+.sky {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background:
+    radial-gradient(58vw 58vw at 4% -14%, var(--field-1), transparent 68%),
+    radial-gradient(46vw 52vw at 96% 4%, var(--field-2), transparent 68%),
+    radial-gradient(72vw 52vw at 74% 112%, var(--field-3), transparent 70%),
+    radial-gradient(44vw 44vw at 26% 62%, var(--field-4), transparent 72%),
+    var(--base);
 }
 
 /* Die Seite füllt einen Bildschirm und scrollt nicht; das Protokoll scrollt. */
@@ -187,26 +256,37 @@ h2 {
 .wordmark { color: var(--text); }
 
 .logo { width: 30px; height: 18px; flex: none; display: block; }
-.logo .ridge-back { fill: var(--line-strong); }
+/* Der hintere Grat ist zurückgenommen statt hell: auf Glas liest sich ein
+   zweiter voller Ton als zweites Logo. */
+.logo .ridge-back { fill: var(--faint); opacity: 0.55; }
 .logo .ridge-front { fill: var(--muted); }
-.logo .snow { fill: var(--bg); }
+.logo .snow { fill: var(--base); }
 
 /* ── Kopfzeile ─────────────────────────────────────────────────────────── */
 
 /* Eine verworfene Antwort ist ein Ausfall: der Name hat nicht aufgelöst. */
 .counters dd.is-bogus { color: var(--danger); }
 
-.masthead { border-bottom: 1px solid var(--line); }
+/* Die Kopfzeile ist selbst eine Scheibe. Sie klebt nicht — die Seite scrollt
+   ohnehin nicht — aber sie liegt als Band über dem Himmel, damit der Übergang
+   zum Inhalt eine Materialkante ist und keine Linie. */
+.masthead {
+  background: var(--glass);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
+  border-bottom: 1px solid var(--hairline);
+  box-shadow: inset 0 1px 0 var(--edge);
+}
 .masthead-inner {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: var(--s-24);
   flex-wrap: wrap;
   padding-block: var(--s-16);
 }
 
-.facts { display: flex; gap: var(--s-32); margin: 0; }
+/* Die Fakten schieben sich selbst nach rechts; der Umschalter steht dahinter. */
+.facts { display: flex; gap: var(--s-32); margin: 0 0 0 auto; }
 .fact { display: flex; flex-direction: column; gap: 1px; }
 .facts dt {
   font-size: var(--t-micro);
@@ -229,12 +309,48 @@ h2 {
 }
 .reach.is-stale .dot { background: transparent; box-shadow: inset 0 0 0 1px var(--faint); }
 
+/* Der Umschalter zwischen hell und dunkel. Ein Zeichen statt eines Wortes:
+   Sonne heißt "es ist hell", der Mond zeigt, wohin der Klick führt. Beide
+   Zeichen stehen im Markup, sichtbar ist immer genau eines — ein Skript muss
+   deshalb nichts austauschen, nur das Attribut setzen. */
+.theme-toggle {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  flex: none;
+  border-radius: 50%;
+  color: var(--muted);
+  background: var(--glass);
+  border: 1px solid var(--hairline);
+  box-shadow: inset 0 1px 0 var(--edge);
+}
+.theme-toggle:hover { background: var(--glass-strong); color: var(--text); }
+.theme-toggle svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.theme-toggle .icon-moon { display: none; }
+:root[data-theme="dark"] .theme-toggle .icon-sun { display: none; }
+:root[data-theme="dark"] .theme-toggle .icon-moon { display: block; }
+
 /* ── Die eine Sorte Container ──────────────────────────────────────────── */
 
+/* Eine Scheibe statt eines Blattes: transluzent, geblurrt, mit Lichtkante an
+   der Oberkante. Weiterhin genau eine Sorte, weiterhin nicht verschachtelt. */
 .panel, .card {
-  background: var(--raised);
-  border: 1px solid var(--line);
+  background: var(--glass);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
+  border: 1px solid var(--hairline);
   border-radius: var(--radius);
+  box-shadow: var(--shadow), inset 0 1px 0 var(--edge);
 }
 
 .panel-head {
@@ -410,7 +526,7 @@ h2 {
      Rest. */
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--s-8);
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--hairline);
 }
 .counters dt {
   font-size: var(--t-micro);
@@ -425,7 +541,7 @@ h2 {
 /* ── Auffällige Anfragen ───────────────────────────────────────────────── */
 
 .flagged { margin: 0; padding: 0 var(--s-16) var(--s-16); list-style: none; }
-.flagged li { padding: var(--s-8) 0; border-top: 1px solid var(--line); }
+.flagged li { padding: var(--s-8) 0; border-top: 1px solid var(--hairline); }
 .flagged li:first-child { border-top: 0; }
 
 .flagged .subject {
@@ -449,17 +565,20 @@ h2 {
   color: var(--faint);
 }
 .flagged .actions { display: flex; gap: var(--s-8); margin-top: var(--s-8); }
+/* Dieselbe Scheibe in klein — rund statt eckig, weil ein Knopf dieser Größe
+   sonst wie ein abgeschnittenes Panel aussieht. */
 .flagged button {
   font: inherit;
   font-size: var(--t-micro);
   color: var(--text);
-  background: var(--raised);
-  border: 1px solid var(--line-strong);
-  border-radius: 12px;
+  background: var(--glass);
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
   padding: var(--s-4) var(--s-8);
   cursor: pointer;
+  box-shadow: inset 0 1px 0 var(--edge);
 }
-.flagged button:hover { background: var(--row-hover); }
+.flagged button:hover { background: var(--glass-strong); }
 .flagged button[disabled] { color: var(--faint); cursor: default; }
 
 /* ── Begründung: das Größte auf der Seite ──────────────────────────────── */
@@ -567,11 +686,17 @@ h2 {
 }
 
 .log-table { width: 100%; border-collapse: collapse; }
+/* Der Kopf ist die Stelle, an der das Material am besten zu sehen ist: die
+   Zeilen laufen beim Scrollen unter ihm durch und werden dabei geblurrt.
+   Deshalb hier --glass-strong: über einer Fläche, unter der sich etwas bewegt,
+   muss mehr decken, sonst liest man zwei Texte übereinander. */
 .log-table th {
   position: sticky;
   top: 0;
   z-index: 1;
-  background: var(--raised);
+  background: var(--glass-strong);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
   text-align: left;
   font-size: var(--t-micro);
   font-weight: 600;
@@ -579,7 +704,7 @@ h2 {
   letter-spacing: 0.08em;
   color: var(--faint);
   padding: 0 var(--s-8) var(--s-8) 0;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--hairline);
 }
 .log-table td {
   padding: var(--s-4) var(--s-8);
@@ -624,7 +749,7 @@ td.c-time { color: var(--muted); }
 .badge {
   display: inline-block;
   padding: 0 var(--s-8);
-  border: 1px solid var(--line-strong);
+  border: 1px solid var(--faint);
   border-radius: 999px;
   font-size: var(--t-micro);
   font-weight: 550;
@@ -632,7 +757,13 @@ td.c-time { color: var(--muted); }
   line-height: 1.6;
 }
 .badge.is-muted { color: var(--muted); }
-.badge.is-blocked { color: var(--danger); border-color: var(--danger); }
+/* Der Grund hinter dem Badge ist dieselbe Aussage in schwach — die Farbe
+   wiederholt weiterhin nur das Wort, sie ersetzt es nicht. */
+.badge.is-blocked {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
 
 /* Latenz nach Schwelle: schnell, unauffällig, langsam. */
 .ms-fast { color: var(--success); }
@@ -709,13 +840,26 @@ td.c-time { color: var(--muted); }
 .note.is-persisting { color: var(--warn); }
 .error { color: var(--danger); font-size: var(--t-small); }
 
+/* Die Anmeldeseite ist die einzige Fläche außerhalb des Rasters — und trotzdem
+   eine Scheibe. Text direkt auf dem Himmel wäre die eine Stelle, an der der
+   Kontrast nicht nachgerechnet ist: --faint käme dort auf 3,2:1. */
 .login {
   max-width: 24rem;
   margin: 18vh auto;
-  padding: 0 var(--s-24);
+  padding: var(--s-32) var(--s-24) var(--s-24);
   display: flex;
   flex-direction: column;
   gap: var(--s-8);
+}
+
+/* Dasselbe für den Hinweis an Browser ohne Skript. Er steht außerhalb von
+   #app, weil er auch dann erscheinen muss, wenn das Skript nie läuft. */
+.notice {
+  max-width: 34rem;
+  margin: var(--s-24) auto;
+  padding: var(--s-16);
+  font-size: var(--t-small);
+  color: var(--muted);
 }
 .login .mark { margin-bottom: var(--s-8); }
 .login .note { margin-bottom: var(--s-16); }
@@ -729,15 +873,17 @@ td.c-time { color: var(--muted); }
 input, button {
   font: inherit;
   padding: var(--s-8) var(--s-16);
-  border: 1px solid var(--line-strong);
-  border-radius: 8px;
-  background: var(--raised);
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  background: var(--glass);
   color: var(--text);
+  box-shadow: inset 0 1px 0 var(--edge);
 }
 button { cursor: pointer; font-weight: 500; }
-/* Die zweite und letzte Übergangsregel der Seite. */
-input, button { transition: border-color 100ms ease; }
-input:hover, button:hover { border-color: var(--muted); }
+/* Die zweite und letzte Übergangsregel der Seite. Bewegung gibt es nur dort,
+   wo ein Zeiger etwas anfasst: am Protokoll und an Bedienelementen. */
+input, button { transition: background-color 100ms ease, border-color 100ms ease; }
+input:hover, button:hover { background: var(--glass-strong); border-color: var(--faint); }
 input:focus-visible, button:focus-visible {
   outline: 2px solid var(--text);
   outline-offset: 1px;
@@ -753,6 +899,18 @@ code { font-family: var(--mono); font-size: 0.9em; color: var(--muted); }
 
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
+}
+
+/* Der Blur ist der teuerste Teil der Seite. Wer ihn abbestellt, bekommt eine
+   deckende Fläche: lesbar bleibt es, nur ohne Material. */
+@media (prefers-reduced-transparency: reduce) {
+  .panel, .card, .masthead, .log-table th, .theme-toggle, input, button {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  .panel, .card, .masthead, .log-table th, .theme-toggle, input, button {
+    background: var(--glass-strong);
+  }
 }
 
 /* Schmale Fenster: die Karten brechen um, die Nebenspalte rutscht unter das

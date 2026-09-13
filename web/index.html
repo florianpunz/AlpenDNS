@@ -5,14 +5,35 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>AlpenDNS</title>
 <link rel="stylesheet" href="/app.css">
+<script>
+// Vor dem ersten Zeichnen, und deshalb hier oben statt in app.js: stünde die
+// Wahl erst am Ende des Dokuments, blitzte bei jedem Laden kurz das helle
+// Thema auf. Ohne eigene Wahl gilt die des Systems.
+try {
+  var saved = localStorage.getItem("alpendns.theme");
+  if (saved !== "dark" && saved !== "light") {
+    saved = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  }
+  document.documentElement.dataset.theme = saved;
+} catch (e) {
+  // Ohne Speicher bleibt es beim hellen Thema, das :root festlegt.
+}
+</script>
 </head>
 <body>
+
+<!-- Der Hintergrund, den das Glas bricht. Fest positioniert und ohne Inhalt:
+     er trägt keine Aussage, nur Material (siehe app.css, Entscheidung 2). -->
+<div class="sky" aria-hidden="true"></div>
+
 <noscript>
-  <p class="note">This page needs JavaScript for the live stream. The data
-  itself is served under <code>/api/status</code>.</p>
+  <div class="wrap">
+    <p class="panel notice">This page needs JavaScript for the live stream.
+    The data itself is served under <code>/api/status</code>.</p>
+  </div>
 </noscript>
 
-<form id="login" class="login" hidden>
+<form id="login" class="login panel" hidden>
   <h1 class="mark">
     <svg class="logo" viewBox="0 0 44 26" role="img" aria-label="Alpen">
       <path class="ridge-back" d="M0 26 L12 6 L19 16 L23 10 L44 26 Z"/>
@@ -52,6 +73,21 @@
           <dd class="reach" id="reach"><span class="dot" aria-hidden="true"></span><span id="uptime">–</span></dd>
         </div>
       </dl>
+
+      <!-- Umschalter zwischen hell und dunkel. Beide Zeichen stehen im Markup,
+           sichtbar ist immer genau eines — das Skript setzt nur data-theme am
+           Wurzelelement. Der Text am Knopf nennt die Handlung, nicht den
+           Zustand: "Switch to dark" heißt, dass ein Klick dorthin führt. -->
+      <button type="button" class="theme-toggle" id="theme-toggle"
+              aria-label="Switch to dark mode">
+        <svg class="icon-sun" viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="4"/>
+          <path d="M12 2.5v2.2M12 19.3v2.2M4.4 4.4l1.6 1.6M18 18l1.6 1.6M2.5 12h2.2M19.3 12h2.2M4.4 19.6L6 18M18 6l1.6-1.6"/>
+        </svg>
+        <svg class="icon-moon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M20.5 14.6A8.6 8.6 0 0 1 9.4 3.5a8.6 8.6 0 1 0 11.1 11.1z"/>
+        </svg>
+      </button>
     </div>
   </header>
 

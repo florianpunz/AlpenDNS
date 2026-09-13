@@ -110,6 +110,12 @@ die Logging-Schicht:
 Die UI zeigt "warum" aus dem Ringpuffer. Deshalb funktioniert die Erklärung auch bei
 Log-Modus `ring`, ohne dass irgendwo ein Query-Log liegt.
 
+Wie die Oberfläche aussieht, ist keine Architekturfrage: die Designsprache steht in
+CLAUDE.md B.6, das Material in [ADR-0022](adr/0022-glas-als-flaeche.md). Architektonisch
+ist die UI eine Handvoll statischer Dateien, die im Binary liegen und über drei Routen
+ausgeliefert werden — sie kennt die Pipeline nicht und fragt sie über dieselbe API, die
+auch jeder andere Client benutzt ([ADR-0010](adr/0010-api-ui-und-metriken.md)).
+
 **Eine Abweichung in der Umsetzung** (Phase 5): die Schritte tragen Namen als
 `Arc<str>` statt IDs, damit ein Trace ohne die Konfiguration daneben lesbar ist.
 Begründung: [ADR-0009](adr/0009-decision-trace-mit-mutex.md).

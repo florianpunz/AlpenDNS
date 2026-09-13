@@ -119,6 +119,12 @@ Wer die UI ohne Tunnel erreichbar macht, veröffentlicht sein Query-Log, sobald
 der Token bekannt wird. Der vorgesehene Weg ist der Tunnel oder ein Reverse
 Proxy mit eigener Authentifizierung.
 
+Die Oberfläche folgt dem Farbschema des Systems. Der Knopf rechts oben in der
+Kopfzeile (Sonne im hellen, Mond im dunklen Modus) überstimmt es; die Wahl bleibt
+im Browser gespeichert. Ohne JavaScript bleibt es beim hellen Modus. Ein
+`prefers-reduced-transparency` im System schaltet den Blur ab — die Seite bleibt
+lesbar, nur ohne das Material.
+
 ---
 
 ## 2. Upgrade

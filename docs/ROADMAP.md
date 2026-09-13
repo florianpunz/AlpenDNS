@@ -323,6 +323,28 @@ echte Leerzustände. Der eine Akzentton ist dabei durch die vier semantischen
 Farben aus B.6 ersetzt worden, dazu kommt `--brand` allein für den Schriftzug;
 Datenquellen und Endpunkte blieben unverändert.
 
+**Stand 2026-09-13 — die zweite Überarbeitung: Glas als Fläche.** Die Oberfläche
+liegt jetzt als transluzente Scheibe über einem Hintergrund aus vier Farbfeldern
+(Himmel, Alpenglühen, Wiese, Schatten). Damit ändert sich genau eine Regel aus
+B.6: der Hintergrund darf Farbe ohne Bedeutung tragen — er wiederholt keinen
+Zustand und liegt unter der Textschwelle. Alles andere bleibt: die semantischen
+Farben, die Graustufenrampe für gestapelte Flächen, der zentrierte Container, die
+8er-Abstände, die eine Sorte Container (jetzt als Glaskante mit 18px Radius).
+Dazu kommt ein Umschalter zwischen hell und dunkel in der Kopfzeile; der Modus
+steht als `data-theme` am Wurzelelement statt in einer Media-Query, damit der
+Knopf den Systemwunsch überstimmen kann. Begründung und verworfene Alternativen:
+[ADR-0022](adr/0022-glas-als-flaeche.md).
+
+Was die Regel „Farbe ist ausschließlich semantisch" bisher als Vorsatz schützte,
+schützt jetzt eine Rechnung: `the_text_stays_readable_on_every_field` in
+`crates/alpendns/src/api/ui.rs` prüft jede Textfarbe gegen jedes Feld in beiden
+Modi und schlägt unter 4,5:1 fehl. Der Test hat beim ersten Lauf einen echten
+Fehler gefunden — `--faint` kam auf dem nackten Himmel auf 3,2:1. Seitdem ist
+jede Fläche mit Text eine Scheibe, auch die Anmeldeseite.
+
+Datenquellen, Endpunkte und die Struktur der Seite blieben unverändert; die
+Arbeit fand ausschließlich in `web/` und in den UI-Tests statt.
+
 **Fallstricke:** Das ist die Phase, in der ein Agent am ehesten in generisches
 Dashboard-Design abrutscht. CLAUDE.md B.6 ist dafür da; bei jeder UI-Aufgabe explizit
 darauf verweisen.

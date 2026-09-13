@@ -306,34 +306,59 @@ Upstreams und Token nicht versehentlich im Repo landen.
 ### B.6 Web-UI
 
 Zielbild: clean, ruhig, Apple-like. Orientierung an macOS-Systemeinstellungen und
-Linear/Vercel-Dashboards, nicht an bunten Admin-Templates.
+Linear/Vercel-Dashboards, nicht an bunten Admin-Templates. Der Inhalt liegt als
+**Glas** über einem Hintergrund, der etwas zu brechen hat.
 
-* Keine Verläufe, keine Emoji als Icons, keine animierten Zahlen-Counter, keine
-  Glassmorphism-Flächen, keine dekorativen Akzente.
-* **Farbe ist ausschließlich semantisch**, und es gibt genau vier Bedeutungen, als
-  CSS-Variablen festgelegt und nur dort eingesetzt: `--danger` (geblockt,
-  ausgefallen), `--success` (Cache-Hit, gesunder Upstream, erreichbarer Server),
-  `--warn` (hohe Latenz), `--muted` (neutral). Dazu `--brand`, das keinen Zustand
-  meint, sondern den Absender, und deshalb an genau einer Stelle steht: in der
-  ersten Hälfte des Schriftzugs. Alles andere ist Graustufe; hell und dunkel sind
-  gleichwertig, dasselbe Variablenset über `prefers-color-scheme`. Wo Farbe alles
-  markiert, markiert sie nichts. Farbe wiederholt immer nur, was der Text schon
-  sagt — Unterschiede, die ohne Farbe auskommen, werden über Gewicht, Größe und
-  Form gemacht: der Erreichbarkeitspunkt über gefüllt gegen hohl, die Antwort
-  über das Wort im Badge.
+**Material.** Der Hintergrund ist ein feststehender Himmel: vier Farbfelder
+(`--field-1` bis `--field-4` — Himmel, Alpenglühen, Wiese, Schatten) über einer
+Grundfarbe `--base`. Er ist die **einzige Stelle, an der Farbe ohne Bedeutung
+stehen darf**: die Felder wiederholen keinen Zustand, sie liegen unter der
+Textschwelle, und die Seite bleibt vollständig lesbar, wenn man sie nicht bemerkt.
+Ohne sie wäre Glas ein graues Rechteck, mit zu viel davon wäre es Dekoration — die
+Deckkraft der Felder ist deshalb der empfindlichste Wert der Datei. Der Inhalt
+darüber ist eine Scheibe: transluzente Fläche (`--glass`, `--glass-strong`),
+`backdrop-filter`, Lichtkante an der Oberkante, weicher Schatten.
+
+* **Auf dem nackten Himmel steht kein Text.** Er ist dafür ein zu unruhiger Grund
+  (gemessen: `--faint` käme dort auf 3,2:1). Jede Fläche mit Text ist eine
+  Scheibe — auch die beiden außerhalb des Rasters, Anmeldeseite und
+  noscript-Hinweis.
+* Der Blur ist der teuerste Teil der Seite. `prefers-reduced-transparency: reduce`
+  ersetzt ihn durch eine deckende Fläche; lesbar bleibt es, nur ohne Material.
+* Keine Emoji als Icons, keine animierten Zahlen-Counter, keine dekorativen
+  Akzente. Die einzigen Übergänge sind der Hover an einer Protokollzeile und der
+  an einem Bedienelement.
+* **Farbe im Inhalt ist ausschließlich semantisch**, und es gibt genau vier
+  Bedeutungen, als CSS-Variablen festgelegt und nur dort eingesetzt: `--danger`
+  (geblockt, ausgefallen), `--success` (Cache-Hit, gesunder Upstream, erreichbarer
+  Server), `--warn` (hohe Latenz), `--muted` (neutral). Dazu `--brand`, das keinen
+  Zustand meint, sondern den Absender, und deshalb an genau einer Stelle steht: in
+  der ersten Hälfte des Schriftzugs. Alles andere ist Graustufe; hell und dunkel
+  sind gleichwertig, dasselbe Variablenset, umgeschaltet über `data-theme` am
+  Wurzelelement — nicht über `prefers-color-scheme`, damit der Umschalter den
+  Systemwunsch überstimmen kann. Wo Farbe alles markiert, markiert sie nichts.
+  Farbe wiederholt immer nur, was der Text schon sagt — Unterschiede, die ohne
+  Farbe auskommen, werden über Gewicht, Größe und Form gemacht: der
+  Erreichbarkeitspunkt über gefüllt gegen hohl, die Antwort über das Wort im
+  Badge.
+* **Der Kontrast ist nachgerechnet, nicht geschätzt.** Jede Textfarbe gegen jedes
+  Feld, in beiden Modi, mit 4,5:1 als Grenze. Glas verliert Kontrast an genau der
+  Stelle, an der es schön aussieht; deshalb steht die Grenze als Test da und nicht
+  als Vorsatz.
 * Der Inhalt sitzt in **einem zentrierten Container, maximal 1400 px** breit.
 * **Abstände auf 8er-Basis**, als Variablen, deren Name der Pixelwert ist
   (`--s-8`, `--s-16`, …); `--s-4` ist die einzige halbe Stufe. Typografische
   Skala genauso. Im Regelwerk stehen keine Ad-hoc-Pixelwerte.
-* **Eine einzige Sorte Container**: 1px Rahmen, 12px Radius, leicht abgesetzte
-  Fläche — für die Kennzahlenkarten wie für die Panels. Sie wird nicht
-  verschachtelt: keine Karte in einer Karte.
+* **Eine einzige Sorte Container**, als Glaskante: transluzente Fläche,
+  `backdrop-filter`, Lichtkante, 18px Radius — für die Kennzahlenkarten wie für
+  die Panels. Sie wird nicht verschachtelt: keine Karte in einer Karte.
 * Kennzahlen als Karten: die Zahl groß und tabular, das Label darunter klein und
   in Versalien.
 * **Gestapelte Flächen und Balken benutzen eine Graustufen-Rampe** (`--band-1`
   bis `--band-4`), keine Farbe: vier Upstreams mit vier Farben wären vier
   Bedeutungen, die es nicht gibt. Die Bänder trennen nur benachbarte Flächen;
-  welches zu wem gehört, sagt die Legende daneben.
+  welches zu wem gehört, sagt die Legende daneben. Auf Glas braucht die Rampe mehr
+  Zeichnung als auf Weiß, sonst verschwindet sie im Blur.
 * Grafiken werden als SVG in die Seite eingebettet, nicht als Datei geladen —
   eine Route weniger und keine Seite, die ohne Netz halb aussieht. Das gilt auch
   für Diagramme: die Sparkline ist ein `<path>`, dessen `d` das Skript setzt.
@@ -357,7 +382,10 @@ Linear/Vercel-Dashboards, nicht an bunten Admin-Templates.
 Was sich davon automatisch prüfen lässt, steht als Test in
 `crates/alpendns/src/api/ui.rs` — inklusive der Regel, dass `--danger`,
 `--success` und `--warn` nur in Selektoren auftauchen, die eine dieser
-Bedeutungen tragen.
+Bedeutungen tragen, und der Kontrastrechnung über jedes Feld.
+
+Die Designsprache selbst steht in der Kopfkommentar-Sektion von `web/app.css`
+(„Sechs Entscheidungen, jede mit Grund") und in `docs/adr/0022-glas-als-flaeche.md`.
 
 ### B.7 Git
 

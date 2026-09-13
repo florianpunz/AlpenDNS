@@ -22,6 +22,8 @@
 "use strict";
 
 const TOKEN_KEY = "alpendns.token";
+/** Derselbe Schlüssel, den das kurze Skript im Kopf der Seite liest. */
+const THEME_KEY = "alpendns.theme";
 /** So viele Zeilen hält das Protokoll. Darüber fällt die älteste heraus. */
 const MAX_ROWS = 300;
 const POLL_MS = 5000;
@@ -856,6 +858,35 @@ async function start() {
     refreshStatus().catch(() => setReachable(false));
   });
 }
+
+// Der Modus steht schon am Wurzelelement — das Skript im Kopf der Seite hat ihn
+// vor dem ersten Zeichnen gesetzt. Hier wird nur noch umgeschaltet.
+//
+// Die Beschriftung nennt die Handlung und nicht den Zustand: "Switch to dark"
+// heißt, dass ein Klick dorthin führt. Wer die Sonne sieht, weiß so auch ohne
+// die Farben, in welchem Modus er ist.
+function setTheme(mode) {
+  document.documentElement.dataset.theme = mode;
+  $("theme-toggle").setAttribute(
+    "aria-label",
+    mode === "dark" ? "Switch to light mode" : "Switch to dark mode",
+  );
+}
+
+$("theme-toggle").addEventListener("click", () => {
+  const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+  // Ohne Speicher (privates Fenster) gilt die Wahl nur für diese Seite.
+  try {
+    localStorage.setItem(THEME_KEY, next);
+  } catch {
+    /* dann eben nicht */
+  }
+  setTheme(next);
+});
+
+// Im Markup steht die helle Beschriftung, weil das Markup den Modus nicht
+// kennt. Hier wird sie einmal an den tatsächlichen angeglichen.
+setTheme(document.documentElement.dataset.theme || "light");
 
 $("login").addEventListener("submit", async (submitEvent) => {
   submitEvent.preventDefault();
