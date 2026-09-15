@@ -485,6 +485,37 @@ mod tests {
         );
     }
 
+    /// Der Regelkörper einer Regel, die am Zeilenanfang beginnt. Die
+    /// Zeilengrenze gehört dazu: sonst träfe ".top" zuerst den Sammelselektor
+    /// ".top-panel .empty, .top" weiter oben in der Datei.
+    fn rule(selector: &str) -> String {
+        let needle = format!("\n{selector} {{");
+        let (_, rest) = STYLE.split_once(&needle).expect("Regel fehlt");
+        let (body, _) = rest.split_once('}').expect("Regel ohne Ende");
+        body.to_owned()
+    }
+
+    /// Es rollt die Nebenspalte als Ganzes, nicht die Häufigkeitsliste in sich
+    /// selbst. Zwei Rollbalken nebeneinander wären nicht nur unruhig: der innere
+    /// verdeckte genau die Zeilen, die der äußere schon zeigt.
+    #[test]
+    fn the_side_column_scrolls_instead_of_the_top_names_list() {
+        assert!(
+            !rule(".top").contains("overflow"),
+            "die Häufigkeitsliste bekommt wieder einen eigenen Rollbalken"
+        );
+        assert!(
+            rule(".side").contains("overflow-y: auto"),
+            "die Nebenspalte rollt nicht"
+        );
+        // Ohne die Untergrenze max-content bekäme die Liste eine feste Zeile
+        // zugeteilt und würde abgeschnitten, statt die Spalte zu strecken.
+        assert!(
+            rule(".side").contains("minmax(max-content, 1fr)"),
+            "die Häufigkeitsliste darf ihre Zeile nicht mitbestimmen"
+        );
+    }
+
     /// Der aktive Log-Modus steht dauerhaft auf der Seite (ADR-0004), als
     /// Kennzahl im Kopf neben Version und Laufzeit — nicht mehr als eigener
     /// Streifen mit Schwelle, DNSSEC und Speicherort.

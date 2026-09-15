@@ -795,13 +795,17 @@ td.c-time { color: var(--muted); }
 
 /* ── Häufigste Namen ───────────────────────────────────────────────────── */
 
-/* Rechts fünf Panels. Auf einem üblichen Bildschirm passen sie; auf einem
-   niedrigen bekommt die Spalte einen eigenen Rollbalken, statt das Layout
-   zu sprengen. Die Seite selbst scrollt weiterhin nicht. Das letzte Panel
-   (Häufigste Namen) ist das flexible: sein Listenbereich scrollt intern. */
+/* Rechts fünf Panels. Auf einem üblichen Bildschirm passen sie; sonst bekommt
+   die Spalte einen eigenen Rollbalken, statt das Layout zu sprengen. Die Seite
+   selbst scrollt weiterhin nicht. Es rollt also die Spalte als Ganzes — auch
+   die Häufigsten Namen, deren Liste damit vollständig lesbar ist: sie ist
+   ohnehin auf ein Dutzend Einträge begrenzt (api/top?limit=12). Ihr Panel ist
+   deshalb die einzige Zeile mit einer Untergrenze: max-content, damit die Liste
+   nie in einen eigenen Rollbalken gezwungen wird, und 1fr als Obergrenze,
+   damit sie bei kurzer Liste den Rest der Spalte füllt. */
 .side {
   display: grid;
-  grid-template-rows: auto auto auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto auto minmax(max-content, 1fr);
   gap: var(--s-16);
   min-height: 0;
   overflow-y: auto;
@@ -813,8 +817,6 @@ td.c-time { color: var(--muted); }
   margin: 0;
   padding: 0 var(--s-16) var(--s-16);
   list-style: none;
-  min-height: 0;
-  overflow-y: auto;
 }
 .top li {
   display: flex;
