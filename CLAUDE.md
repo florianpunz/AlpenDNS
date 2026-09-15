@@ -389,10 +389,22 @@ Die Designsprache selbst steht in der Kopfkommentar-Sektion von `web/app.css`
 
 ### B.7 Git
 
-* Branch pro Änderung, `main` bleibt grün.
+* **Der Agent committet selbst.** Eine fertige Änderung wird abgelegt, ohne dass
+  jemand danach fragt. Eine Änderung, die nur im Arbeitsverzeichnis liegt, ist keine:
+  sie überlebt keinen `checkout` und ist in keiner Beschreibung wiederzufinden.
+  Gefragt wird vor dem Commit nicht — von Hand gepusht wird, und nur `main`.
+* **Branch pro Änderung, `main` bleibt grün.** Der Agent legt den Branch an,
+  committet dort und führt ihn nach grüner Definition of Done (B.4) selbst per
+  `--ff-only` nach `main` zurück; danach wird der Branch gelöscht. Der Branch ist
+  die Rückversicherung für den einen Commit. Rotes wird nicht committet, sondern
+  repariert — oder gemeldet, wenn es nicht geht.
+* **Ein Commit = eine logische Änderung.** Fallen in einer Sitzung drei Dinge an,
+  entstehen drei Branches mit je einem Commit — auch dann, wenn sie dieselbe Datei
+  berühren. Was dagegen eine Ursache teilt, bleibt zusammen: der Code und der Test,
+  der ihn festhält, die Doku, die ihn beschreibt. Der Schnitt ist die Frage "lässt
+  sich das eine zurücksetzen, ohne das andere mitzunehmen?" — wenn nein, gehört es
+  in denselben Commit. Formatierungs-Rauschen kommt nicht in einen Feature-Commit.
 * Conventional Commits (`feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`).
-* Ein Commit = eine logische Änderung. Formatierungs-Rauschen kommt nicht in einen
-  Feature-Commit.
 * Commit-Message erklärt das *Warum*. Das *Was* steht im Diff.
 * **Keine Claude-Attribution — nirgends.** Kein `Co-Authored-By`, kein
   „Generated with", kein Hinweis im Text, weder im Commit noch im PR noch in
