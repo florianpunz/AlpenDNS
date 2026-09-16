@@ -33,11 +33,12 @@ use alpendns::policy::rules::RegexRules;
 use alpendns::policy::{Blueprint, Engine, PolicyBackend, PolicyBlueprint};
 use alpendns::privacy;
 use alpendns::ratelimit::RateLimiter;
-use alpendns::server::Server;
+use alpendns::server::{Server, TcpCounters, TcpStats};
 use alpendns::upstream::ForwardBackend;
 use hickory_proto::op::{Message, MessageType, OpCode, Query};
 use hickory_proto::rr::rdata::A;
 use hickory_proto::rr::{Name, RData, Record, RecordType};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UdpSocket;
 use tokio_util::sync::CancellationToken;
 
@@ -92,8 +93,16 @@ async fn fake_upstream(hits: Arc<AtomicUsize>) -> SocketAddr {
 
 struct Harness {
     addr: SocketAddr,
+    tcp_addr: SocketAddr,
+    tcp_stats: Arc<TcpStats>,
     upstream_hits: Arc<AtomicUsize>,
     shutdown: CancellationToken,
+}
+
+impl Harness {
+    fn tcp_counters(&self) -> TcpCounters {
+        self.tcp_stats.counters()
+    }
 }
 
 async fn start(cache_config: CacheConfig) -> Harness {
@@ -110,8 +119,11 @@ async fn start_with_lists(
     let upstream_hits = Arc::new(AtomicUsize::new(0));
     let upstream = fake_upstream(Arc::clone(&upstream_hits)).await;
 
+    // Der TCP-Listener steht hier für alle mit: die UDP-Messungen merken von
+    // einem zweiten, leeren Socket nichts, und die TCP-Messung braucht ihn.
     let config: Config = toml::from_str(
-        "[server]\nlisten_udp = [\"127.0.0.1:0\"]\n\n[[upstream_pool]]\nname = \"last\"\n",
+        "[server]\nlisten_udp = [\"127.0.0.1:0\"]\nlisten_tcp = [\"127.0.0.1:0\"]\n\
+         \n[[upstream_pool]]\nname = \"last\"\n",
     )
     .expect("Testkonfiguration");
 
@@ -149,21 +161,26 @@ async fn start_with_lists(
             SystemClock,
         ),
     );
+    let tcp_stats = Arc::new(TcpStats::default());
     let bound = Server::new(
         backend,
         config.server.edns.udp_payload_size,
         Arc::new(QueryLog::new(&LoggingConfig::default()).expect("QueryLog")),
     )
     .with_rate_limit(limiter)
+    .with_tcp_stats(Arc::clone(&tcp_stats))
     .bind(&config.server)
     .await
     .expect("bind");
     let addr = *bound.udp_addrs().first().expect("ein UDP-Listener");
+    let tcp_addr = *bound.tcp_addrs().first().expect("ein TCP-Listener");
 
     let shutdown = CancellationToken::new();
     tokio::spawn(bound.run(shutdown.clone()));
     Harness {
         addr,
+        tcp_addr,
+        tcp_stats,
         upstream_hits,
         shutdown,
     }
@@ -210,6 +227,103 @@ async fn drive(server: SocketAddr, unique: bool, offset: usize) -> f64 {
     #[expect(clippy::cast_precision_loss, reason = "Zählwerte weit unter 2^53")]
     let total = (CLIENTS * PER_CLIENT) as f64;
     total / start.elapsed().as_secs_f64()
+}
+
+/// Eine Anfrage auf einer frisch aufgebauten TCP-Verbindung.
+///
+/// Der Client schließt zuerst. Ließe er sie offen, wartete die Gegenseite auf
+/// das nächste Längenpräfix und die Verbindung lebte noch zehn Sekunden
+/// weiter — die Messung würde dann das Leerlauf-Limit messen, nicht den
+/// Verbindungsaufbau.
+async fn tcp_query(server: SocketAddr, from: Ipv4Addr, id: u16) -> bool {
+    let socket = tokio::net::TcpSocket::new_v4().expect("Socket");
+    socket
+        .bind(SocketAddr::from((from, 0)))
+        .expect("Quelladresse");
+    let Ok(mut stream) = socket.connect(server).await else {
+        return false;
+    };
+    let packet = packet("tcp-last.example.", id);
+    let Ok(len) = u16::try_from(packet.len()) else {
+        return false;
+    };
+    if stream.write_all(&len.to_be_bytes()).await.is_err() {
+        return false;
+    }
+    if stream.write_all(&packet).await.is_err() {
+        return false;
+    }
+    let mut len = [0_u8; 2];
+    if stream.read_exact(&mut len).await.is_err() {
+        return false;
+    }
+    let mut body = vec![0_u8; usize::from(u16::from_be_bytes(len))];
+    stream.read_exact(&mut body).await.is_ok()
+}
+
+/// Verbindungen je Sekunde, je eine Anfrage, von je einer eigenen Adresse.
+async fn drive_tcp(server: SocketAddr, clients: usize, per_client: usize) -> f64 {
+    let start = Instant::now();
+    let mut tasks = Vec::with_capacity(clients);
+    for client in 0..clients {
+        tasks.push(tokio::spawn(async move {
+            let Ok(from) = u8::try_from(client + 1) else {
+                return 0_usize;
+            };
+            let from = Ipv4Addr::new(127, 0, 0, from);
+            let mut answered = 0_usize;
+            for i in 0..per_client {
+                let id = u16::try_from(i % 65_535).unwrap_or(0);
+                if tcp_query(server, from, id).await {
+                    answered += 1;
+                }
+            }
+            answered
+        }));
+    }
+    let mut answered = 0_usize;
+    for task in tasks {
+        answered += task.await.expect("Client-Task");
+    }
+    #[expect(clippy::cast_precision_loss, reason = "Zählwerte weit unter 2^53")]
+    let answered = answered as f64;
+    answered / start.elapsed().as_secs_f64()
+}
+
+/// Was die Obergrenzen den Verbindungsaufbau kosten.
+///
+/// Der UDP-Durchsatz sagt darüber nichts: hier wird je Anfrage eine Verbindung
+/// aufgebaut und wieder geschlossen, und genau dieser Weg hat die Grenzen
+/// bekommen. Jeder Client kommt von einer eigenen Absenderadresse — sonst
+/// greift vorher das Kontingent je Adresse und die Messung misst das Falsche.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "Lastmessung: maschinenabhängig, gehört nicht in die Definition of Done"]
+async fn tcp_connection_setup_with_the_limits() {
+    const TCP_CLIENTS: usize = 16;
+    const TCP_PER_CLIENT: usize = 500;
+
+    let harness = start(CacheConfig::default()).await;
+    println!("\n{TCP_CLIENTS} Clients × {TCP_PER_CLIENT} Verbindungen");
+
+    // Einmal warmlaufen lassen, damit der erste Verbindungsaufbau nicht in die
+    // Messung fällt.
+    assert!(tcp_query(harness.tcp_addr, Ipv4Addr::new(127, 0, 0, 1), 0).await);
+
+    let rate = drive_tcp(harness.tcp_addr, TCP_CLIENTS, TCP_PER_CLIENT).await;
+    let counters = harness.tcp_counters();
+
+    println!("  {rate:.0} Verbindungen/s mit je einer Anfrage");
+    println!(
+        "  Obergrenze: {} gewartet, {} je Adresse abgewiesen, {} Body-Zeitüberschreitungen",
+        counters.at_capacity, counters.rejected_per_client, counters.body_timeouts
+    );
+    assert_eq!(
+        counters.rejected_per_client, 0,
+        "die Messung lief in das Kontingent je Adresse"
+    );
+    assert!(rate > 0.0);
+
+    harness.shutdown.cancel();
 }
 
 #[tokio::test(flavor = "multi_thread")]

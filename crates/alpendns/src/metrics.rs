@@ -17,6 +17,7 @@ use crate::filter::block::BlockMode;
 use crate::logging::{LogStats, Mode as LogMode};
 use crate::policy::PolicyStats;
 use crate::privacy::CounterSnapshot as PrivacyCounters;
+use crate::server::TcpCounters;
 use crate::upstream::pool::UpstreamStats;
 
 /// Alles, was der Endpunkt ausgibt.
@@ -54,6 +55,8 @@ pub struct Snapshot {
     pub detections: Vec<(crate::detect::Detector, u64)>,
     /// Fehlt, wenn die Drosselung abgeschaltet ist.
     pub rate_limit: Option<RateLimitStats>,
+    /// Was der TCP-Listener an Verbindungen abgewiesen oder aufgegeben hat.
+    pub tcp: TcpCounters,
 }
 
 /// Was die Drosselung pro Client zu berichten hat.
@@ -441,6 +444,29 @@ pub fn render(snapshot: &Snapshot) -> String {
         );
     }
 
+    // Die Obergrenzen des TCP-Listeners. Auch hier ohne Adresse, aus demselben
+    // Grund wie bei der Drosselung. Ohne diese drei Zahlen wäre eine Grenze
+    // unsichtbar: ein Gerät, dessen Verbindungen abgewiesen werden, bekommt
+    // einfach keine Antworten mehr.
+    counter(
+        &mut out,
+        "alpendns_tcp_connections_rejected_total",
+        "TCP-Verbindungen, die eine Quell-IP über ihr Kontingent hinaus aufmachen wollte",
+        snapshot.tcp.rejected_per_client,
+    );
+    counter(
+        &mut out,
+        "alpendns_tcp_connections_at_capacity_total",
+        "Annahmen, die warten mussten, weil alle Verbindungsplätze belegt waren",
+        snapshot.tcp.at_capacity,
+    );
+    counter(
+        &mut out,
+        "alpendns_tcp_body_timeouts_total",
+        "TCP-Verbindungen, die ihr Längenpräfix geschickt und dann geschwiegen haben",
+        snapshot.tcp.body_timeouts,
+    );
+
     let _ = writeln!(
         out,
         "# HELP alpendns_upstream_down 1, wenn ein Upstream gerade übersprungen wird"
@@ -540,6 +566,11 @@ mod tests {
                 throttled: 5,
                 tracked: 12,
             }),
+            tcp: TcpCounters {
+                rejected_per_client: 2,
+                at_capacity: 1,
+                body_timeouts: 3,
+            },
         }
     }
 
@@ -566,6 +597,20 @@ mod tests {
         let out = render(&snapshot);
         assert!(out.contains("alpendns_rate_limit_enabled 0"));
         assert!(!out.contains("alpendns_rate_limited_total"));
+    }
+
+    /// Die Grenzen des TCP-Listeners stehen in der Ausgabe, und sie sagen
+    /// nicht, welches Gerät sie erreicht hat.
+    #[test]
+    fn the_tcp_limits_are_visible_without_naming_a_client() {
+        let out = render(&snapshot());
+        assert!(out.contains("alpendns_tcp_connections_rejected_total 2"));
+        assert!(out.contains("alpendns_tcp_connections_at_capacity_total 1"));
+        assert!(out.contains("alpendns_tcp_body_timeouts_total 3"));
+        assert!(
+            !out.contains("alpendns_tcp_connections_rejected_total{"),
+            "die TCP-Metrik hat Labels bekommen"
+        );
     }
 
     /// Jede Metrik braucht HELP und TYPE vor der ersten Zeile, sonst lehnt

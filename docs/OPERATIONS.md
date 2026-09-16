@@ -283,6 +283,29 @@ burst = 1000
 Abschalten (`enabled = false`) ist nur richtig, solange der Server ausschließlich
 auf Loopback lauscht.
 
+### Ein Gerät bekommt über TCP keine Verbindung mehr
+
+Über TCP gibt es zusätzlich zwei Obergrenzen: **8 gleichzeitige Verbindungen je
+Quell-IP** und **64 insgesamt** (gleichzeitig bedient werden 63, eine ist für die
+nächste Annahme reserviert). Beide sind Konstanten im Code
+(`crates/alpendns/src/server/tcp.rs`) und nicht konfigurierbar.
+
+Zu erkennen sind sie nur an den Zählern — eine abgewiesene Verbindung bekommt
+keine Antwort, und im Log steht dazu nichts:
+
+```bash
+curl -s localhost:9153/metrics | grep alpendns_tcp   # nur wenn [metrics] an ist
+```
+
+| Metrik | Bedeutung | Was zu tun ist |
+|---|---|---|
+| `alpendns_tcp_connections_rejected_total` | Eine Quell-IP wollte mehr als 8 Verbindungen gleichzeitig. | Nicht der Server ist das Problem, sondern das Gerät dahinter: entweder ein Client mit Verbindungsleck oder ein NAT, hinter dem mehrere Geräte stecken. Das Gerät suchen, nicht die Grenze hochsetzen — 8 gleichzeitige TCP-Verbindungen für DNS hat kein gesundes Gerät. |
+| `alpendns_tcp_connections_at_capacity_total` | Alle 64 Plätze waren belegt, die Annahme musste warten. | Ein Zeichen, dass die Grenze trägt, kein Fehler. Steigt der Zähler dauerhaft, ist das LAN größer als ein Haushalt — dann gehört die Zahl im Code hoch. |
+| `alpendns_tcp_body_timeouts_total` | Eine Verbindung hat ihr Längenpräfix geschickt und dann geschwiegen. | Nach fünf Sekunden wird sie geschlossen. Einzelne Treffer sind harmlos (ein abgebrochener Client); wächst der Zähler, hält ein Gerät absichtlich Verbindungen offen. |
+
+Ein Client, der über TCP keine Antwort mehr bekommt, aber über UDP weiter
+auflöst, ist genau dieser Fall: `dig +notcp` geht, `dig +tcp` nicht.
+
 ### Alles auf einmal sehen
 
 ```bash

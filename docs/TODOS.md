@@ -49,10 +49,35 @@ will. Gehört zu Punkt 2 und wird dort mitgemacht.
 
 ---
 
-## 1. TCP-Slowloris
+## 1. TCP-Slowloris — erledigt.
 
 > Timeout auf den Body-Read + ein Cap auf gleichzeitige Verbindungen. Im LAN reicht ein
 > kompromittiertes Gerät, um den Resolver lahmzulegen.
+
+**Gebaut** in [server/tcp.rs](../crates/alpendns/src/server/tcp.rs): `BODY_TIMEOUT = 5 s` um
+den Body-Read, im `select!` mit `shutdown`; ein `Semaphore` mit `MAX_CONNECTIONS`, dessen
+Permit **vor** dem `accept` geholt wird und am Task hängt; `MAX_PER_CLIENT = 8` je Quell-IP
+über eine `HashMap` unter einem Mutex im Verbindungsaufbau. Drei Zähler
+(`alpendns_tcp_connections_rejected_total`, `..._at_capacity_total`, `..._body_timeouts_total`),
+Zahlen in [BENCHMARKS.md](BENCHMARKS.md), Betriebsseite in
+[OPERATIONS.md](OPERATIONS.md) §4.
+
+Drei Abweichungen vom Plan, jede mit Grund:
+
+* **`MAX_CONNECTIONS = 64` statt 256.** Die Zahl ist so klein, dass der Test die *echte*
+  Konstante prüfen kann, ohne 256 Deskriptoren zu brauchen — und 64 gleichzeitige
+  TCP-Verbindungen für DNS ist in einem Haushalts-LAN viel. Nebenbei heißt "Permit vor
+  `accept`", dass dauerhaft eines reserviert ist: gleichzeitig bedient werden 63.
+* **Ein dritter Zähler.** Die beiden geplanten hätten die Obergrenze unsichtbar gelassen:
+  sie weist nichts ab, sie lässt warten. Ohne `at_capacity` sähe "die Grenze trägt" genauso
+  aus wie "die Grenze ist nie erreicht worden". Er wird **vor** dem Warten gezählt, nicht
+  danach — hinterher gezählt käme die Zahl erst, wenn der Platz frei wird.
+* **Getestet wird zweigeteilt.** Der Body-Timeout läuft über `tokio::io::duplex` mit
+  angehaltener Uhr (`handle_connection` ist dafür über den Stream generisch geworden) — an
+  echten Sockets würde die automatisch vorlaufende Testuhr mit epoll um die Wette laufen.
+  Die beiden Obergrenzen laufen an echten Sockets ohne Uhr, weil dort keine Zeit im Spiel
+  ist; auf den Zähler wird kurz gewartet statt ihn zu unterstellen, weil der Annahme-Pfad
+  dem Kernel-Backlog nachläuft.
 
 **Befund.** Zwei Lücken, beide in [server/tcp.rs](../crates/alpendns/src/server/tcp.rs):
 
@@ -876,7 +901,8 @@ Der Vollständigkeit halber, weil es zur Entscheidung gehört:
 
 1. **Punkt 5** (ein Satz in der UI, ein Absatz im Modulkopf) — eine Stunde.
 2. **Punkt 6** (`schedule`-Trigger) — eine Stunde, beste Wirkung pro Zeile.
-3. **Punkt 1** (Slowloris) — ein Abend, der einzige Punkt, der eine Lücke schließt.
+3. **Punkt 1** (Slowloris) — **erledigt.** Ein Abend, der einzige Punkt, der eine Lücke
+   schließt.
 4. **Punkt 4** (`After=time-sync.target` plus Runbook-Absatz) — ein halber Abend.
 
 **Danach, nach Bedarf:**

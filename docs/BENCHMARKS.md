@@ -452,3 +452,40 @@ Fall, in dem der Cache nie hilft):
 | Durchsatz | **84 078 Anfragen/s** |
 | p99 | **674 µs** |
 | RSS am Ende des Laufs | **39 732 KiB** |
+
+---
+
+## TCP-Verbindungsaufbau unter den neuen Grenzen · gemessen am 2026-09-16
+
+```bash
+cargo test --release --test load -- --ignored --nocapture --test-threads=1 \
+    tcp_connection_setup_with_the_limits
+```
+
+Der UDP-Durchsatz oben sagt über diese Änderung nichts: dort wird kein einziges
+Mal eine Verbindung aufgebaut. Die Grenzen aus TODOS Nr. 1 sitzen im
+Accept-Pfad, also misst dieser Lauf **Verbindungen je Sekunde mit je einer
+Anfrage**, von 16 Absenderadressen mit je 500 Verbindungen. Jeder Client kommt
+von einer eigenen Adresse — sonst greift vorher das Kontingent je Adresse und
+die Messung misst das Falsche.
+
+Verglichen wird gegen den Stand vor der Änderung. Weil der alte Stand die
+Zähler nicht kennt, lief die Messung dort gegen eine Attrappe derselben
+Signatur (`with_tcp_stats` ohne Wirkung); der Accept-Pfad selbst blieb
+unangetastet.
+
+| | Verbindungen/s |
+|---|---:|
+| vorher (Median aus 7 Läufen) | 31 068 |
+| nachher (Median aus 7 Läufen) | 29 030 |
+| Streuung je Seite | 27 300 – 33 900 |
+
+**Der Unterschied liegt in der Streuung.** Ein Lauf allein sagt hier nichts:
+die Werte derselben Variante schwanken um bis zu 20 %, gegeneinander gemessen
+in wechselnder Reihenfolge. Was bleibt, ist die Aussage, die der Aufbau hergibt:
+ein Semaphor-Zugriff, ein Hash-Eintrag und ein `Arc` je Verbindung sind
+gegenüber einem TCP-Handshake nicht messbar. Die Grenzen kosten im
+Verbindungsaufbau nichts, was diese Maschine auflösen könnte.
+
+Kein Wunder: sie greifen nur, wenn es schon zu spät ist. Im Normalbetrieb ist
+der Preis ein Zweig, der nie genommen wird.

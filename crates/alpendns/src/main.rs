@@ -18,7 +18,7 @@ use alpendns::privacy;
 use alpendns::ratelimit::RateLimiter;
 use alpendns::reload::PolicySource;
 use alpendns::router::ZoneRouter;
-use alpendns::server::Server;
+use alpendns::server::{Server, TcpStats};
 use alpendns::upstream::odoh::{OdohBackend, OdohTransport};
 use alpendns::upstream::pool::{Pool, Upstream};
 use alpendns::upstream::transport::Transport;
@@ -370,12 +370,16 @@ fn run() -> anyhow::Result<()> {
             &server_config.rate_limit,
             Arc::new(SystemClock) as Arc<dyn alpendns::clock::Clock>,
         );
+        // Die Zähler des TCP-Listeners gehören in die Metriken, also werden sie
+        // hier angelegt und dem Server hereingereicht.
+        let tcp_stats = Arc::new(TcpStats::default());
         let bound = Server::new(
             backend,
             server_config.edns.udp_payload_size,
             Arc::clone(&query_log),
         )
             .with_rate_limit(limiter.clone())
+            .with_tcp_stats(Arc::clone(&tcp_stats))
             .bind(&server_config)
             .await
             .context("Listener konnten nicht geöffnet werden")?;
@@ -443,6 +447,7 @@ fn run() -> anyhow::Result<()> {
             history: Arc::clone(&history),
             client_addrs: client_addrs.clone(),
             limiter: limiter.clone(),
+            tcp_stats: Arc::clone(&tcp_stats),
         });
         tokio::spawn(sample_history(
             Arc::clone(&source),
@@ -633,6 +638,8 @@ struct Runtime {
     client_addrs: std::collections::HashMap<String, std::net::IpAddr>,
     /// Fehlt, wenn die Drosselung abgeschaltet ist.
     limiter: Option<Arc<RateLimiter>>,
+    /// Die Zähler des TCP-Listeners, der sie selbst hochzählt.
+    tcp_stats: Arc<TcpStats>,
 }
 
 impl StatusSource for Runtime {
@@ -665,6 +672,7 @@ impl StatusSource for Runtime {
                     tracked: limiter.tracked(),
                 }
             }),
+            tcp: self.tcp_stats.counters(),
         }
     }
 

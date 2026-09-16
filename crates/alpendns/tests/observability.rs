@@ -325,6 +325,7 @@ impl StatusSource for Fake {
             detectors: Vec::new(),
             detections: alpendns::detect::counters(),
             rate_limit: None,
+            tcp: alpendns::server::TcpCounters::default(),
         }
     }
     fn lists(&self) -> Vec<ListInfo> {

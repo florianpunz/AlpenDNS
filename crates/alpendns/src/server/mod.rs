@@ -7,6 +7,8 @@
 mod tcp;
 mod udp;
 
+pub use tcp::{Counters as TcpCounters, Stats as TcpStats};
+
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -32,6 +34,9 @@ pub struct Server<B> {
     log: Arc<QueryLog>,
     /// Fehlt, wenn die Drosselung abgeschaltet ist.
     limiter: Option<Arc<RateLimiter>>,
+    /// Die Zähler des TCP-Listeners. Von außen hereingereicht, weil sie in den
+    /// Metriken auftauchen sollen — die Listener selbst kennen keine Metriken.
+    tcp_stats: Arc<tcp::Stats>,
 }
 
 impl<B: ResolveBackend> Server<B> {
@@ -41,6 +46,7 @@ impl<B: ResolveBackend> Server<B> {
             udp_payload_size: usize::from(udp_payload_size),
             log,
             limiter: None,
+            tcp_stats: Arc::new(tcp::Stats::default()),
         }
     }
 
@@ -52,6 +58,16 @@ impl<B: ResolveBackend> Server<B> {
     #[must_use]
     pub fn with_rate_limit(mut self, limiter: Option<Arc<RateLimiter>>) -> Self {
         self.limiter = limiter;
+        self
+    }
+
+    /// Nimmt die Zähler, die der TCP-Listener füllen soll.
+    ///
+    /// Wie [`Server::with_rate_limit`] ein eigener Schritt: wer nur einen
+    /// Server starten will, soll nichts davon wissen müssen.
+    #[must_use]
+    pub fn with_tcp_stats(mut self, stats: Arc<tcp::Stats>) -> Self {
+        self.tcp_stats = stats;
         self
     }
 
@@ -125,6 +141,7 @@ impl<B: ResolveBackend> Bound<B> {
                 Arc::clone(&self.server.backend),
                 Arc::clone(&self.server.log),
                 self.server.limiter.clone(),
+                Arc::clone(&self.server.tcp_stats),
                 shutdown.clone(),
                 tracker.clone(),
             ));
