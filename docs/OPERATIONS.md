@@ -337,14 +337,21 @@ kommentiert.
 Die Abnahme von Phase 8 und Phase 9 ist ein mehrtägiger Lauf im echten Netz.
 Sie ist nicht durch einen Test ersetzbar, und sie hat eine Reihenfolge.
 
-**Vorbereitung.** Für die Beobachtung braucht die UI Namen, und die gibt es nur
-im Modus `ring` — die letzten Minuten im Arbeitsspeicher, nie auf Platte:
+**Vorbereitung.** Für die Beobachtung braucht es Namen, und die überleben die
+Woche nur, wenn sie auf Platte gehen. Der Modus `ring` reicht dafür **nicht**:
+Er hält die letzten `ring_seconds` im Arbeitsspeicher, mehr nicht. Das Panel
+"Auffällig" in der UI liest genau diesen Puffer — ein Fehlalarm, den niemand am
+selben Tag notiert, ist danach weg. Für einen Lauf, der eine Woche dauert, ist
+das die falsche Grundlage.
 
 ```toml
 [privacy.logging]
-mode = "ring"
-ring_seconds = "15m"
+# Nötig, damit die Woche am Ende auswertbar ist. Der Preis steht in ADR-0004:
+# jeder aufgelöste Name liegt für die Dauer der Beobachtung auf Platte.
+mode = "full"
 ```
+
+Nach der Auswertung wieder zurückstellen.
 
 Dazu die eigenen Domains in den Typosquat-Wächter eintragen (Bank, Behörde,
 Arbeitgeber), sonst tut er nichts:
@@ -380,11 +387,29 @@ systemctl show alpendns -p ActiveEnterTimestamp -p NRestarts
 curl -s localhost:9153/metrics | grep -E 'queries_total|cache_hit_ratio|rate_limited|detections'
 ```
 
-**Am Ende der Woche.** Die Fehlalarm-Liste durchsehen und entscheiden, je
-Detektor einzeln:
+**Am Ende der Woche.** Erst die Zahlen, dann die Entscheidung.
+`packaging/abnahme.py` liest das Query-Log und zählt je Detektor:
+
+```bash
+# Zweites Argument optional — damit lässt sich auch eine gesicherte Kopie auswerten
+python3 abnahme.py 2026-09-16T16:24 | tee abnahme-periode.txt
+```
+
+Es gibt Anfragen und **verschiedene Namen** aus, dann je Detektor die Funde und
+die häufigsten Namen mit Score. Beides gehört zur Beurteilung: 7 Funde auf 4 025
+Namen sind etwas anderes als 7 auf 40 000.
+
+Dann die Fehlalarm-Liste durchsehen und entscheiden, je Detektor einzeln:
 
 * Keine Fehlalarme über eine Woche echten Verkehrs → dieser Detektor darf auf
   `action = "block"`. Einer nach dem anderen, nicht alle zusammen.
+* **Ein Detektor, der nie ausgelöst hat, ist damit nicht bewertet.** „Keine
+  Fehlalarme" heißt bei ihm nur, dass nichts passiert ist — für `block` fehlt der
+  Beleg, dass er überhaupt richtig auslöst. Entweder einen kontrollierten Test
+  fahren oder ihn auf `flag` lassen.
+* **Ein Detektor, der leer lief, ist ebenfalls nicht bewertet.** Eine leere
+  `protect`-Liste oder eine fehlende `nrd.txt` erzeugt dieselbe Null wie ein
+  sauberer Lauf — nur ohne Grundlage.
 * Fehlalarme, die sich über `allow_zones` erledigen lassen → eintragen, weitere
   Woche beobachten.
 * Fehlalarme, die sich nicht erledigen lassen → der Detektor bleibt auf `flag`.
