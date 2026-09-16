@@ -813,6 +813,18 @@ td.c-time { color: var(--muted); }
 }
 .top-panel { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; }
 
+/* Die Spalte ist 19rem breit; keines ihrer Kinder darf sie aufziehen. Als
+   Grid-Element geben sie sonst ihr min-content an die Spur weiter — für die
+   häufigsten Namen gemessen 346px bei 292px Platz, für einen langen
+   Upstream-Namen 405px. Die Spur wird dann breiter als ihr Behälter, und weil
+   .side rollt, wird der Überstand nicht sichtbar abgeschnitten, sondern still:
+   an jedem Panel der Spalte, nicht nur am schuldigen. Die Ellipse auf .n und
+   .up-name kommt erst zum Zug, wenn geschrumpft werden darf.
+   Die zweite Zeile, weil das ol in einem eigenen Grid liegt (.top-panel) und
+   dort selbst Grid-Element ist. */
+.side > * { min-width: 0; }
+.side .top { min-width: 0; }
+
 .top {
   margin: 0;
   padding: 0 var(--s-16) var(--s-16);
