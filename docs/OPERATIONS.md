@@ -361,6 +361,11 @@ Arbeitgeber), sonst tut er nichts:
 typosquat = { action = "flag", threshold = 0.85, protect = ["meine-bank.at"] }
 ```
 
+Ob ein Detektor überhaupt etwas finden *kann*, sagt vorher ein Blick in
+`alpendns check`: dort steht hinter einem eingeschalteten Detektor, dem die
+Grundlage fehlt, der Grund in Klammern — `typosquat flag (ohne protect: findet
+nichts)`, `nrd flag (/var/lib/alpendns/nrd.txt fehlt: läuft leer)`.
+
 Alle fünf Detektoren stehen auf `flag`. **Sie bleiben die ganze Woche auf
 `flag`.** Sie melden, sie blocken nicht.
 

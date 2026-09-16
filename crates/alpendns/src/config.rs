@@ -168,6 +168,59 @@ pub struct NrdConfig {
     pub source: Option<std::path::PathBuf>,
 }
 
+impl DetectionConfig {
+    /// Eine Zeile für `alpendns check`: die Stufe jedes Detektors.
+    ///
+    /// Hinter einem Detektor, der eingeschaltet ist und trotzdem nichts finden
+    /// *kann*, steht der Grund in Klammern — Typosquat ohne `protect`, NRD ohne
+    /// lesbare Quelldatei. Das ist der eigentliche Zweck der Zeile: beide sehen
+    /// am Ende einer Beobachtungswoche aus wie ein fehlerfreier Lauf, nur ohne
+    /// Grundlage (OPERATIONS.md §6). Ein Detektor auf `off` bekommt keinen
+    /// Hinweis; bei ihm ist das Nichtstun die Absicht.
+    ///
+    /// Die NRD-Datei wird dafür nicht gelesen, nur ihre Größe angesehen: ein
+    /// `check` auf einem Feed mit einer Million Zeilen soll nicht dauern.
+    pub fn check_line(&self) -> String {
+        [
+            ("dga", self.dga.action, None),
+            ("tunneling", self.tunneling.action, None),
+            ("rebinding", self.rebinding.action, None),
+            ("typosquat", self.typosquat.action, self.protect_note()),
+            ("nrd", self.nrd.action, self.nrd_note()),
+        ]
+        .into_iter()
+        .map(|(name, action, note)| match note {
+            Some(note) => format!("{name} {} ({note})", action.as_str()),
+            None => format!("{name} {}", action.as_str()),
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+    }
+
+    /// `None`, wenn der Wächter etwas zu schützen hat.
+    fn protect_note(&self) -> Option<String> {
+        if self.typosquat.action.is_off() || !self.typosquat.protect.is_empty() {
+            return None;
+        }
+        Some("ohne protect: findet nichts".to_owned())
+    }
+
+    /// `None`, wenn die Quelldatei da ist.
+    fn nrd_note(&self) -> Option<String> {
+        if self.nrd.action.is_off() {
+            return None;
+        }
+        let Some(source) = &self.nrd.source else {
+            return Some("keine Quelle: läuft leer".to_owned());
+        };
+        match std::fs::metadata(source) {
+            Ok(meta) if meta.len() > 0 => None,
+            Ok(_) => Some(format!("{} ist leer: läuft leer", source.display())),
+            Err(_) => Some(format!("{} fehlt: läuft leer", source.display())),
+        }
+    }
+}
+
 const fn default_dga_threshold() -> f32 {
     crate::detect::dga::DEFAULT_THRESHOLD
 }
@@ -1406,6 +1459,95 @@ nrd = { action = "flag", max_age = "30d", source = "/var/lib/alpendns/nrd.txt" }
         let config = valid(&text);
         assert_eq!(config.detection.typosquat.protect.len(), 1);
         assert_eq!(config.detection.tunneling.window, Duration::from_secs(300));
+    }
+
+    #[test]
+    fn the_detector_line_names_every_stage() {
+        let dir = std::env::temp_dir().join(format!("alpendns-config-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("Testverzeichnis");
+        let nrd = dir.join("nrd.txt");
+        std::fs::write(&nrd, "frisch.example 2026-08-28\n").expect("schreiben");
+
+        let block = format!(
+            "[detection]\n\
+             dga = {{ action = \"block\" }}\n\
+             tunneling = {{ action = \"off\" }}\n\
+             rebinding = {{ action = \"log\" }}\n\
+             typosquat = {{ action = \"flag\", protect = [\"sparkasse.at\"] }}\n\
+             nrd = {{ action = \"flag\", source = \"{}\" }}\n",
+            nrd.display()
+        );
+        let config = valid(&format!("{MINIMAL}\n{block}"));
+        assert_eq!(
+            config.detection.check_line(),
+            "dga block, tunneling off, rebinding log, typosquat flag, nrd flag"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_detector_that_can_find_nothing_says_so() {
+        // Genau die Falle aus der ersten Beobachtungswoche: der Detektor steht
+        // auf `flag` und hat nichts, wogegen er vergleichen könnte. In der
+        // Auswertung sieht das aus wie "keine Fehlalarme".
+        let config = valid(MINIMAL);
+        assert_eq!(
+            config.detection.check_line(),
+            "dga flag, tunneling flag, rebinding flag, \
+             typosquat flag (ohne protect: findet nichts), \
+             nrd flag (keine Quelle: läuft leer)"
+        );
+    }
+
+    #[test]
+    fn the_nrd_note_distinguishes_missing_from_empty() {
+        let dir = std::env::temp_dir().join(format!("alpendns-config-nrd-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("Testverzeichnis");
+        let leer = dir.join("leer.txt");
+        std::fs::write(&leer, "").expect("schreiben");
+        let voll = dir.join("voll.txt");
+        std::fs::write(&voll, "frisch.example 2026-08-28\n").expect("schreiben");
+
+        let line = |source: &std::path::Path| {
+            let text = format!(
+                "{MINIMAL}\n[detection]\nnrd = {{ action = \"flag\", source = \"{}\" }}\n",
+                source.display()
+            );
+            valid(&text).detection.check_line()
+        };
+
+        let fehlt = line(&dir.join("gibts-nicht.txt"));
+        assert!(
+            fehlt.ends_with("gibts-nicht.txt fehlt: läuft leer)"),
+            "{fehlt}"
+        );
+        let leer = line(&leer);
+        assert!(leer.ends_with("leer.txt ist leer: läuft leer)"), "{leer}");
+        // Eine Datei, die da ist: kein Hinweis. Typosquat meldet sich weiter,
+        // weil sein `protect` in MINIMAL leer ist.
+        assert_eq!(
+            line(&voll),
+            "dga flag, tunneling flag, rebinding flag, \
+             typosquat flag (ohne protect: findet nichts), nrd flag"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_detector_that_is_off_gets_no_hint() {
+        // `off` heißt: soll nichts finden. Ein Hinweis darauf wäre Rauschen.
+        let text = format!(
+            "{MINIMAL}\n[detection]\n\
+             typosquat = {{ action = \"off\", protect = [] }}\n\
+             nrd = {{ action = \"off\", source = \"/gibt/es/nicht.txt\" }}\n"
+        );
+        let config = valid(&text);
+        assert_eq!(
+            config.detection.check_line(),
+            "dga flag, tunneling flag, rebinding flag, typosquat off, nrd off"
+        );
     }
 
     #[test]

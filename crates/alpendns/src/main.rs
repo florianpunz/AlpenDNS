@@ -857,6 +857,11 @@ fn check(path: &std::path::Path) -> anyhow::Result<()> {
     } else {
         println!("  Drosselung:  aus");
     }
+    // Die Detektoren stehen in der Konfiguration wie eine Ein/Aus-Angabe und
+    // sind in Wahrheit mehr: zwei von ihnen können eingeschaltet sein und
+    // trotzdem nichts finden. Nach einer Woche Beobachtung sähe das aus wie
+    // "keine Fehlalarme". Wo das der Fall ist, steht es hier.
+    println!("  Detektoren:  {}", config.detection.check_line());
 
     // Verzeichnisse: die häufigste Ursache für einen Start, der an der
     // Konfiguration nicht scheitert und trotzdem nicht funktioniert. Nach einem
