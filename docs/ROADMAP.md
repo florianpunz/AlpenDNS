@@ -4,7 +4,8 @@ Der Plan ist in Phasen geschnitten. Jede Phase hat ein **Ziel**, eine **Schrittl
 Verify-Format** (siehe CLAUDE.md, Teil A.4) und ein **Abnahmekriterium**. Eine Phase gilt
 als fertig, wenn das Abnahmekriterium erfüllt ist — nicht, wenn der Code kompiliert.
 
-**Aktuelle Phase: 9** — Code steht, die Abnahme läuft im echten Netz.
+**Aktuelle Phase: 9** — Code steht, die Abnahme läuft im echten Netz: die erste
+Beobachtungsperiode ist ausgewertet, die zweite läuft seit 2026-09-16.
 
 Die Reihenfolge ist so gewählt, dass **nach Phase 4 ein Server steht, den du produktiv
 im eigenen Netz benutzen kannst**. Alles danach macht ihn besser, nicht erst benutzbar.
@@ -616,6 +617,35 @@ auf `flag`" braucht eine Woche und ein echtes Netz. Der Praxistest hat am
 2026-08-30 begonnen — seitdem ist der Server der einzige Resolver im Homelab.
 Es ist derselbe Lauf wie der Praxistest aus Phase 9 (OPERATIONS.md §6). Erst
 nach Durchsicht der Falsch-Positiv-Liste darf ein Detektor auf `block`.
+
+**Erste Periode ausgewertet am 2026-09-16** (30.08. bis 15.09., 220 659 Anfragen,
+4 025 verschiedene Namen). Dass diese Zahlen überhaupt existieren, ist
+`mode = "full"` zu verdanken: OPERATIONS §6 empfahl für die Beobachtung `ring`,
+und der Ringpuffer hätte die Woche nicht überlebt — `/api/flagged` liest ihn,
+nicht das Log. §6 ist entsprechend nachgezogen.
+
+* **Rebinding — 2 595 Meldungen, alle Fehlalarme.** Ausnahmslos Sinkholes und
+  Telemetrie: 661× eine Amazon-Gerätekennung, `a.gslb.aaplimg.com`,
+  `settings-win.data.microsoft.com`, `unagi-eu.amazon.com` — 194 verschiedene
+  Namen, kein echter Angriff in 16 Tagen. Behoben in
+  [ADR-0021](adr/0021-rebinding-nur-erreichbare-adressen.md); danach meldete der
+  Detektor nichts mehr.
+* **DGA — 7 Funde, kein Fehlalarm.** Alle vier Namen tragen ein
+  Generierungsmuster; der auffälligste ist
+  `cdn.deepseek.com.436b7a4e.cdnhwcqwg14.com` — ein echter Name als Label vor
+  einer generierten Domain. Bei der Laborrate von 0,077 % wären auf 4 025 Namen
+  rund drei Funde zu erwarten gewesen.
+* **Tunneling — nie ausgelöst.** Kein Fehlalarm, aber auch kein Beleg: der
+  Detektor hat im Betrieb nie gezeigt, dass er richtig auslöst. Seine Wirkung ist
+  nur über den Korpus belegt (BENCHMARKS.md).
+* **Typosquat und NRD — liefen leer.** `protect = []` bzw. keine `nrd.txt`.
+  Beide haben in dieser Periode nichts bewertet; „keine Fehlalarme" ist bei ihnen
+  keine Aussage, sondern eine Null ohne Grundlage.
+
+**Zweite Periode seit 2026-09-16 16:24.** Sie läuft mit gefüllter
+`protect`-Liste und entscheidet über Typosquat, bestätigt Rebinding und DGA.
+Tunneling braucht dafür einen kontrollierten Test statt eines weiteren passiven
+Laufs; NRD bleibt ohne Daten aus AlpenShield `off` und damit unbewertet.
 
 ---
 

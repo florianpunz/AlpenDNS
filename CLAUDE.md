@@ -88,9 +88,13 @@ Commit oder in der Antwort, statt sie kommentarlos einzubauen. Ein Einzeiler
 kam am 2026-08-31 der Blick eines Menschen auf die gerenderte UI dazu, bei
 Phase 7 läuft der CI-Workflow dauerhaft grün in GitHub Actions. Bei Phase 8
 und 9 läuft derselbe Praxistest: seit 2026-08-30 ist der Server der einzige
-Resolver im Homelab, alle Detektoren auf `flag` — erst nach Durchsicht der
-Falsch-Positiv-Liste darf ein Detektor auf `block`. Anleitung dazu in
-`docs/OPERATIONS.md` §6. Aus Phase 9 ist die Installation auf einem echten
+Resolver im Homelab. Die **erste Periode ist am 2026-09-16 ausgewertet** —
+2 595 Rebinding-Fehlalarme, die ADR-0021 behebt, 7 DGA-Funde ohne einen
+einzigen Fehlalarm, und zwei Detektoren (Typosquat, NRD), die leer liefen und
+deshalb nichts beweisen. Die **zweite Periode läuft seit 2026-09-16 16:24**;
+erst nach ihrer Auswertung darf ein Detektor auf `block`. Zahlen und offene
+Lücken in `docs/ROADMAP.md` unter Phase 8, Anleitung in `docs/OPERATIONS.md` §6.
+Aus Phase 9 ist die Installation auf einem echten
 System mit einer Abweichung erledigt: das `.deb` wurde auf einem
 Ubuntu-Container installiert und läuft; die frische Debian-VM, die das
 Abnahmekriterium wörtlich verlangt, wird bei Gelegenheit nachgeholt. Der
@@ -149,7 +153,10 @@ im echten Netz.
 `docs/OPERATIONS.md` = Installation, Upgrade, Backup, Fehlersuche, Beobachtungswoche ·
 `docs/ARCHITECTURE.md` = Zielbild · `docs/TESTING.md` = Teststrategie ·
 `docs/THREAT-MODEL.md` = wogegen geschützt wird und wogegen nicht · `docs/FEATURES.md` =
-Katalog mit Aufwand/Nutzen · `docs/adr/` = warum etwas so ist ·
+Katalog mit Aufwand/Nutzen · `docs/TODOS.md` = offene Punkte mit Umsetzungsplan —
+Phase-10-Vorrat, jederzeit verwerfbar · `docs/SECURITY-AUDIT.md` = manueller Audit
+der Codebase · `docs/PERFORMANCE_ANALYSIS.md` = Durchsicht des heißen Pfads ·
+`docs/adr/` = warum etwas so ist ·
 `config/alpendns.example.toml` = **Spezifikation des Zielformats**; noch nicht
 implementierte Abschnitte sind dort mit `[PHASE n]` markiert.
 
