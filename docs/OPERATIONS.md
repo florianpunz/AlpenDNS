@@ -30,6 +30,19 @@ cargo deb -p alpendns
 `ring`/`rustls` gelinktes Binary; eine OpenSSL-Version auf dem Zielsystem spielt
 keine Rolle.
 
+### Releases und Versionen
+
+Der `push` nach `main` baut das Paket in GitHub Actions und veröffentlicht es
+als GitHub Release — für `amd64` und `arm64`. Die Versionsnummer wird **vor dem
+Commit** erhöht, nicht von der CI: `scripts/bump-version.sh major|minor` vor dem
+Commit (`major` bei einem Breaking Change, sonst `minor`; es gibt kein Patch —
+jeder Commit ist eine neue Version). Der Coding-Agent macht das bei jedem Commit
+automatisch; wer von Hand committet, ruft das Skript selbst auf. Wird die Regel
+verletzt und die Version steht bereits als Tag im Repo, bricht die CI mit einer
+deutlichen Meldung ab, statt dieselbe Nummer ein zweites Mal zu veröffentlichen.
+
+Das Paket lässt sich weiterhin lokal bauen, wie oben beschrieben.
+
 ### Paket installieren
 
 ```bash

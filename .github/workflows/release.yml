@@ -1,0 +1,81 @@
+name: Release
+
+# Baut bei jedem Push auf main das .deb (amd64 + arm64) und veröffentlicht es
+# als GitHub Release. Die Versionsnummer kommt aus Cargo.toml — sie wurde bereits
+# VOR dem Commit erhöht (scripts/bump-version.sh), siehe docs/OPERATIONS.md.
+# Deshalb gibt es hier keinen Bot-Commit zurück nach main: der würde den
+# Hand-Push-Workflow (CLAUDE.md B.7) mit non-fast-forward-Ablehnungen stören.
+#
+# Auf Pull Requests läuft dieses Workflow nicht; dort prüft nur ci.yml.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+# Zwei Pushes kurz nacheinander: der zweite Lauf wartet, bis der erste fertig
+# ist, und sieht dann dessen Tag. Ohne das könnten beide gleichzeitig "Tag fehlt"
+# feststellen und der zweite liefe in einen undurchsichtigen gh-Fehler.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  deb:
+    runs-on: ${{ matrix.runs-on }}
+    strategy:
+      matrix:
+        include:
+          - runs-on: ubuntu-latest
+            arch: amd64
+          - runs-on: ubuntu-24.04-arm
+            arch: arm64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo-deb installieren
+        run: cargo install cargo-deb --locked
+      - name: Paket bauen
+        run: cargo deb -p alpendns
+      - name: Paket ablegen
+        uses: actions/upload-artifact@v4
+        with:
+          name: alpendns-deb-${{ matrix.arch }}
+          path: target/debian/*.deb
+
+  publish:
+    needs: deb
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pakete holen
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Version lesen und prüfen
+        id: v
+        run: |
+          version="$(sed -nE 's/^version = "([0-9]+\.[0-9]+\.[0-9]+)"$/\1/p' Cargo.toml | head -n1)"
+          lock_version="$(sed -nE '/^name = "alpendns"$/,/^$/ s/^version = "([0-9]+\.[0-9]+\.[0-9]+)"$/\1/p' Cargo.lock)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [ -z "$version" ]; then
+            echo "keine version in Cargo.toml gefunden" >&2
+            exit 1
+          fi
+          # Beide Dateien müssen dieselbe Version führen, sonst churned das
+          # Lockfile beim nächsten lokalen Build still nach.
+          if [ "$lock_version" != "$version" ]; then
+            echo "Cargo.lock (alpendns: $lock_version) und Cargo.toml ($version) laufen auseinander — scripts/bump-version.sh wendet beide an." >&2
+            exit 1
+          fi
+          # Fail closed statt Doppel-Veröffentlichung: existiert der Tag schon,
+          # wurde die Version vor dem Commit nicht erhöht.
+          if git ls-remote --tags origin "refs/tags/v$version" | grep -q .; then
+            echo "Tag v$version existiert schon — Version in Cargo.toml wurde nicht erhöht (scripts/bump-version.sh)." >&2
+            exit 1
+          fi
+      - name: GitHub Release anlegen
+        run: gh release create "v${{ steps.v.outputs.version }}" dist/*.deb --generate-notes
