@@ -78,4 +78,8 @@ jobs:
             exit 1
           fi
       - name: GitHub Release anlegen
+        env:
+          # gh liest in Actions nicht automatisch GITHUB_TOKEN — es will GH_TOKEN
+          # explizit. Ohne die Zeile bricht der Schritt mit Exit-Code 4 ab.
+          GH_TOKEN: ${{ github.token }}
         run: gh release create "v${{ steps.v.outputs.version }}" dist/*.deb --generate-notes
