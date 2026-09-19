@@ -1,74 +1,70 @@
-# ADR-0006: Der TSIG-Panic ist upstream behoben — wir warten auf 0.27 statt zu melden
+# ADR-0006: The TSIG panic is fixed upstream — we wait for 0.27 instead of reporting
 
-**Status:** angenommen · **Datum:** 2026-08-29 · **Löst ab:** [ADR-0005](0005-tsig-panic-in-hickory-proto.md)
+**Status:** accepted · **Date:** 2026-08-29 · **Supersedes:** [ADR-0005](0005-tsig-panic-in-hickory-proto.md)
 
-## Kontext
+## Context
 
-[ADR-0005](0005-tsig-panic-in-hickory-proto.md) hat Phase 1 abgenommen, obwohl der
-Fuzzer einen Panic in `hickory-proto 0.26.1` gefunden hatte
-(`src/rr/rdata/tsig.rs:387`, `end_idx - decoder.index()` läuft unter Null bei einem
-TSIG-Record mit zu kleiner `RDLENGTH`). Die dritte Auflage dort lautete: upstream melden.
+[ADR-0005](0005-tsig-panic-in-hickory-proto.md) accepted phase 1 even though the fuzzer
+had found a panic in `hickory-proto 0.26.1`
+(`src/rr/rdata/tsig.rs:387`, `end_idx - decoder.index()` runs below zero with a TSIG
+record whose `RDLENGTH` is too small). The third condition there was: report it upstream.
 
-Vor dem Melden wurde geprüft, ob der Fehler dort schon bekannt ist. Ergebnis:
+Before reporting, we checked whether the bug was already known there. Result:
 
-* **In `main` tritt er nicht mehr auf.** Das Minimal-Repro läuft dort mit aktiven
-  Overflow-Checks durch. Nachgewiesen am 2026-08-29 gegen
-  `hickory-proto 0.27.0-alpha.1` (`6c18ce30`) als direkte Git-Abhängigkeit.
-* **Der Grund ist ein Umbau, keine gezielte Korrektur.** `end_idx` wird in `main`
-  aus `decoder.len() + decoder.index()` gebildet statt aus `RDLENGTH`. Damit ist
-  `decoder.index() <= end_idx` strukturell erfüllt. Die beiden Subtraktionen stehen
-  unverändert im Code, können aber nicht mehr unterlaufen.
-* **Es gibt keinen Release mit dem Fix.** `0.26.1` vom 2026-05-01 ist der neueste
-  stabile Stand; `main` ist eine Alpha auf dem Weg zu 0.27.
+* **In `main` it no longer occurs.** The minimal repro runs through there with overflow
+  checks active. Proven on 2026-08-29 against `hickory-proto 0.27.0-alpha.1` (`6c18ce30`)
+  as a direct git dependency.
+* **The reason is a rework, not a targeted fix.** In `main`, `end_idx` is formed from
+  `decoder.len() + decoder.index()` instead of from `RDLENGTH`. That makes
+  `decoder.index() <= end_idx` structurally true. The two subtractions are still in the
+  code unchanged, but can no longer underflow.
+* **There is no release with the fix.** `0.26.1` from 2026-05-01 is the newest stable
+  state; `main` is an alpha on the way to 0.27.
 
-## Entscheidung
+## Decision
 
-Die dritte Auflage aus ADR-0005 entfällt: **es wird kein Issue eröffnet.** Ein Bericht
-über einen Fehler, der im Entwicklungszweig bereits weg ist, kostet die Maintainer
-Zeit und uns auch.
+The third condition from ADR-0005 is dropped: **no issue is opened.** A report about a bug
+that is already gone in the development branch costs the maintainers time, and us too.
 
-Die ersten beiden Auflagen aus ADR-0005 gelten unverändert weiter:
+The first two conditions from ADR-0005 still hold unchanged:
 
-1. Das Abnahmekriterium von Phase 1 wird in der Auslieferungs-Konfiguration erfüllt
-   (`cargo +nightly fuzz run -O parse_request`). Nachweis vom 2026-08-29: 2.698.186
-   Läufe in 301 Sekunden, kein Crash, kein neues Artefakt.
-2. Der Fall bleibt als bekannter Crash in `crates/alpendns/fuzz/known-crashes/`.
+1. The acceptance criterion of phase 1 is met in the delivery configuration
+   (`cargo +nightly fuzz run -O parse_request`). Proof from 2026-08-29: 2.698.186 runs in
+   301 seconds, no crash, no new artifact.
+2. The case stays as a known crash in `crates/alpendns/fuzz/known-crashes/`.
 
-Dazu kommt die Bedingung, die diesen Zustand beendet:
+Added to that is the condition that ends this state:
 
-3. **Beim Erscheinen von `hickory-proto 0.27` wird aktualisiert und gegengeprüft:**
+3. **When `hickory-proto 0.27` appears, we update and re-check:**
 
    ```bash
    cargo +nightly fuzz run parse_request fuzz/known-crashes/parse_request
    ```
 
-   Läuft das ohne Abbruch durch, verschwinden `known-crashes/`, dieses ADR und
-   ADR-0005 gemeinsam. Auf eine Alpha wird dafür **nicht** vorgezogen: ein
-   Resolver, der Pakete aus dem Netz parst, hängt nicht an einem
-   Vorab-Release, um einen Fehler zu vermeiden, der den ausgelieferten Pfad nicht
-   trifft.
+   If that runs through without aborting, `known-crashes/`, this ADR and ADR-0005
+   disappear together. We do **not** move up to an alpha for it: a resolver that parses
+   packets from the network does not hang on a pre-release to avoid a bug that does not
+   hit the shipped path.
 
-## Konsequenzen
+## Consequences
 
-* Der Zustand ist jetzt zeitlich begrenzt und an ein konkretes Ereignis geknüpft,
-  statt unbefristet zu gelten. Das war die eigentliche Schwäche von ADR-0005.
-* Bis dahin bleibt es dabei: Debug-Builds lassen sich mit einem Paket abschießen,
-  Release-Builds nicht. Wer eine Debug-Binary betreibt, hat ein anderes Problem.
-* Wir tragen das Risiko, dass 0.27 lange auf sich warten lässt. `0.26.0` kam im
-  April 2026, ein Jahr Abstand wäre nicht ungewöhnlich. Sollte die Alpha vorher aus
-  anderen Gründen attraktiv werden, ist das eine eigene Entscheidung mit eigenem ADR.
-* Der vorbereitete Meldetext entfällt. Er steht in der Historie, falls die
-  Einschätzung sich ändert:
+* The state is now bounded in time and tied to a concrete event, instead of holding
+  indefinitely. That was the actual weakness of ADR-0005.
+* Until then it stays the same: debug builds can be taken down with a single packet,
+  release builds cannot. Whoever runs a debug binary has a different problem.
+* We carry the risk that 0.27 takes a long time. `0.26.0` came in April 2026, a year's gap
+  would not be unusual. Should the alpha become attractive earlier for other reasons, that
+  is a decision of its own with its own ADR.
+* The prepared report text is dropped. It is in the history should the assessment change:
   `git show 8f878c1:crates/alpendns/fuzz/known-crashes/UPSTREAM-ISSUE.md`
 
-## Alternativen
+## Alternatives
 
-* **Trotzdem melden.** Denkbar, damit `0.26.x` einen Backport bekommt. Für einen
-  Fehler, der nur mit aktiven Overflow-Checks zuschlägt, ist ein Backport aber
-  unwahrscheinlich, und der Aufwand läge bei Leuten, die ihn schon behoben haben.
-* **Jetzt auf `0.27.0-alpha.1` wechseln.** Löst den Fehler sofort und handelt sich
-  eine instabile API im Parser eines Netzwerkdienstes ein. Falscher Tausch.
-* **Eigener Fork mit Einzeiler-Fix per `[patch.crates-io]`.** Technisch sauber, aber
-  wir würden einen Fork pflegen, `cargo deny` müsste eine Git-Quelle erlauben
-  (`unknown-git = "deny"`), und das alles für einen Fehler, der uns im Betrieb nicht
-  trifft.
+* **Report it anyway.** Conceivable, so that `0.26.x` gets a backport. For a bug that only
+  strikes with overflow checks active, a backport is unlikely though, and the work would
+  fall on the people who already fixed it.
+* **Switch to `0.27.0-alpha.1` now.** Fixes the bug immediately and buys an unstable API in
+  the parser of a network service. Wrong trade.
+* **Our own fork with a one-line fix via `[patch.crates-io]`.** Technically clean, but we
+  would maintain a fork, `cargo deny` would have to allow a git source
+  (`unknown-git = "deny"`), and all that for a bug that does not hit us in operation.

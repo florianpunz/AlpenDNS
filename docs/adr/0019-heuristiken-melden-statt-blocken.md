@@ -1,110 +1,111 @@
-# ADR-0019: Heuristiken melden, sie blocken nicht
+# ADR-0019: Heuristics report, they do not block
 
-**Status:** angenommen · **Datum:** 2026-08-30 · **Betrifft:** [FEATURES.md](../FEATURES.md) D1–D6, [ROADMAP.md](../ROADMAP.md) Phase 8
+**Status:** accepted · **Date:** 2026-08-30 · **Affects:** [FEATURES.md](../FEATURES.md) D1–D6, [ROADMAP.md](../ROADMAP.md) Phase 8
 
-## Kontext
+## Context
 
-Phase 8 bringt fünf Detektoren: DGA, Tunneling, Rebinding, Typosquatting und
-neu registrierte Domains. Vier davon sind Heuristiken im eigentlichen Sinn — sie
-raten, begründet, aber sie raten.
+Phase 8 brings five detectors: DGA, tunneling, rebinding, typosquatting and
+newly registered domains. Four of them are heuristics in the proper sense — they
+guess, with reasons, but they guess.
 
-Die Beispielkonfiguration zeigte `tunneling` und `rebinding` von Anfang an auf
-`block`. Die Roadmap sagt für dieselbe Phase "alles per Default nur `flag`", und
-CLAUDE.md B.8 verlangt ausdrücklich eine Rückfrage, bevor ein Detektor auf
-`block` steht. Es musste eine Seite gewinnen.
+The example configuration showed `tunneling` and `rebinding` on
+`block` from the start. The roadmap says, for the same phase, "everything by
+default only `flag`", and CLAUDE.md B.8 explicitly demands asking before a
+detector sits on `block`. One side had to win.
 
-## Entscheidung
+## Decision
 
-**Alle fünf stehen per Default auf `flag`.** Sie melden, sie blocken nicht. Die
-Beispielkonfiguration ist angeglichen worden, nicht der Code.
+**All five default to `flag`.** They report, they do not block. The
+example configuration was aligned, not the code.
 
-Der Grund steht in FEATURES.md, Abschnitt D, und er ist keine Vorsicht um der
-Vorsicht willen: *ein Detektor, der Internet kaputtmacht, wird abgeschaltet — und
-mit ihm alle anderen.* Wer einmal erlebt hat, dass die Bank nicht lädt, schaltet
-`[detection]` als Ganzes ab und kommt nicht wieder. Die vier Heuristiken sind
-zusammen mehr wert als jede einzelne, und der Weg dorthin führt über eine
-Beobachtungswoche.
+The reason is in FEATURES.md, section D, and it is not caution for
+caution's sake: *a detector that breaks the internet gets switched off — and
+with it all the others.* Anyone who has once seen the bank fail to load switches
+`[detection]` off as a whole and does not come back. The four heuristics are
+together worth more than any single one, and the way there leads through an
+observation week.
 
-### Vier Stufen und nicht zwei
+### Four levels and not two
 
-`off` · `log` · `flag` · `block`. Der Unterschied zwischen `log` und `flag` ist
-der einzige, der Erklärung braucht: beide zählen mit und stehen im Trace, aber
-nur `flag` stellt die Anfrage in die Liste, die sich jemand ansieht. Wer eine
-Heuristik erst kennenlernen will, nimmt `log`; wer sie beurteilen will, `flag`.
+`off` · `log` · `flag` · `block`. The difference between `log` and `flag` is
+the only one that needs explaining: both count and appear in the trace, but
+only `flag` puts the query on the list that someone looks at. Whoever
+wants to get to know a heuristic first takes `log`; whoever wants to judge it,
+`flag`.
 
-### Die Schwellen stehen im Code, nicht in der Konfiguration
+### The thresholds live in the code, not in the configuration
 
-Jeder Detektor bringt sein `DEFAULT_THRESHOLD` selbst mit. Eine Schwelle ergibt
-nur zusammen mit der Rechnerei einen Sinn, die den Score erzeugt — sie in eine
-Beispieldatei zu schreiben und dort zu pflegen hieße, zwei Dinge synchron zu
-halten, die zusammengehören. Die Konfiguration kann sie überschreiben; der
-Default kommt von dort, wo er begründbar ist.
+Every detector brings its own `DEFAULT_THRESHOLD`. A threshold makes
+sense only together with the arithmetic that produces the score — writing it into
+an example file and maintaining it there would mean keeping two things in sync
+that belong together. The configuration can override it; the default comes
+from where it can be justified.
 
-Alle Schwellen sind **gemessen und nicht geraten**. Wie, steht in
-[BENCHMARKS.md](../BENCHMARKS.md); womit, in
+All thresholds are **measured and not guessed**. How, is in
+[BENCHMARKS.md](../BENCHMARKS.md); with what, in
 `crates/alpendns/tests/detect_corpus.rs`.
 
-### Zwei Traits, weil es zwei Stellen in der Pipeline sind
+### Two traits, because there are two places in the pipeline
 
-`NameDetector` sieht die Frage, `AnswerDetector` die Antwort. Der
-Rebinding-Schutz prüft, ob eine private Adresse für einen öffentlichen Namen
-zurückkommt — dafür muss die Auflösung schon gelaufen sein (ARCHITECTURE.md §1,
-Schicht 5). Ein gemeinsamer Trait mit einem `Option<&Message>` würde
-verschweigen, dass die beiden an verschiedenen Stellen laufen, und die erste
-Verwechslung wäre ein Detektor, der immer `None` bekommt und nie etwas findet.
+`NameDetector` sees the question, `AnswerDetector` the answer. The
+rebinding protection checks whether a private address comes back for a public
+name — for that, resolution must already have run (ARCHITECTURE.md §1,
+layer 5). A shared trait with an `Option<&Message>` would
+conceal that the two run at different points, and the first
+mix-up would be a detector that always gets `None` and never finds anything.
 
-### Die Heuristiken stehen zuletzt
+### The heuristics come last
 
-Reihenfolge in `Engine::evaluate`: befristete Freigabe → Allowlist → befristete
-Sperre → Blocklisten → Regex → Zeitplan → **Heuristiken**.
+Order in `Engine::evaluate`: timed allow → allowlist → timed
+block → blocklists → regex → schedule → **heuristics**.
 
-Sie sind das unschärfste Mittel im Haus, und alles, was eine klare Regel
-entscheiden kann, soll vorher entschieden sein. Sonst stünde im Trace ein Score,
-wo eine Zeile aus einer Liste hingehört. Eine Freigabe schlägt jeden Detektor:
-wer eine Domain ausdrücklich erlaubt hat, will sie erreichen, egal was ein Score
-dazu sagt.
+They are the least precise instrument in the house, and everything that a clear
+rule can decide should be decided beforehand. Otherwise the trace would hold a
+score where a line from a list belongs. An allow beats every detector:
+whoever has explicitly allowed a domain wants to reach it, no matter what a score
+says about it.
 
-### Ein Detektor ohne seine Daten wird gar nicht erst eingehängt
+### A detector without its data is not wired in at all
 
-Der Typosquat-Wächter braucht eine Schutzliste, der NRD-Detektor eine Datei.
-Fehlen sie, erscheint der Detektor im Status als `off` statt als eingeschaltet.
-Ein Detektor, der eingeschaltet aussieht und nichts finden kann, ist eine
-Zusicherung, die nicht eintritt (B.1 Regel 5).
+The typosquat guard needs a protection list, the NRD detector a file.
+If they are missing, the detector appears in the status as `off` instead of as
+switched on. A detector that looks switched on and can find nothing is an
+assurance that does not come true (B.1 rule 5).
 
-### `forward_zone` ist automatisch vom Rebinding-Schutz ausgenommen
+### `forward_zone` is automatically exempt from rebinding protection
 
-Wer eine Zone ausdrücklich ins eigene Netz leitet, hat damit schon gesagt, dass
-private Adressen von dort in Ordnung sind. Ohne diese Ergänzung wäre der
-Rebinding-Schutz beim ersten Start eine Falle: der LAN-Nameserver antwortet für
-`home.arpa` naturgemäß mit `192.168.x.y`, und das ist genau der Treffer, auf den
-der Detektor wartet.
+Whoever routes a zone into their own network on purpose has thereby already said
+that private addresses from there are fine. Without this addition, the
+rebinding protection would be a trap on first start: the LAN nameserver naturally
+answers for `home.arpa` with `192.168.x.y`, and that is exactly the hit the
+detector waits for.
 
-## Was das kostet
+## What it costs
 
-**Zustand im Anfragepfad.** Die Tunneling-Erkennung ist der erste Teil des
-Projekts, der sich etwas über Anfragen hinaus merkt: je Zone ein Zeitfenster mit
-ein paar Zählern. Das ist unvermeidlich — der ganze Witz von D2 ist, *pro Zone*
-statt pro Anfrage zu bewerten. Begrenzt ist es zweifach: höchstens 4096 Zonen,
-höchstens 256 gemerkte Subdomains je Zone, und beides fällt nach dem Zeitfenster
-weg. Gespeichert werden **gesalzene Hashes** der Subdomains, nicht die Namen.
+**State in the query path.** Tunneling detection is the first part of the
+project that remembers something beyond queries: one time window with
+a few counters per zone. That is unavoidable — the whole point of D2 is to score
+*per zone* instead of per query. It is bounded twofold: at most 4096 zones,
+at most 256 remembered subdomains per zone, and both fall away after the time
+window. What is stored are **salted hashes** of the subdomains, not the names.
 
-**Ein Modell im Binary.** 107 KiB Tabelle für die DGA-Erkennung. Herkunft,
-Lizenz und Erzeugung stehen in `src/detect/dga/model.bin.md`.
+**A model in the binary.** 107 KiB table for DGA detection. Origin,
+license and generation are documented in `src/detect/dga/model.bin.md`.
 
-**Namen in den Begründungen.** Ein `Finding` trägt den Query-Namen — es soll ihn
-tragen, sonst ist ein Fehlalarm nicht debugbar (FEATURES.md D6). Damit ist die
-Begründung die neueste Stelle, an der ein Name entkommen könnte. Sie unterliegt
-denselben Regeln wie alles im Trace (B.1 Regel 3), und der Leck-Test
-`no_query_name_leaves_the_process_in_the_quiet_modes` durchsucht seit Phase 8
-auch die Liste der auffälligen Anfragen.
+**Names in the reasons.** A `Finding` carries the query name — it is meant to
+carry it, otherwise a false positive is not debuggable (FEATURES.md D6). That
+makes the reason the newest place where a name could escape. It is subject to
+the same rules as everything in the trace (B.1 rule 3), and the leak test
+`no_query_name_leaves_the_process_in_the_quiet_modes` has, since Phase 8, also
+been scanning the list of notable queries.
 
-## Umkehrbedingung
+## Reversal condition
 
-Nach der Beobachtungswoche aus dem Abnahmekriterium: wer die Fehlalarm-Liste
-durchgesehen und die Ausnahmen gesetzt hat, darf einzelne Detektoren auf `block`
-stellen. Der naheliegende erste ist `rebinding` — er ist als einziger keine
-Heuristik, sondern eine Ja-Nein-Regel, und seine Fehlalarme sind benannt und über
-`allow_zones` behebbar.
+After the observation week from the acceptance criterion: whoever has gone
+through the false-positive list and set the exceptions may put individual
+detectors on `block`. The obvious first one is `rebinding` — it is the only one
+that is not a heuristic but a yes-no rule, and its false positives are named and
+fixable via `allow_zones`.
 
-Dieses ADR steht dem nicht entgegen: es legt den **Auslieferungszustand** fest,
-nicht das, was jemand für sein Netz einstellt.
+This ADR does not stand in the way of that: it fixes the **shipped state**,
+not what someone sets for their own network.

@@ -1,84 +1,80 @@
-# ADR-0010: Zwei Listener, ein Token, und eine UI ohne Build-Schritt
+# ADR-0010: Two listeners, one token, and a UI without a build step
 
-**Status:** angenommen · **Datum:** 2026-08-29
+**Status:** accepted · **Date:** 2026-08-29
 
-## Kontext
+## Context
 
-Phase 6 bringt drei Dinge nach außen, die es vorher nicht gab: eine HTTP-API, die
-Query-Namen und Begründungen zeigt; einen Prometheus-Endpunkt; und eine Web-UI.
-Jedes davon ist eine neue Angriffsfläche an einem Dienst, dessen Zweck
-Zurückhaltung ist.
+Phase 6 exposes three things that did not exist before: an HTTP API that shows
+query names and reasons; a Prometheus endpoint; and a web UI. Each of them is a
+new attack surface on a service whose purpose is restraint.
 
-## Entscheidungen
+## Decisions
 
-### Zwei Listener statt einem
+### Two listeners instead of one
 
-Die API läuft auf `api.listen` mit Token, die Metriken auf `metrics.listen` ohne.
-Der Grund ist nicht Bequemlichkeit, sondern dass beide verschiedene Dinge
-ausliefern:
+The API runs on `api.listen` with a token, the metrics on `metrics.listen`
+without. The reason is not convenience but that the two serve different things:
 
-* Die **API** zeigt Namen, Clients und Begründungsketten. Ohne Token wäre sie ein
-  Query-Log mit HTTP-Schnittstelle.
-* Die **Metriken** enthalten per Konstruktion keine Namen — Labels gibt es nur für
-  Resolver-Namen und RCODEs, beides aus der Konfiguration. Ein Prometheus-Scraper
-  schickt keinen Bearer-Header; ihn dazu zu zwingen hieße, die übliche
-  Einrichtung zu brechen.
+* The **API** shows names, clients and chains of reasoning. Without a token it
+  would be a query log with an HTTP interface.
+* The **metrics** contain no names by construction — labels exist only for
+  resolver names and RCODEs, both from the configuration. A Prometheus scraper
+  sends no bearer header; forcing it to would mean breaking the usual setup.
 
-Die Konfigurationsprüfung lehnt es ab, beide auf denselben Port zu legen. Sonst
-wäre der tokenlose Endpunkt der Weg an der Authentifizierung vorbei.
+The configuration check refuses to put both on the same port. Otherwise the
+tokenless endpoint would be the way around authentication.
 
-**Ein Domainname darf nie ein Prometheus-Label werden.** Prometheus behält jede
-Zeitreihe, die es einmal gesehen hat; ein Label mit einer Domain wäre ein
-Query-Log mit anderem Dateinamen und ohne Ablauf. Ein Test prüft das.
+**A domain name must never become a Prometheus label.** Prometheus keeps every
+time series it has ever seen; a label with a domain would be a query log under a
+different filename and with no expiry. A test checks this.
 
-### Der Token steht für Server-Sent Events in der URL
+### The token is allowed in the URL for Server-Sent Events
 
-`EventSource` im Browser kann keine Header setzen. Für `/api/events` ist der Token
-deshalb auch als Query-Parameter zulässig. Das ist ein Zugeständnis: er kann so in
-einem Proxy-Log landen. Die Alternativen waren schlechter — den Live-Strom ohne
-Authentifizierung anzubieten (er zeigt Namen), oder eine Sitzungs-Cookie-Mechanik
-einzuführen, die der Server sonst nirgends braucht.
+`EventSource` in the browser cannot set headers. For `/api/events` the token is
+therefore also permitted as a query parameter. That is a concession: it can end up
+in a proxy log that way. The alternatives were worse — offering the live stream
+without authentication (it shows names), or introducing a session-cookie mechanism
+the server needs nowhere else.
 
-Der Vergleich läuft in konstanter Zeit. Ein Abbruch beim ersten falschen Zeichen
-verrät über die Antwortzeit, wie weit ein Rateversuch gekommen ist.
+The comparison runs in constant time. Bailing out at the first wrong character
+reveals through the response time how far a guess got.
 
-### Der Token wird beim Start erzeugt, wenn er fehlt
+### The token is generated at startup if it is missing
 
-Sonst müsste vor dem ersten Start jemand von Hand eine Datei mit Zufallszeichen
-anlegen, nur um die UI zu sehen. Die Datei bekommt Rechte 0600 — sie ist das
-Passwort.
+Otherwise someone would have to create a file of random characters by hand before
+the first start, just to see the UI. The file gets permissions 0600 — it is the
+password.
 
-### Die UI liegt im Binary, ohne Build-Schritt
+### The UI lives in the binary, without a build step
 
-Drei Dateien (`web/index.html`, `web/app.css`, `web/app.js`), über `include_str!`
-einkompiliert. Kein npm, kein Bundler, kein Verzeichnis, das zur Laufzeit da sein
-muss — und keine Möglichkeit, dass die UI zu einer anderen Version gehört als der
-Server, der sie ausliefert.
+Three files (`web/index.html`, `web/app.css`, `web/app.js`), compiled in via
+`include_str!`. No npm, no bundler, no directory that has to exist at runtime —
+and no way for the UI to belong to a different version than the server serving it.
 
-Ein Test prüft, dass keine der drei Dateien auf eine fremde Herkunft verweist:
-keine CDN-Skripte, keine externen Schriften, kein `@import`. Der Fehler wäre sonst
-genau der, den niemand bemerkt, solange er selbst online ist.
+A test checks that none of the three files refers to a foreign origin: no CDN
+scripts, no external fonts, no `@import`. The mistake would otherwise be exactly
+the one nobody notices as long as they are online themselves.
 
-Kein Framework. Die Seite zeigt vier Zahlen, zwei Tabellen und eine Liste; dafür
-reicht `textContent` und ein `EventSource`. Fremde Daten werden nie als
-Auszeichnung eingefügt — ein Domainname aus dem Netz ist Text, kein Markup.
+No framework. The page shows four numbers, two tables and one list; `textContent`
+and an `EventSource` are enough for that. Foreign data is never inserted as markup
+— a domain name from the network is text, not markup.
 
-### Das Prometheus-Format wird von Hand erzeugt
+### The Prometheus format is produced by hand
 
-Eine Metrik-Bibliothek würde eine Registry einführen, in der jeder Wert ein
-zweites Mal geführt wird. Die Zähler liegen schon in den Strukturen, die sie
-hochzählen — Cache, Pool, Policy, Query-Log. Das Textformat ist eine Handvoll
-Zeilen, und wir kontrollieren so genau, was hinausgeht.
+A metrics library would introduce a registry in which every value is kept a second
+time. The counters already live in the structures that increment them — cache,
+pool, policy, query log. The text format is a handful of lines, and this way we
+control exactly what goes out.
 
-## Konsequenzen
+## Consequences
 
-* Wer die API öffentlich erreichbar macht, veröffentlicht sein Query-Log, sobald
-  der Token bekannt wird. Die Vorgabe bleibt: beide Listener auf localhost, Zugriff
-  über SSH-Tunnel oder Reverse Proxy. Die Defaults stehen entsprechend, und beide
-  Endpunkte sind per Default **aus**.
-* Die UI ist an die Sprache des Servers gebunden (Deutsch) und an sein Layout.
-  Eine Übersetzung wäre ein eigenes Vorhaben.
-* `include_str!` heißt: eine Änderung an der UI erfordert einen Neubau. Für ein
-  Projekt, das ein einzelnes Binary ausliefert, ist das der richtige Tausch.
-* Der Live-Strom kostet nichts, solange niemand zuhört: das Query-Log prüft die
-  Zahl der Empfänger, bevor es ein Ereignis baut.
+* Anyone who makes the API publicly reachable publishes their query log as soon as
+  the token becomes known. The guidance stands: both listeners on localhost,
+  access via SSH tunnel or reverse proxy. The defaults are set accordingly, and
+  both endpoints are **off** by default.
+* The UI is tied to the server's language (German) and to its layout.
+  A translation would be a project of its own.
+* `include_str!` means: a change to the UI requires a rebuild. For a project that
+  ships a single binary, that is the right trade.
+* The live stream costs nothing as long as nobody is listening: the query log
+  checks the number of receivers before it builds an event.

@@ -1,69 +1,69 @@
-# ADR-0011: `split_by_zone` ist die einzige Upstream-Strategie
+# ADR-0011: `split_by_zone` is the only upstream strategy
 
-**Status:** angenommen · **Datum:** 2026-08-30 · **Ersetzt einen Teil von:** [ARCHITECTURE.md §5](../ARCHITECTURE.md)
+**Status:** accepted · **Date:** 2026-08-30 · **Replaces part of:** [ARCHITECTURE.md §5](../ARCHITECTURE.md)
 
-## Kontext
+## Context
 
-`upstream_pool.strategy` kannte drei Werte. ARCHITECTURE.md §5 beschreibt sie und
-disqualifiziert zwei davon im selben Atemzug:
+`upstream_pool.strategy` knew three values. ARCHITECTURE.md §5 describes them and
+disqualifies two of them in the same breath:
 
-* `fastest` — "schnell, aber ein Resolver sieht am Ende fast alles",
-* `round_robin` — "jeder Upstream lernt trotzdem irgendwann alles",
-* `split_by_zone` — "**der interessante Fall**".
+* `fastest` — "fast, but one resolver ends up seeing almost everything",
+* `round_robin` — "every upstream still learns everything eventually",
+* `split_by_zone` — "**the interesting case**".
 
-Eine Einstellung, deren Dokumentation zwei ihrer drei Werte als untauglich für den
-Zweck des Projekts bezeichnet, ist keine Einstellung, sondern eine Falle. Wer
-`fastest` wählt, weil es "schnell" klingt, hebt das Feature auf, für das AlpenDNS
-gebaut ist (FEATURES.md P2). Der Preis dafür ist eine niedrigere Latenz zu einem
-Upstream, den ein Cache-Treffer ohnehin überspringt.
+A setting whose documentation calls two of its three values unfit for the
+project's purpose is not a setting but a trap. Anyone who chooses `fastest`
+because it sounds "fast" cancels the feature AlpenDNS is built for (FEATURES.md
+P2). The price for it is lower latency to an upstream that a cache hit skips
+anyway.
 
-Dazu kommt: die drei Strategien waren nicht gleich teuer im Code. `fastest` brauchte
-eine Sortierung nach EWMA (`strategy::by_latency`), `round_robin` einen
-Reihum-Zeiger im Pool (`next: AtomicUsize`) — beides ausschließlich für Werte, die
-niemand mit Verstand einstellt.
+On top of that: the three strategies were not equally expensive in code. `fastest`
+needed a sort by EWMA (`strategy::by_latency`), `round_robin` a rotating pointer
+in the pool (`next: AtomicUsize`) — both exclusively for values nobody in their
+right mind sets.
 
-## Entscheidung
+## Decision
 
-`fastest` und `round_robin` werden entfernt. `split_by_zone` bleibt als einziger
-Wert von `upstream_pool.strategy`.
+`fastest` and `round_robin` are removed. `split_by_zone` remains as the only value
+of `upstream_pool.strategy`.
 
-Beide Namen bleiben in der Konfiguration **erkannt**: `Strategy` bekommt ein
-handgeschriebenes `Deserialize`, das bei `fastest` und `round_robin` sagt, was
-stattdessen gilt. Ein abgeleitetes `Deserialize` hätte nur "unknown variant"
-gemeldet, und eine Konfiguration von gestern hätte den Betreiber raten lassen.
+Both names remain **recognised** in the configuration: `Strategy` gets a
+hand-written `Deserialize` that says, for `fastest` and `round_robin`, what
+applies instead. A derived `Deserialize` would only have reported "unknown
+variant", and a configuration from yesterday would have left the operator
+guessing.
 
-`strategy::round_robin` bleibt als Funktion, weil `by_zone` die Ausweichwege
-hinter den zuständigen Upstream reiht. `by_latency` ist weg.
+`strategy::round_robin` remains as a function, because `by_zone` queues the
+fallback paths behind the responsible upstream. `by_latency` is gone.
 
-Die EWMA der Antwortzeit bleibt ebenfalls: sie speist
-`alpendns_upstream_rtt_seconds` und die Statusanzeige. Sie steuert nur nicht mehr
-die Auswahl.
+The EWMA of the response time also remains: it feeds
+`alpendns_upstream_rtt_seconds` and the status display. It just no longer drives
+the selection.
 
-## Konsequenzen
+## Consequences
 
-* Der `strategy`-Schlüssel hat jetzt genau einen zulässigen Wert. Das ist ein
-  offener Rest — siehe Alternativen.
-* Die Tests zur Ausfallerkennung im Pool liefen bisher über `round_robin`, weil
-  dort feststeht, wer zuerst gefragt wird. Mit `split_by_zone` hängt das am Seed;
-  die Tests suchen sich deshalb über `seed_starting_at` einen Seed, bei dem der
-  Testname beim gewünschten Upstream landet. Umständlicher, aber es prüft, was
-  im Betrieb tatsächlich läuft.
-* Wer bisher `fastest` fuhr, bekommt nach dem Update höhere Latenz zu einem
-  Teil der Domains und dafür die Aufteilung, wegen der er den Resolver
-  installiert hat.
-* Ein Pool mit *einem* Resolver verhält sich unverändert: `zone_index` liefert
-  bei `count <= 1` immer 0.
+* The `strategy` key now has exactly one permitted value. That is an open
+  remainder — see Alternatives.
+* The failure-detection tests in the pool used to run via `round_robin`, because
+  there it is fixed who is asked first. With `split_by_zone` that depends on the
+  seed; the tests therefore use `seed_starting_at` to find a seed at which the
+  test name lands on the desired upstream. More cumbersome, but it tests what
+  actually runs in operation.
+* Anyone who ran `fastest` until now gets higher latency to some of the domains
+  after the update, and in exchange the split they installed the resolver for.
+* A pool with *one* resolver behaves unchanged: `zone_index` always returns 0 when
+  `count <= 1`.
 
-## Alternativen
+## Alternatives
 
-* **Beide Strategien lassen und in der Dokumentation abraten.** Der Status quo.
-  Er kostet Code, den niemand einstellen sollte, und lädt genau zu der
-  Fehlkonfiguration ein, die das Feature aushebelt.
-* **`strategy` ganz streichen.** Konsequenter: ein Schlüssel mit einem
-  zulässigen Wert ist keine Wahl. Nicht gemacht, weil der Auftrag ausdrücklich
-  nur die beiden Werte nannte und `deny_unknown_fields` sonst jede bestehende
-  Konfiguration mit `strategy = "split_by_zone"` beim Start abweist — für einen
-  Gewinn von einer Zeile. Der Kandidat ist notiert, nicht ausgeführt.
-* **`fastest` als Testkonstrukt behalten**, um es gegen `split_by_zone` zu
-  messen. Geprüft: `tests/load.rs` benutzt es nicht. Eine Vergleichsmessung, die
-  niemand fährt, ist toter Code mit Zeremonie.
+* **Keep both strategies and advise against them in the documentation.** The
+  status quo. It costs code nobody should set, and it invites exactly the
+  misconfiguration that cancels the feature.
+* **Drop `strategy` entirely.** More consistent: a key with one permitted value is
+  no choice. Not done, because the task explicitly named only the two values, and
+  `deny_unknown_fields` would otherwise reject every existing configuration with
+  `strategy = "split_by_zone"` at startup — for a gain of one line. The candidate
+  is noted, not carried out.
+* **Keep `fastest` as a test construct**, to measure it against `split_by_zone`.
+  Checked: `tests/load.rs` does not use it. A comparative measurement nobody runs
+  is dead code with ceremony.

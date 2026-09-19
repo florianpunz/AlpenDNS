@@ -1,55 +1,53 @@
-# ADR-0013: Der Block-Modus `refused` entfällt
+# ADR-0013: The block mode `refused` is dropped
 
-**Status:** angenommen · **Datum:** 2026-08-30
+**Status:** accepted · **Date:** 2026-08-30
 
-## Kontext
+## Context
 
-`blocking.mode` kannte vier Werte. Die Dokumentation von `refused` im Code lautete:
+`blocking.mode` knew four values. The documentation of `refused` in the code read:
 
-> "Ich beantworte das nicht." Ehrlich, aber manche Clients fragen dann den
-> nächsten Resolver in ihrer Liste — und der antwortet.
+> "I will not answer that." Honest, but some clients then ask the next resolver
+> in their list — and that one answers.
 
-Das ist keine Randnotiz, sondern die Beschreibung eines Block-Modus, der nicht
-blockt. RCODE 5 (REFUSED) bedeutet für einen Client: *dieser* Server will nicht,
-frag jemand anderen. Genau so verhalten sich Auflöser auch — systemd-resolved,
-Android und die meisten Betriebssystem-Auflöser gehen bei REFUSED zum nächsten
-konfigurierten Server weiter, während sie NXDOMAIN als endgültige Antwort
-akzeptieren. Ein Gerät mit einem zweiten DNS-Eintrag umgeht die Filterung damit
-vollständig, und das Log von AlpenDNS zeigt trotzdem einen sauberen Block.
+That is not a marginal note but the description of a block mode that does not
+block. RCODE 5 (REFUSED) means to a client: *this* server does not want to, ask
+someone else. Resolvers behave exactly that way — systemd-resolved, Android and
+most operating-system resolvers move on to the next configured server on REFUSED,
+while they accept NXDOMAIN as a final answer. A device with a second DNS entry
+thus bypasses the filtering entirely, and the AlpenDNS log still shows a clean
+block.
 
-Der teuerste Teil daran ist nicht die fehlende Sperre, sondern dass sie unsichtbar
-fehlschlägt. Wer `refused` einstellt, sieht Blockzähler steigen und glaubt, es
-funktioniert. Das widerspricht B.1 Regel 6 ("fail closed bei Policy") an genau der
-Stelle, an der die Regel gilt.
+The most expensive part of that is not the missing block but that it fails
+invisibly. Whoever configures `refused` sees block counters rise and believes it
+works. That contradicts B.1 rule 6 ("fail closed for policy") at exactly the
+point where the rule applies.
 
-## Entscheidung
+## Decision
 
-`refused` wird entfernt. Es bleiben `nxdomain` (Default), `zero_ip` und
-`sinkhole` — drei Antworten, die der Client als endgültig behandelt.
+`refused` is removed. `nxdomain` (default), `zero_ip` and `sinkhole` remain —
+three answers that the client treats as final.
 
-`BlockMode` bekommt wie `Strategy` (ADR-0011) ein handgeschriebenes
-`Deserialize`, das bei `refused` erklärt, warum es weg ist und was stattdessen
-gilt.
+`BlockMode` gets a hand-written `Deserialize`, as `Strategy` did (ADR-0011),
+which on `refused` explains why it is gone and what applies instead.
 
-Der Test `no_mode_answers_with_refused` hält fest, dass **kein** verbleibender
-Modus REFUSED erzeugt. Das ist die eigentliche Zusicherung: nicht "der Wert ist
-aus dem Enum verschwunden", sondern "der RCODE verlässt den Prozess nicht mehr
-als Block-Antwort".
+The test `no_mode_answers_with_refused` records that **no** remaining mode
+produces REFUSED. That is the actual guarantee: not "the value has disappeared
+from the enum", but "the RCODE no longer leaves the process as a block answer".
 
-## Konsequenzen
+## Consequences
 
-* Wer `refused` konfiguriert hatte, muss beim Update auf `nxdomain` wechseln —
-  und hat dann eine Filterung, die auch greift.
-* REFUSED bleibt als RCODE anderswo möglich (etwa was ein Upstream schickt); die
-  Zusicherung betrifft nur die selbst erzeugten Block-Antworten.
-* Es bleiben drei Modi mit sichtbar unterschiedlichem Preis: NXDOMAIN lügt
-  freundlich, `zero_ip` kann einen Timeout auslösen, `sinkhole` bricht bei HTTPS
-  am Zertifikat ab. Diese Unterschiede sind echte Abwägungen und rechtfertigen
-  die Einstellung — im Gegensatz zu einem vierten Wert, der die Funktion abschaltet.
+* Whoever had `refused` configured must switch to `nxdomain` on update — and
+  then has filtering that also bites.
+* REFUSED remains possible as an RCODE elsewhere (for instance what an upstream
+  sends); the guarantee concerns only the block answers we generate ourselves.
+* Three modes remain with visibly different prices: NXDOMAIN lies politely,
+  `zero_ip` can trigger a timeout, `sinkhole` breaks on the certificate for
+  HTTPS. These differences are real trade-offs and justify the setting — unlike
+  a fourth value that switches the function off.
 
-## Alternativen
+## Alternatives
 
-* **Behalten und in der Dokumentation warnen.** Der Status quo, und die Warnung
-  stand bereits da. Sie hat nicht verhindert, dass der Wert wählbar war.
-* **Behalten, aber nur zusammen mit einer Prüfung**, dass der Client keinen
-  zweiten Resolver hat. Das kann ein DNS-Server nicht wissen.
+* **Keep it and warn in the documentation.** The status quo, and the warning was
+  already there. It did not prevent the value from being selectable.
+* **Keep it, but only together with a check** that the client has no second
+  resolver. A DNS server cannot know that.

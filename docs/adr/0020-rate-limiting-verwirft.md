@@ -1,108 +1,107 @@
-# ADR-0020: Über dem Limit wird verworfen, nicht abgelehnt
+# ADR-0020: Above the limit, packets are dropped, not refused
 
-**Status:** angenommen · **Datum:** 2026-08-30 · **Betrifft:** [ROADMAP.md](../ROADMAP.md) Phase 9 Schritt 5, CLAUDE.md B.5
+**Status:** accepted · **Date:** 2026-08-30 · **Affects:** [ROADMAP.md](../ROADMAP.md) Phase 9 step 5, CLAUDE.md B.5
 
-## Kontext
+## Context
 
-Ein offener Resolver ist ein Amplification-Reflektor. Der Angriff ist alt und
-billig: kurze Anfrage mit gefälschter Absenderadresse hinein, lange Antwort an
-das Opfer hinaus. CLAUDE.md B.5 macht die Drosselung pro Client deshalb zur
-Pflicht, bevor der Server irgendwo lauscht, wo er nicht nur sein eigenes LAN
-sieht.
+An open resolver is an amplification reflector. The attack is old and
+cheap: a short query with a forged source address in, a long answer out to
+the victim. CLAUDE.md B.5 therefore makes per-client throttling a
+duty before the server listens anywhere where it does not only see its own LAN.
 
-Damit stellen sich drei Fragen, die aussehen wie Details und keine sind.
+That raises three questions that look like details and are not.
 
-## Entscheidung 1: verwerfen statt ablehnen
+## Decision 1: drop instead of refuse
 
-Über dem Limit wird das Paket kommentarlos fallengelassen. Kein REFUSED, kein
-SERVFAIL, kein gekürztes „frag über TCP nach".
+Above the limit the packet is dropped without a word. No REFUSED, no
+SERVFAIL, no shortened "ask over TCP instead".
 
-Der Grund ist der Angriff selbst: Die Absenderadresse ist bei UDP frei wählbar,
-und der ganze Sinn der Drosselung ist, dass an eine Adresse, die vielleicht nie
-gefragt hat, nichts geschickt wird. Eine REFUSED-Antwort ist kleiner als eine
-echte Antwort, aber sie ist immer noch ein Paket an das Opfer — eine Drosselung,
-die den Reflektor weiterbetreibt, nur leiser.
+The reason is the attack itself: with UDP the source address is freely choosable,
+and the whole point of the throttling is that nothing is sent to an address that
+may never have asked. A REFUSED answer is smaller than a real answer, but it is
+still a packet to the victim — a throttling that keeps the reflector running,
+only more quietly.
 
-Der Preis ist echt und wird hier bewusst bezahlt: ein *legitimer* Client über
-dem Limit sieht keine Ablehnung, sondern einen Timeout, und Timeouts sind für
-den, der davorsitzt, schwerer zu deuten als eine Fehlermeldung. Dagegen steht,
-dass die Grenzen so hoch liegen, dass ein einzelnes Gerät sie im Normalbetrieb
-nicht erreicht (100 Anfragen/s dauerhaft, Spitze 200), und dass der Zähler
-`alpendns_rate_limited_total` genau die Frage beantwortet, die dann gestellt
-wird.
+The price is real and is deliberately paid here: a *legitimate* client above
+the limit sees no refusal but a timeout, and timeouts are harder to
+interpret for whoever sits in front of them than an error message. Against that
+stands the fact that the limits are high enough that a single device does not
+reach them in normal operation (100 queries/s sustained, peak 200), and that the
+counter `alpendns_rate_limited_total` answers exactly the question that then gets
+asked.
 
-Das ist auch, was BIND und Knot mit Response Rate Limiting tun. Beide bieten
-zusätzlich eine „slip"-Rate an: jede n-te überzählige Anfrage wird mit gesetztem
-TC-Flag beantwortet, damit ein echter Client auf TCP ausweichen kann. Das ist
-richtig für einen autoritativen Server im Internet, der wildfremde Clients
-bedient. Für einen Resolver im eigenen LAN wäre es ein zweiter Schalter mit
-einer dritten Bedeutung für einen Fall, der hier nicht vorkommt — und jeder
-geslippte Antwort geht wieder an eine möglicherweise gefälschte Adresse.
-Umkehrbedingung: sobald AlpenDNS Clients bedient, die nicht im eigenen Netz
-stehen (DoH-Listener aus Phase 10), gehört slip auf die Tagesordnung.
+This is also what BIND and Knot do with Response Rate Limiting. Both
+additionally offer a "slip" rate: every n-th excess query is answered with the
+TC flag set, so that a real client can fall back to TCP. That is
+right for an authoritative server on the internet that serves complete
+strangers. For a resolver in one's own LAN it would be a second switch with
+a third meaning for a case that does not occur here — and every slipped
+answer again goes to a possibly forged address.
+Reversal condition: as soon as AlpenDNS serves clients that are not on its
+own network (the DoH listener from Phase 10), slip belongs on the agenda.
 
-## Entscheidung 2: IPv6 wird auf /64 zusammengefasst
+## Decision 2: IPv6 is aggregated to /64
 
-Gezählt wird je IPv4-Adresse und je IPv6-**/64**, nicht je IPv6-Adresse.
+Counting is per IPv4 address and per IPv6-**/64**, not per IPv6 address.
 
-Der Anlass ist nicht der Angreifer, sondern der normale Betrieb: mit Privacy
-Extensions (RFC 8981) wechselt ein gewöhnlicher Laptop seine IPv6-Adresse im
-Stundentakt und benutzt mehrere gleichzeitig. Pro Adresse gezählt bekäme
-derselbe Rechner ständig ein frisches Guthaben — die Drosselung wäre für IPv6
-Zierde. Dass ein Angreifer aus einem /64 dasselbe kann, kommt hinzu.
+The reason is not the attacker but normal operation: with Privacy
+Extensions (RFC 8981) an ordinary laptop changes its IPv6 address every hour
+and uses several at once. Counted per address, the same machine would keep
+getting a fresh budget — the throttling would be decoration for IPv6. That an
+attacker from one /64 can do the same comes on top of that.
 
-`::ffff:10.0.0.1` und `10.0.0.1` sind derselbe Host und teilen sich einen
-Eimer. Ohne diese Zeile hätte ein Client, dessen Betriebssystem den Socket auf
-v6 öffnet, zwei Guthaben.
+`::ffff:10.0.0.1` and `10.0.0.1` are the same host and share one
+bucket. Without this line, a client whose operating system opens the socket on
+v6 would have two budgets.
 
-Ein /64 ist die Zuteilung an ein einzelnes Netzsegment; wer feiner zählen will,
-verliert mehr (den echten Host) als er gewinnt.
+A /64 is the allocation to a single network segment; whoever wants to count
+more finely loses more (the real host) than they gain.
 
-## Entscheidung 3: Token Bucket in Schubladen, keine gleitenden Fenster
+## Decision 3: token bucket in drawers, no sliding windows
 
-Ein Eimer je Client mit Nachlaufrate und Obergrenze — die einfachste Struktur,
-die „dauerhaft x, kurzfristig y" ausdrücken kann. Ein gleitendes Zeitfenster
-wäre genauer und bräuchte je Client eine Liste von Zeitstempeln.
+One bucket per client with a refill rate and a ceiling — the simplest structure
+that can express "sustained x, short-term y". A sliding time window
+would be more precise and would need a list of timestamps per client.
 
-Die Eimer liegen in 16 Schubladen, jede hinter ihrem eigenen Mutex. CLAUDE.md
-B.3 Regel 5 verbietet einen globalen Mutex im Anfragepfad, und das zu Recht:
-bei 85 000 Anfragen/s wäre ein einzelnes Schloss die Serialisierung des ganzen
-Servers. Etwas Lockfreies je Client wäre die Sorte Nebenläufigkeitscode, die man
-falsch macht und bei der der Fehler erst unter Last auftritt.
+The buckets live in 16 drawers, each behind its own mutex. CLAUDE.md
+B.3 rule 5 forbids a global mutex in the query path, and rightly so:
+at 85,000 queries/s a single lock would be the serialization of the whole
+server. Something lock-free per client would be the kind of
+concurrency code that one gets wrong and where the error only shows up under load.
 
-Die Zahl der beobachteten Clients ist gedeckelt (LRU, Default 8192). Ohne diese
-Grenze wäre die Drosselung bei einer Flut gefälschter Absenderadressen selbst
-der Speicherfresser, den sie verhindern soll.
+The number of observed clients is capped (LRU, default 8192). Without this
+limit the throttling would itself be the memory hog it is meant to prevent, under
+a flood of forged source addresses.
 
-## Konsequenzen
+## Consequences
 
-* Ein gedrosselter Client sieht einen Timeout. Der Betrieb erkennt das an
-  `alpendns_rate_limited_total`; die Anleitung dazu steht in
+* A throttled client sees a timeout. Operations recognizes this by
+  `alpendns_rate_limited_total`; the instructions for it are in
   [OPERATIONS.md](../OPERATIONS.md) §4.
-* Die Adresse des gedrosselten Clients steht nur auf Log-Level `debug` und
-  damit per Default nirgends. In der Metrik steht sie gar nicht: ein Label mit
-  Client-IP wäre eine Anwesenheitsliste mit Zeitstempel, und Prometheus behält
-  jede Zeitreihe für immer.
-* Gemessener Preis auf dem Anfragepfad: **2 %** Durchsatz
+* The address of the throttled client appears only at log level `debug` and
+  thus by default nowhere. In the metric it does not appear at all: a label with
+  the client IP would be a presence list with timestamps, and Prometheus keeps
+  every time series forever.
+* Measured cost on the query path: **2 %** throughput
   ([BENCHMARKS.md](../BENCHMARKS.md), Phase 9).
-* Die Drosselung sitzt **vor** dem Parsen der Nachricht. Ein verworfenes Paket
-  kostet damit einen Hash und einen Vergleich, nicht den Weg durch
+* The throttling sits **before** parsing the message. A dropped packet
+  therefore costs a hash and a comparison, not the trip through
   hickory-proto.
 
-## Alternativen, die verworfen wurden
+## Alternatives that were rejected
 
-**Nur auf UDP drosseln.** TCP-Absender sind durch den Handshake bestätigt und
-taugen nicht zur Reflexion. Trotzdem gilt das Limit auch dort: die zweite Gefahr
-eines offenen Resolvers ist schlichte Erschöpfung — offene Verbindungen,
-Upstream-Anfragen, Cache-Verdrängung —, und die kennt kein Transportprotokoll.
+**Throttle on UDP only.** TCP senders are confirmed by the handshake and
+are no good for reflection. Even so the limit applies there too: the second danger
+of an open resolver is plain exhaustion — open connections,
+upstream queries, cache eviction — and that knows no transport protocol.
 
-**Nach Antwortgröße gewichten** (teure Antworten kosten mehr Guthaben). Das ist
-die genauere Bremse gegen Amplification, weil sie am Verstärkungsfaktor ansetzt.
-Sie setzt aber voraus, dass die Antwort schon da ist — dann ist die Arbeit
-getan, und der Schutz gegen Erschöpfung entfällt. Für einen Resolver ist die
-Anfrage der richtige Zeitpunkt.
+**Weight by answer size** (expensive answers cost more budget). That is
+the more precise brake against amplification, because it starts at the
+amplification factor. But it presupposes that the answer is already there — by
+then the work is done, and the protection against exhaustion falls away.
+For a resolver, the query is the right moment.
 
-**Auf nftables verweisen.** Ein Paketfilter kann das auch, und in einem großen
-Netz gehört es dorthin. Für ein Programm, dessen Versprechen „in fünf Minuten
-installiert und gehärtet" lautet, ist eine Firewallregel, die jemand von Hand
-schreiben muss, kein Schutz — sondern eine Fußnote.
+**Point at nftables.** A packet filter can do this too, and in a large
+network that is where it belongs. For a program whose promise is "installed
+and hardened in five minutes", a firewall rule that someone has to write
+by hand is not protection — it is a footnote.

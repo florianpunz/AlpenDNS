@@ -1,52 +1,51 @@
-# ADR-0002: DNS-Wire-Format über `hickory-proto`, nicht selbst geschrieben
+# ADR-0002: DNS wire format via `hickory-proto`, not written ourselves
 
-**Status:** angenommen · **Datum:** 2026-08-29
+**Status:** accepted · **Date:** 2026-08-29
 
-## Kontext
+## Context
 
-Ein DNS-Server muss DNS-Nachrichten lesen und schreiben können. Zwei Wege:
+A DNS server has to be able to read and write DNS messages. Two ways:
 
-1. Selbst implementieren — RFC 1035 plus rund dreißig weitere RFCs für Record-Typen,
-   EDNS(0), Namenskompression, DNSSEC-Record-Typen.
-2. Eine bestehende Bibliothek benutzen. In Rust ist das praktisch
-   [`hickory-proto`](https://docs.rs/hickory-proto) (Version 0.26, Stand Mai 2026), der
-   Protokoll-Layer von Hickory DNS. Die Alternative wäre `domain` (NLnet Labs).
+1. Implement it yourself — RFC 1035 plus about thirty more RFCs for record types,
+   EDNS(0), name compression, DNSSEC record types.
+2. Use an existing library. In Rust that is practically
+   [`hickory-proto`](https://docs.rs/hickory-proto) (version 0.26, as of May 2026), the
+   protocol layer of Hickory DNS. The alternative would be `domain` (NLnet Labs).
 
-Der Reiz von Variante 1 ist real: man lernt DNS dabei richtig. Der Preis auch. Der
-gefährlichste Teil eines DNS-Parsers ist die **Namenskompression** (RFC 1035 §4.1.4) —
-Pointer im Nachrichtenkörper, die auf frühere Namen zeigen. Ein Pointer, der auf sich
-selbst oder rückwärts in eine Schleife zeigt, ist die klassische DoS-Lücke; sie wurde in
-mehr als einer produktiven Implementierung gefunden. Dazu kommen abgeschnittene Pakete,
-Längenfelder, die über das Paketende hinausweisen, und Record-Typen mit variabler Struktur.
+The appeal of variant 1 is real: you properly learn DNS doing it. So is the price. The
+most dangerous part of a DNS parser is **name compression** (RFC 1035 §4.1.4) —
+pointers in the message body that point at earlier names. A pointer that points at itself
+or backwards into a loop is the classic DoS hole; it has been found in more than one
+production implementation. Add to that truncated packets, length fields that point past
+the end of the packet, and record types with variable structure.
 
-## Entscheidung
+## Decision
 
-`hickory-proto` für Parsing und Serialisierung. Alles darüber — Cache, Filterung, Policy,
-Upstream-Auswahl, Heuristik, API, UI — ist eigener Code.
+`hickory-proto` for parsing and serialization. Everything above it — cache, filtering,
+policy, upstream selection, heuristics, API, UI — is our own code.
 
-`hickory-resolver` wird für die Upstream-Transporte (DoT/DoH/DoQ) verwendet, wo es passt.
-`hickory-server` wird **nicht** als Rahmen übernommen: unsere Request-Pipeline mit
-Decision-Trace ist die eigentliche Substanz des Projekts und soll nicht in fremde
-Handler-Traits gepresst werden.
+`hickory-resolver` is used for the upstream transports (DoT/DoH/DoQ) where it fits.
+`hickory-server` is **not** adopted as a framework: our request pipeline with its decision
+trace is the actual substance of the project and should not be pressed into foreign
+handler traits.
 
-Der `recursor`-Crate von Hickory ist als experimentell markiert. Das ist kein Problem,
-weil v1 keine Rekursion macht — aber es ist eine gute Nachricht für den Fall, dass die
-Rekursion doch kommt: dann gibt es einen Startpunkt.
+Hickory's `recursor` crate is marked experimental. That is no problem, because v1 does no
+recursion — but it is good news for the case that recursion does come: then there is a
+starting point.
 
-## Konsequenzen
+## Consequences
 
-* Die riskanteste Klasse von Speicher- und DoS-Bugs liegt in einer Bibliothek, die deutlich
-  mehr Augen und deutlich mehr Fuzzing-Stunden gesehen hat als dieses Projekt je bekommen wird.
-* Wir sind an deren Datentypen und an deren Release-Zyklus gebunden. Ein Major-Update kann
-  Arbeit machen.
-* Der Lerneffekt "wie sieht ein DNS-Paket auf dem Draht aus" fehlt. Gegenmittel, falls
-  gewünscht: ein eigener Parser als separates, nicht produktives Übungsprojekt, geprüft
-  gegen `hickory-proto` als Referenz (Differential Testing). Das ist ein schöner Weg, das
-  Format zu lernen, ohne die Sicherheit des Servers daran zu hängen.
-* Fuzzing bleibt trotzdem Pflicht — für *unsere* Verwendung der Bibliothek.
+* The riskiest class of memory and DoS bugs sits in a library that has seen far more eyes
+  and far more fuzzing hours than this project will ever get.
+* We are bound to its data types and to its release cycle. A major update can cost work.
+* The learning effect of "what does a DNS packet look like on the wire" is missing.
+  Remedy, if desired: our own parser as a separate, non-production exercise project,
+  checked against `hickory-proto` as a reference (differential testing). That is a nice
+  way to learn the format without hanging the server's security on it.
+* Fuzzing remains mandatory all the same — for *our* use of the library.
 
-## Alternativen
+## Alternatives
 
-* **`domain` (NLnet Labs):** sauberes Design, aber kleinere Community und weniger fertige
-  Transporte für DoH/DoQ.
-* **Eigener Parser:** siehe oben. Als Übung ja, als Produktionsbasis nein.
+* **`domain` (NLnet Labs):** clean design, but a smaller community and fewer ready-made
+  transports for DoH/DoQ.
+* **Our own parser:** see above. As an exercise yes, as a production base no.

@@ -1,61 +1,59 @@
-# ADR-0004: Aggregiertes Logging als Default, Query-Log nur auf Ansage
+# ADR-0004: Aggregated logging as the default, query log only on request
 
-**Status:** angenommen · **Datum:** 2026-08-29
+**Status:** accepted · **Date:** 2026-08-29
 
-## Kontext
+## Context
 
-Jeder DNS-Server im LAN sieht die vollständige Browsing-Historie jedes Geräts. Übliche
-Lösungen loggen das per Default, weil die Statistik-Ansicht das Verkaufsargument ist:
-"Top-Domains", "Queries pro Client", "letzte 24 Stunden".
+Every DNS server in a LAN sees the complete browsing history of every device. The usual
+solutions log that by default, because the statistics view is the selling point:
+"top domains", "queries per client", "last 24 hours".
 
-Damit liegt auf einer Kiste im Keller eine Datei, die mehr über einen Haushalt aussagt
-als die meisten anderen Daten im Netz — durchsuchbar, kopierbar, beschlagnahmbar,
-und bei einer Kompromittierung des Geräts sofort abgreifbar.
+So a box in the basement holds a file that says more about a household than most other
+data on the network — searchable, copyable, seizable, and instantly exfiltratable if the
+device is compromised.
 
-Ohne jede Aufzeichnung ist der Server aber praktisch nicht bedienbar: "warum geht diese
-Seite nicht mehr" braucht Kontext.
+But without any recording at all, the server is practically unusable: "why does this page
+not load anymore" needs context.
 
-## Entscheidung
+## Decision
 
-Vier Modi, Default `aggregate`:
+Four modes, default `aggregate`:
 
-| Modus | Was gespeichert wird | Wofür |
+| Mode | What is stored | What for |
 |---|---|---|
-| `none` | nur globale Zähler | Maximum an Zurückhaltung |
-| `aggregate` | Zähler + Domain-Häufigkeiten in einer Tabelle ohne Namen; eine Domain erscheint erst ab `aggregate_k` Treffern (Default 5) in irgendeiner Ausgabe | Default |
-| `ring` | zusätzlich die letzten `ring_seconds` (Default 300) im RAM-Ringpuffer, nie auf Platte | Debugging |
-| `full` | zusätzlich strukturierte Zeilen auf Platte | bewusste Entscheidung des Betreibers |
+| `none` | only global counters | maximum restraint |
+| `aggregate` | counters + domain frequencies in a table without names; a domain appears in any output only from `aggregate_k` hits (default 5) | default |
+| `ring` | additionally the last `ring_seconds` (default 300) in a RAM ring buffer, never on disk | debugging |
+| `full` | additionally structured lines on disk | deliberate decision by the operator |
 
-Die k-Anonymitätsschwelle ist der entscheidende Teil: eine einmalig aufgerufene Domain
-taucht nirgends auf. Genau die einmaligen Aufrufe sind die verräterischen.
+The k-anonymity threshold is the decisive part: a domain requested once appears nowhere.
+Exactly the one-off requests are the telling ones.
 
-Der aktive Modus wird in der UI dauerhaft angezeigt, nicht in einem Einstellungsdialog
-versteckt.
+The active mode is displayed permanently in the UI, not hidden away in a settings dialog.
 
-## Konsequenzen
+## Consequences
 
-* "Zeig mir alle Anfragen von gestern" geht per Default nicht. Das ist der Punkt.
-* Die Debugging-Erfahrung bleibt trotzdem gut, weil der Decision-Trace unabhängig vom
-  Log-Modus existiert (siehe ARCHITECTURE.md §2) und im `ring`-Modus fünf Minuten lang
-  im RAM abfragbar ist. Für "was ist gerade passiert" reicht das fast immer.
-* Mehr Implementierungsaufwand als ein simples Logfile: Zählertabelle, Ringpuffer,
-  Schwellwertlogik.
-* Für den Fall, dass jemand echtes Query-Logging braucht (Firmenumfeld, Forensik), ist
-  `full` da — als Entscheidung, die in der Konfigurationsdatei sichtbar ist und in der UI
-  angezeigt wird, nicht als stiller Default.
+* "Show me all requests from yesterday" does not work by default. That is the point.
+* The debugging experience stays good anyway, because the decision trace exists
+  independently of the log mode (see ARCHITECTURE.md §2) and is queryable in RAM for five
+  minutes in `ring` mode. For "what just happened" that is almost always enough.
+* More implementation effort than a simple log file: counter table, ring buffer,
+  threshold logic.
+* For the case that somebody needs real query logging (corporate environment, forensics),
+  `full` is there — as a decision that is visible in the configuration file and shown in
+  the UI, not as a silent default.
 
-## Alternativen
+## Alternatives
 
-* **Logging per Default an, Retention kurz:** üblich, aber die Datei existiert trotzdem.
-* **Nur `none` und `full`:** einfacher, aber dann schaltet in der Praxis jeder `full` ein,
-  weil er sonst nichts sieht — und lässt es an.
+* **Logging on by default, short retention:** common, but the file exists anyway.
+* **Only `none` and `full`:** simpler, but then in practice everybody turns on `full`,
+  because otherwise they see nothing — and leaves it on.
 
 ---
 
-## Nachtrag, 2026-08-30: die Zählstruktur, nicht die Entscheidung
+## Addendum, 2026-08-30: the counting structure, not the decision
 
-Die vier Modi und der Default bleiben. Ausgetauscht ist nur, *womit* `aggregate`
-zählt: statt eines Count-Min-Sketch eine exakte Tabelle unter einem gesalzenen
-Hash. Der Sketch war bei realistischem Verkehr so ungenau, dass die
-Top-Domain-Ausgabe leer blieb. Zahlen und Begründung:
-[ADR-0015](0015-exakte-zaehlung-statt-sketch.md).
+The four modes and the default stay. Only *what* `aggregate` counts with was swapped:
+instead of a count-min sketch, an exact table under a salted hash. At realistic traffic
+the sketch was so imprecise that the top-domain output stayed empty. Numbers and
+rationale: [ADR-0015](0015-exakte-zaehlung-statt-sketch.md).

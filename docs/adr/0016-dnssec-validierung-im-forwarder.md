@@ -1,229 +1,224 @@
-# ADR-0016: DNSSEC selbst validieren, auch als Forwarder
+# ADR-0016: Validate DNSSEC yourself, even as a forwarder
 
-**Status:** angenommen · **Datum:** 2026-08-30 · **Betrifft:** [ADR-0002](0002-hickory-proto-statt-eigenem-parser.md), [ADR-0003](0003-forwarder-first.md), [THREAT-MODEL.md](../THREAT-MODEL.md)
+**Status:** accepted · **Date:** 2026-08-30 · **Concerns:** [ADR-0002](0002-hickory-proto-statt-eigenem-parser.md), [ADR-0003](0003-forwarder-first.md), [THREAT-MODEL.md](../THREAT-MODEL.md)
 
-## Kontext
+## Context
 
-AlpenDNS ist ein Forwarder. Die Antwort kommt von Quad9, Mullvad oder wem sonst,
-und mit ihr ein AD-Bit — ein einzelnes Bit, das genau der Rechner gesetzt hat,
-dem gegenüber der ganze Rest des Projekts Zurückhaltung übt. Verschlüsselte
-Transporte, ECS strippen, `split_by_zone`: alles davon geht davon aus, dass ein
-Upstream neugierig sein könnte. Beim AD-Bit hieß es bisher: wird schon stimmen.
+AlpenDNS is a forwarder. The answer comes from Quad9, Mullvad or whoever else,
+and with it an AD bit — a single bit, set by exactly the machine toward which the
+rest of the project exercises restraint. Encrypted transports, stripping ECS,
+`split_by_zone`: all of it assumes that an upstream might be curious. For the AD
+bit the assumption so far was: it will be right.
 
-THREAT-MODEL.md hat das seit Phase 1 als offenen Punkt geführt: *"ohne
-DNSSEC-Validierung vertraut AlpenDNS dem Upstream. Ein kompromittierter Upstream
-kann lügen."* ADR-0003 hat beim Verzicht auf Rekursion ausdrücklich vermerkt,
-dass eigene Validierung auch im Forwarder-Modus möglich und sinnvoll ist.
+THREAT-MODEL.md has carried that as an open point since phase 1: *"without DNSSEC
+validation AlpenDNS trusts the upstream. A compromised upstream can lie."* In
+forgoing recursion, ADR-0003 explicitly noted that validation of our own is
+possible and sensible in forwarder mode too.
 
-## Entscheidung
+## Decision
 
-**AlpenDNS rechnet die Signaturkette selbst nach, ab den einkompilierten
-Root-Schlüsseln.** Per Default an (`privacy.dnssec = true`). Eine Antwort, deren
-Zone sich als signiert ausweist und deren Kette nicht schließt, wird verworfen;
-der Client bekommt SERVFAIL. Das ist das Standardverhalten nach RFC 4035 §5.5
-und das, was `unbound` und `knot-resolver` tun.
+**AlpenDNS recomputes the signature chain itself, starting from the compiled-in
+root keys.** On by default (`privacy.dnssec = true`). An answer whose zone
+declares itself signed and whose chain does not close is discarded; the client
+gets SERVFAIL. That is the standard behavior per RFC 4035 §5.5 and what `unbound`
+and `knot-resolver` do.
 
-Die Kryptografie kommt aus `hickory-net`/`hickory-proto` (`dnssec-ring`), aus
-derselben Begründung wie ADR-0002 für das Wire-Format: eine
-Signaturprüfungskette selbst zu schreiben ist die Sorte Code, bei der ein Fehler
-nicht auffällt, weil das falsche Ergebnis genauso aussieht wie das richtige.
-Unser Anteil steht in `crate::dnssec` und ist die *Auswertung*: aus vielen
-Record-Stempeln ein Urteil je Antwort, und die Folgerung daraus.
+The cryptography comes from `hickory-net`/`hickory-proto` (`dnssec-ring`), for
+the same reason as in ADR-0002 for the wire format: to write a signature
+verification chain yourself is the kind of code where an error goes unnoticed,
+because the wrong result looks exactly like the right one. Our share sits in
+`crate::dnssec` and is the *evaluation*: from many record stamps a verdict per
+answer, and the conclusion drawn from it.
 
-Drei Folgeentscheidungen, die von außen willkürlich aussehen:
+Three follow-on decisions that look arbitrary from the outside:
 
-**1. Zusammengefasst wird pessimistisch.** Ein einziger `Bogus`-Record macht die
-ganze Antwort faul. Sonst könnte ein Angreifer einen gefälschten Record neben
-echte hängen und käme durch. Angesehen werden Answer- **und**
-Authority-Abschnitt: eine negative Antwort trägt ihren Beweis in den
-NSEC-Records der Authority, und würde man nur den Answer-Abschnitt prüfen, käme
-jedes gefälschte NXDOMAIN als „keine Aussage“ durch.
+**1. The summary is pessimistic.** A single `Bogus` record makes the whole answer
+rotten. Otherwise an attacker could hang a forged record next to real ones and
+get through. Both the answer **and** the authority section are looked at: a
+negative answer carries its proof in the NSEC records of the authority, and if
+only the answer section were checked, every forged NXDOMAIN would pass as "no
+statement".
 
-**2. `Bogus` ist terminal, es wird kein zweiter Upstream gefragt.** Naheliegend
-wäre das Gegenteil — vielleicht lügt ja nur einer. Dagegen stehen zwei Dinge.
-Eine Zone mit kaputter Signatur ist bei *jedem* Anbieter kaputt, der Zweitversuch
-brächte also fast immer dasselbe Ergebnis; und er zeigte den Namen einem weiteren
-Anbieter, also genau das, was `split_by_zone` verhindern soll. Aus demselben Grund
-zählt `Bogus` **nicht** als Fehlversuch für die Ausfallerkennung: sonst könnte
-eine einzige kaputte Zone nach drei Anfragen den ganzen Pool als tot markieren
-und einen selbstgemachten Ausfall auslösen.
+**2. `Bogus` is terminal, no second upstream is asked.** The opposite would be
+obvious — maybe only one of them is lying. Two things speak against it. A zone
+with a broken signature is broken at *every* provider, so the second attempt
+would almost always bring the same result; and it would show the name to one more
+provider, which is exactly what `split_by_zone` is meant to prevent. For the same
+reason `Bogus` does **not** count as a failed attempt for outage detection:
+otherwise a single broken zone could mark the whole pool as dead after three
+queries and trigger a self-made outage.
 
-**3. Die Signaturen gehen nur an einen Client mit DO-Bit,** und das
-Wegräumen passiert an der **Außenkante, hinter dem Cache** (`dnssec::for_client`
-in `server::handle_request`). Beides ist erst im Betrieb richtig geworden, siehe
-unten. Das AD-Bit in unserer Antwort steht für *unser* Urteil und geht nur an
-einen Client, der DO oder AD gesetzt hat (RFC 6840 §5.8).
+**3. The signatures go only to a client with the DO bit,** and the stripping
+happens at the **outer edge, behind the cache** (`dnssec::for_client` in
+`server::handle_request`). Both only became right in operation, see below. The
+AD bit in our answer stands for *our* verdict and goes only to a client that has
+set DO or AD (RFC 6840 §5.8).
 
-## Preis
+## Price
 
-**`time` ist jetzt eine Produktionsabhängigkeit, und damit ändert sich die
-Begründung einer Advisory-Ausnahme.** `hickory-proto/dnssec-ring` zieht über
-sein internes Feature `__dnssec` das Crate `time` herein. Bis Phase 7 kam `time`
-nur über `rcgen` und damit als dev-dependency; die Ausnahme für RUSTSEC-2026-0009
-in `deny.toml` lautete deshalb „steckt gar nicht im Binary“. Das stimmt nicht
-mehr.
+**`time` is now a production dependency, and that changes the justification of
+an advisory exception.** `hickory-proto/dnssec-ring` pulls the `time` crate in
+through its internal `__dnssec` feature. Until phase 7 `time` came in only via
+`rcgen` and thus as a dev-dependency; the exception for RUSTSEC-2026-0009 in
+`deny.toml` therefore read "is not in the binary at all". That is no longer true.
 
-Die Ausnahme bleibt trotzdem, mit engerer Begründung: das Advisory betrifft das
-*Parsen* von RFC-2822-Datumszeichenketten aus fremder Eingabe. hickory benutzt
-aus `time` ausschließlich `OffsetDateTime`, in den Konstruktoren von RRSIG und
-SIG; die Zeitstempel darin kommen als 32-Bit-Zahlen vom Draht, nicht als
-Zeichenkette. Der verwundbare Pfad wird nicht betreten. Der vollständige Text
-samt Umkehrbedingung steht in `deny.toml`.
+The exception stays anyway, with a narrower justification: the advisory concerns
+the *parsing* of RFC 2822 date strings from foreign input. From `time`, hickory
+uses exclusively `OffsetDateTime`, in the constructors of RRSIG and SIG; the
+timestamps in them arrive as 32-bit numbers from the wire, not as a string. The
+vulnerable path is not entered. The full text including the reversal condition
+stands in `deny.toml`.
 
-Die Alternative wäre gewesen, die MSRV von 1.85 auf 1.88 zu heben — dann löst
-der Resolver `time 0.3.55` auf und die Ausnahme fällt ersatzlos weg. Dagegen
-stand die Debian-Paketierung aus Phase 9: Debian 13 liefert `rustc 1.85`, mit
-1.88 ließe sich das `.deb` nicht mehr mit dem Compiler der Distribution bauen.
-Sobald die MSRV aus anderem Grund steigt, verschwindet die Ausnahme.
+The alternative would have been to raise the MSRV from 1.85 to 1.88 — then the
+resolver picks `time 0.3.55` and the exception falls away without replacement.
+What stood against it was the Debian packaging from phase 9: Debian 13 ships
+`rustc 1.85`, and with 1.88 the `.deb` could no longer be built with the
+distribution's compiler. As soon as the MSRV rises for another reason, the
+exception disappears.
 
-**Zusätzliche Anfragen.** Für jede neue Zone holt der validierende Griff
-DNSKEY- und DS-Sätze nach, über dieselbe Verbindung zu demselben Upstream. Ein
-Cache darüber liegt in `DnssecDnsHandle`. Es sind trotzdem mehr Anfragen als
-vorher, und die erste Auflösung in einer Zone dauert länger.
+**Additional queries.** For every new zone the validating handle fetches DNSKEY
+and DS sets, over the same connection to the same upstream. A cache on top of
+that sits in `DnssecDnsHandle`. There are still more queries than before, and the
+first resolution in a zone takes longer.
 
-**Der Cache hält mehr Bytes als vorher.** Er speichert die Antwort samt
-Signaturen, damit ein Client mit DO sie noch bekommen kann; gestutzt wird erst
-beim Ausliefern. Der Preis ist ein paar hundert Byte je signiertem Eintrag.
+**The cache holds more bytes than before.** It stores the answer together with
+the signatures, so that a client with DO can still get them; trimming happens
+only on delivery. The price is a few hundred bytes per signed entry.
 
-## Was geprüft ist
+## What is checked
 
-`crates/alpendns/tests/dnssec.rs` fährt drei Vektoren mit **echten** Signaturen
-durch dieselbe Prüfung, die im Betrieb läuft: gültige Signatur → `Secure` und
-die Antwort geht durch; verdrehtes Bit in der Signatur → `Bogus` und die Antwort
-wird verworfen; fehlende Signatur in einer nachweislich signierten Zone →
-ebenfalls `Bogus`.
+`crates/alpendns/tests/dnssec.rs` runs three vectors with **real** signatures
+through the same check that runs in operation: valid signature → `Secure` and the
+answer goes through; flipped bit in the signature → `Bogus` and the answer is
+discarded; missing signature in a demonstrably signed zone → likewise `Bogus`.
 
-Der Aufbau pinnt den Schlüssel der Testzone als Trust Anchor, statt eine Kette
-bis zur echten Root zu bauen — `DnssecDnsHandle` hört bei einem Schlüssel aus
-dem Anchor-Store auf, nach DS-Records zu suchen. An der Rechnerei ist dabei
-nichts abgekürzt.
+The setup pins the test zone's key as trust anchor instead of building a chain up
+to the real root — `DnssecDnsHandle` stops looking for DS records at a key from
+the anchor store. Nothing in the computation is shortcut in the process.
 
-Dass der validierende Griff im Transport wirklich vorgeschaltet ist, hält
-`encrypted.rs::dnssec_sets_the_do_bit_and_asks_for_the_chain` fest: mit
-`dnssec = true` steht das DO-Bit auf dem Draht und es gehen Kettenabfragen
-raus, ohne geht genau eine Frage raus und das DO-Bit fehlt.
+That the validating handle is really placed ahead of the transport is recorded by
+`encrypted.rs::dnssec_sets_the_do_bit_and_asks_for_the_chain`: with
+`dnssec = true` the DO bit is on the wire and chain queries go out; without it
+exactly one question goes out and the DO bit is missing.
 
-## Was der erste Lauf gegen echte Upstreams gezeigt hat
+## What the first run against real upstreams showed
 
-Drei Dinge, die kein Unit-Test gefunden hätte, weil sie alle drei an der
-Wirklichkeit hängen. Sie stehen hier, weil sie erklären, warum der Code an
-diesen Stellen so aussieht.
+Three things no unit test would have found, because all three hang on reality.
+They stand here because they explain why the code looks the way it does at these
+places.
 
-**`dnssec-failed.org` ergab SERVFAIL, aber der Zähler blieb auf null.** Das
-Ergebnis stimmte, die Buchführung nicht: wenn der Upstream selbst validiert,
-kommt gar keine Antwort mit Records zurück, sondern ein leeres SERVFAIL. Der
-NSEC-Beweis geht dann nicht auf, und `hickory` liefert das als **Fehler**
-(`DnsError::Nsec { proof, response }`) statt als gestempelte Nachricht. Damit
-lief es an der Auswertung vorbei: der Zähler blieb stehen, dem Upstream wurde
-ein Fehlversuch angerechnet, die Verbindung wurde verworfen und der nächste
-Anbieter bekam dieselbe Frage vorgelegt — genau die drei Dinge, die oben
-ausgeschlossen sind. `dnssec::from_error` fängt den Fall jetzt ab und holt das
-Urteil samt Antwort aus dem Fehler.
+**`dnssec-failed.org` gave SERVFAIL, but the counter stayed at zero.** The result
+was right, the bookkeeping was not: when the upstream validates itself, no answer
+with records comes back at all, but an empty SERVFAIL. The NSEC proof then does
+not add up, and `hickory` delivers that as an **error**
+(`DnsError::Nsec { proof, response }`) instead of a stamped message. That way it
+ran past the evaluation: the counter stood still, the upstream was charged a
+failed attempt, the connection was discarded and the next provider was presented
+with the same question — exactly the three things ruled out above.
+`dnssec::from_error` now catches the case and pulls the verdict together with the
+answer out of the error.
 
-**`dig` bekam die ganze Signaturkette, ohne danach gefragt zu haben.** Die
-Unterscheidung war falsch: das AD-Bit in einer *Anfrage* heißt nach RFC 6840
-§5.7 "sag mir dein Urteil", nicht "schick mir die Kette" — und `dig` setzt es
-per Default. Nur das DO-Bit fordert die Records an. Seither trennt
-`client_wants_records` (DO) von `client_wants_verdict` (DO oder AD).
+**`dig` got the whole signature chain without having asked for it.** The
+distinction was wrong: the AD bit in a *query* means, per RFC 6840 §5.7, "tell me
+your verdict", not "send me the chain" — and `dig` sets it by default. Only the
+DO bit requests the records. Since then `client_wants_records` (DO) is separated
+from `client_wants_verdict` (DO or AD).
 
-**Ein `dig +dnssec` bekam null Signaturen, weil ein `dig` ohne davor da war.**
-Das Wegräumen lief im Transport, also *unter* dem Cache — und der hält eine
-Antwort für alle Clients (ARCHITECTURE.md §4). Wer als Erster ohne DO fragte,
-legte die gestutzte Fassung in den Cache. Der Cache hält jetzt die vollständige,
-validierte Antwort; `dnssec::for_client` schneidet an der Außenkante zu, je
-Client. Das ist dieselbe Trennung, aus der die Filterung vor dem Cache liegt:
-was für alle gilt, gehört in den Cache, was für einen gilt, davor oder danach.
+**A `dig +dnssec` got zero signatures, because a `dig` without it had been there
+before.** The stripping ran in the transport, that is *below* the cache — and
+that holds one answer for all clients (ARCHITECTURE.md §4). Whoever asked first
+without DO put the trimmed version into the cache. The cache now holds the
+complete, validated answer; `dnssec::for_client` trims at the outer edge, per
+client. That is the same separation that puts filtering before the cache: what
+holds for everyone belongs in the cache, what holds for one belongs before or
+after it.
 
-## Nachtrag vom 2026-08-30: ein Ausfall ist kein Befund
+## Addendum of 2026-08-30: an outage is not a finding
 
-Beim Lauf gegen echte Upstreams in Phase 8 kam `wikipedia.org` einmal als
-SERVFAIL zurück und beim nächsten Versuch als NOERROR. Die Ursache war eine
-Verwechslung, die oben angelegt war.
+During the run against real upstreams in phase 8, `wikipedia.org` came back once
+as SERVFAIL and on the next attempt as NOERROR. The cause was a confusion that
+was laid out above.
 
-Antwortet der Upstream **selbst** mit SERVFAIL und schickt dabei keine Records,
-meldet `hickory` `Bogus` — es fehlen ja die NSEC-Records, mit denen sich etwas
-beweisen ließe. Auf dem Draht sieht das genauso aus wie eine Zone mit kaputter
-Signatur. Es ist aber etwas ganz anderes: *wir haben nichts gesehen, worüber
-sich urteilen ließe.*
+If the upstream answers SERVFAIL **itself** and sends no records along with it,
+`hickory` reports `Bogus` — the NSEC records are missing, after all, with which
+something could be proven. On the wire that looks exactly like a zone with a
+broken signature. But it is something entirely different: *we have seen nothing
+about which a verdict could be reached.*
 
-Der Unterschied ist teuer, weil `Bogus` nach Punkt 2 oben **terminal** ist. Ein
-einzelner Wackler beim Upstream wurde damit zu einem harten SERVFAIL für den
-Client, ohne dass der zweite, gesunde Upstream je gefragt worden wäre — ein
-selbstgemachter Ausfall, und noch dazu einer, der sich beim nächsten Versuch von
-selbst erledigt und deshalb schwer zu finden ist.
+The difference is expensive, because per point 2 above `Bogus` is **terminal**. A
+single hiccup at the upstream thus became a hard SERVFAIL for the client, without
+the second, healthy upstream ever having been asked — a self-made outage, and one
+that moreover clears itself on the next attempt and is therefore hard to find.
 
-Unterschieden wird jetzt an dem, was die Antwort enthält: **leer und mit
-Fehler-RCODE** heißt Ausfall (`ResolveError::Unproven`), alles andere heißt
-Urteil. Beides zusammen gibt es nicht — eine Zone mit kaputter Signatur liefert
-Records, sonst hätte niemand etwas zu prüfen. `Unproven` fragt den nächsten
-Upstream, rechnet aber **niemandem einen Fehlversuch an**: sonst könnte eine
-kaputte Zone weiterhin den Pool leerräumen, was Punkt 2 ja gerade verhindern
-soll.
+The distinction is now made on what the answer contains: **empty and with an
+error RCODE** means outage (`ResolveError::Unproven`), everything else means
+verdict. Both together do not exist — a zone with a broken signature delivers
+records, otherwise nobody would have anything to check. `Unproven` asks the next
+upstream but charges **no one** a failed attempt: otherwise a broken zone could
+still drain the pool, which is exactly what point 2 is meant to prevent.
 
-**Damit ist eine Zahl aus der Roadmap überholt.** Dort steht zu Phase 7:
-`dnssec-failed.org → SERVFAIL, bogus=1`. Der Client bekommt weiterhin SERVFAIL,
-aber der Zähler steht jetzt auf 0 — Quad9 validiert selbst und liefert eine leere
-Fehlerantwort, wir sehen also nie eine faule Signatur. Die alte 1 war der
-Mislabel, nicht die neue 0.
+**That makes a number from the roadmap obsolete.** It says of phase 7:
+`dnssec-failed.org → SERVFAIL, bogus=1`. The client still gets SERVFAIL, but the
+counter now stands at 0 — Quad9 validates itself and delivers an empty error
+answer, so we never see a rotten signature. The old 1 was the mislabel, not the
+new 0.
 
-## Nachtrag vom 2026-09-19: das CD-Bit des Clients entscheidet nicht mehr
+## Addendum of 2026-09-19: the client's CD bit no longer decides
 
-Ein Scan über die Codebase hat dieselbe Ursache dreimal gefunden (F1, F2, F3):
-beide Transporte hingen die Validierung am CD-Bit der Anfrage. Die Begründung
-stand als Kommentar an `dnssec::checking_disabled` — *wer die Prüfung
-abbestellt, schadet nur sich* — und sie war falsch, an derselben Stelle, an der
-Punkt 3 oben schon einmal falsch war.
+A scan over the codebase found the same cause three times (F1, F2, F3): both
+transports hung validation on the request's CD bit. The justification stood as a
+comment at `dnssec::checking_disabled` — *whoever cancels the check harms only
+himself* — and it was wrong, at the same place where point 3 above was already
+wrong once.
 
-**Der Cache ist der Grund.** Er ist nach (Name, Typ, Klasse) geschlüsselt
-(`crate::caching`), CD steht nicht darin. Die Antwort, die ein CD-Client
-auslöst, ist dieselbe, die der nächste Client ohne CD bekommt. Ein einzelner
-Client im LAN hätte damit die Signaturprüfung für das ganze Netz abbestellt —
-und nicht bloß theoretisch: bei gesetztem CD liefert der Upstream genau die
-ungeprüfte Antwort, die DNSSEC abfangen soll (THREAT-MODEL.md, Punkt A3).
+**The cache is the reason.** It is keyed by (name, type, class) (`crate::caching`);
+CD is not in it. The answer that a CD client triggers is the same one the next
+client without CD gets. A single client in the LAN would thereby have cancelled
+signature validation for the whole network — and not merely theoretically: with
+CD set, the upstream delivers exactly the unvalidated answer that DNSSEC is meant
+to intercept (THREAT-MODEL.md, point A3).
 
-**Was jetzt gilt.** `Transport::send_checked` rechnet nur noch
-`let validate = self.privacy.dnssec;`, `OdohBackend::resolve` nimmt den
-validierenden Griff ohne Bedingung; `checking_disabled` hat keinen Aufrufer mehr
-und ist weg. Es entscheidet die Konfiguration, nie die Anfrage. Nach außen war
-CD ohnehin wirkungslos: `DnssecDnsHandle::send` in `hickory-net` setzt auf der
-Strecke zum Upstream selbst `checking_disabled = false` und `authentic_data =
-true`. Wirkung hatte CD nur nach innen, gegenüber dem eigenen Cache — und genau
-dort gehörte es nicht hin.
+**What now holds.** `Transport::send_checked` computes only
+`let validate = self.privacy.dnssec;`, `OdohBackend::resolve` takes the validating
+handle without a condition; `checking_disabled` has no caller left and is gone.
+The configuration decides, never the request. Outwardly CD was ineffective
+anyway: `DnssecDnsHandle::send` in `hickory-net` sets `checking_disabled = false`
+and `authentic_data = true` on the way to the upstream itself. CD had an effect
+only inward, toward our own cache — and that is exactly where it did not belong.
 
-Es ist dieselbe Trennung wie im dritten Punkt unter „Was der erste Lauf gegen
-echte Upstreams gezeigt hat“, nur andersherum: damals wanderte das Zuschneiden
-an die Außenkante, weil der Cache für alle gilt; hier verschwindet eine
-Bedingung, die nie in den Cache hineingehört hätte. Was für alle gilt, muss für
-alle entschieden werden.
+It is the same separation as in the third point under "What the first run against
+real upstreams showed", only the other way round: back then the trimming moved to
+the outer edge, because the cache holds for everyone; here a condition disappears
+that never belonged into the cache. What holds for everyone must be decided for
+everyone.
 
-**Die zweite Hälfte der Empfehlung ist bewusst nicht gebaut.** Vorgeschlagen war
-auch, CD an der Außenkante zu ehren — AD-Bit löschen und dem CD-Client die
-Rohdaten durchreichen. Das gibt es nicht: wer CD setzt und nach einem
-Bogus-Namen fragt, bekommt SERVFAIL wie jeder andere. Ihm Daten zu geben, von
-denen wir gerade nachgerechnet haben, dass sie falsch sind, wäre eine eigene
-Entscheidung über `dnssec::for_client`. RFC 4035 §3.2.2 beschreibt CD als „nicht
-prüfen“; dass wir es trotzdem tun, ist eine Abweichung — sie steht hier, damit
-sie eine ist und kein Versehen.
+**The second half of the recommendation is deliberately not built.** It was also
+proposed to honor CD at the outer edge — delete the AD bit and pass the raw data
+through to the CD client. That does not exist: whoever sets CD and asks for a
+Bogus name gets SERVFAIL like everyone else. To give him data that we have just
+computed to be wrong would be a decision of its own about `dnssec::for_client`.
+RFC 4035 §3.2.2 describes CD as "do not check"; that we do it anyway is a
+deviation — it stands here so that it is one and not an oversight.
 
-**Was das kostet.** Ein Client, der CD setzt und selbst prüft, bekommt für eine
-kaputte Zone SERVFAIL statt der Daten, mit denen er sein eigenes Urteil hätte
-fällen können. Strenger als nötig, aber in der Richtung, in der ein Fehler
-auffällt statt still zu bleiben. `encrypted.rs::a_client_setting_cd_does_not_disable_validation`
-hält fest, dass mit CD das DO-Bit rausgeht und die Kette nachverfolgt wird. Der
-ODoH-Zweig hat keinen eigenen Test; er ist gelesen, nicht gefahren — die
-entfernte Bedingung ist eine reine Verschärfung, aber verlassen sollte man sich
-darauf nicht.
+**What that costs.** A client that sets CD and validates itself gets SERVFAIL for
+a broken zone instead of the data with which it could have reached its own
+verdict. Stricter than necessary, but in the direction in which an error shows
+instead of staying silent.
+`encrypted.rs::a_client_setting_cd_does_not_disable_validation` records that with
+CD the DO bit goes out and the chain is followed. The ODoH branch has no test of
+its own; it is read, not exercised — the removed condition is a pure tightening,
+but one should not rely on that.
 
-**Umkehrbedingung dieses Nachtrags:** Wenn im Praxistest ein Client mit CD
-aufläuft, der auf SERVFAIL stößt, ist die Antwort nicht, die Prüfung wieder
-abzuschalten, sondern CD in `dnssec::for_client` zu behandeln — pro Client, an
-der Außenkante, hinter dem Cache.
+**Reversal condition of this addendum:** if in the practical test a client with
+CD shows up that runs into SERVFAIL, the answer is not to switch the check off
+again but to handle CD in `dnssec::for_client` — per client, at the outer edge,
+behind the cache.
 
-## Umkehrbedingung
+## Reversal condition
 
-Wenn im Praxistest aus Phase 9 kaputte Zonen zu Ausfällen führen, die niemand
-erklären kann, ist die Antwort **nicht**, die Validierung abzuschalten, sondern
-die verworfenen Antworten in der UI sichtbar zu machen — der Zähler
-„DNSSEC verworfen“ steht dafür schon in der Privacy-Kachel. Erst wenn sich
-zeigt, dass es regelmäßig legitime Zonen trifft, wäre ein Modus „prüfen, aber
-durchlassen“ zu erwägen. Er ist bewusst nicht vorgebaut.
+If in the practical test from phase 9 broken zones lead to outages that nobody
+can explain, the answer is **not** to switch validation off but to make the
+discarded answers visible in the UI — the "DNSSEC dropped" counter already
+stands there in the privacy tile. Only if it turns out that it regularly hits
+legitimate zones would a "check, but pass through" mode be worth considering. It
+is deliberately not pre-built.

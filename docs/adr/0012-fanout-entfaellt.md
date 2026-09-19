@@ -1,73 +1,71 @@
-# ADR-0012: `fanout` entfällt — es wird immer genau ein Upstream gefragt
+# ADR-0012: `fanout` is dropped — exactly one upstream is always queried
 
-**Status:** angenommen · **Datum:** 2026-08-30 · **Zieht nach sich:** Nachtrag zu [ADR-0009](0009-decision-trace-mit-mutex.md)
+**Status:** accepted · **Date:** 2026-08-30 · **Entails:** addendum to [ADR-0009](0009-decision-trace-mit-mutex.md)
 
-## Kontext
+## Context
 
-`upstream_pool.fanout` bestimmte, wie viele Resolver *gleichzeitig* gefragt
-werden. Der Kommentar in der Beispielkonfiguration sagte, was das kostet:
-"`>1` kostet Privacy, spart Latenz."
+`upstream_pool.fanout` determined how many resolvers are queried *at the same
+time*. The comment in the example configuration said what that costs:
+"`>1` costs privacy, saves latency."
 
-Das ist zu freundlich formuliert. Bei `fanout = 2` sieht jede Anfrage *zwei*
-Anbieter statt einem. Damit ist `split_by_zone` aufgehoben — das Feature, dessen
-ganzer Zweck ist, dass jeder Anbieter nur einen Bruchteil der Domains sieht
-(FEATURES.md P2). Ein Pool mit drei Resolvern und `fanout = 3` schickt jede
-Anfrage an alle drei: das ist das Gegenteil dessen, wofür der Pool da ist.
+That is phrased too kindly. With `fanout = 2` every request sees *two* providers
+instead of one. That cancels `split_by_zone` — the feature whose whole purpose is
+that each provider sees only a fraction of the domains (FEATURES.md P2). A pool
+with three resolvers and `fanout = 3` sends every request to all three: that is
+the opposite of what the pool is there for.
 
-Der Gewinn dagegen ist klein. Gespart wird die Latenz *eines* Upstreams, und auch
-das nur bei einem Cache-Miss; der Cache beantwortet den überwiegenden Teil der
-Anfragen ohnehin ohne jeden Upstream (BENCHMARKS.md, Phase 2). Für die Ausfälle,
-gegen die `fanout` sonst noch helfen könnte, gibt es bereits das passive
-Health-Tracking: nach drei Fehlversuchen wird ein Upstream übersprungen, und
-schon vorher übernimmt beim ersten Fehlschlag der nächste in der Reihe.
+The gain, by contrast, is small. What is saved is the latency of *one* upstream,
+and even that only on a cache miss; the cache answers the majority of requests
+without any upstream at all (BENCHMARKS.md, Phase 2). For the failures `fanout`
+might otherwise help against, there is already the passive health tracking: after
+three failed attempts an upstream is skipped, and even before that, on the first
+failure, the next one in line takes over.
 
-`fanout` hatte außerdem eine Nebenwirkung tief in der Architektur. Es war der
-**einzige** Grund, warum der Decision-Trace hinter einem `Mutex` lag: mehrere
-gleichzeitige Upstream-Aufgaben wollten in denselben Trace schreiben, und dafür
-gibt es keine zwei exklusiven Referenzen (ADR-0009).
+`fanout` also had a side effect deep in the architecture. It was the **only**
+reason the decision trace sat behind a `Mutex`: several concurrent upstream tasks
+wanted to write to the same trace, and there are no two exclusive references for
+that (ADR-0009).
 
-## Entscheidung
+## Decision
 
-`fanout` wird entfernt. Der Pool fragt die Upstreams **der Reihe nach**, in der
-Reihenfolge, die `split_by_zone` vorgibt, und hört beim ersten Erfolg auf.
-`FuturesUnordered` und die Stapelbildung im Pool entfallen; übrig bleibt eine
-`for`-Schleife.
+`fanout` is removed. The pool queries the upstreams **one after another**, in the
+order `split_by_zone` prescribes, and stops at the first success.
+`FuturesUnordered` and the batching in the pool fall away; what remains is one
+`for` loop.
 
-**Daraus folgt der Rückbau des Traces.** `ResolveBackend::resolve` nimmt wieder
-`&mut Ctx`, `Ctx::record` nimmt `&mut self`, `Ctx::steps` liefert `&[Step]`. Die
-Skizze in ARCHITECTURE.md §2 war von Anfang an richtig; nur `fanout` stand ihr im
-Weg.
+**From that follows the rollback of the trace.** `ResolveBackend::resolve` takes
+`&mut Ctx` again, `Ctx::record` takes `&mut self`, `Ctx::steps` returns `&[Step]`.
+The sketch in ARCHITECTURE.md §2 was right from the start; only `fanout` stood in
+its way.
 
-Der Schlüssel bleibt **erkannt**: `UpstreamPool` behält ein privates Feld
-`fanout`, das beim Validieren einen Fehler mit Begründung wirft. Ohne das meldete
-`deny_unknown_fields` nur "unknown field `fanout`", und wer ihn gesetzt hatte,
-wüsste nicht, ob der Server jetzt mehr oder weniger fragt.
+The key remains **recognised**: `UpstreamPool` keeps a private field `fanout`,
+which raises an error with a reason during validation. Without that,
+`deny_unknown_fields` would only report "unknown field `fanout`", and anyone who
+had set it would not know whether the server now queries more or less.
 
-## Konsequenzen
+## Consequences
 
-* Ein Cache-Miss kostet im schlechtesten Fall die Latenz eines toten Upstreams
-  plus die des nächsten, statt das Maximum aus beiden parallel. Das ist der Preis
-  und er ist die Latenz eines Timeouts — nicht die einer Anfrage.
-* Der `Mutex` im Anfragepfad ist weg. Er kostete kaum etwas (ADR-0009 rechnete
-  das vor), aber `Ctx::steps()` klonte bei **jeder** Anfrage den ganzen Vektor,
-  weil ein Mutex keine Referenz herausgeben kann. Diese Kopie ist ebenfalls weg.
-* Ein Mutex im Anfragepfad wäre irgendwann als "so machen wir das hier" gelesen
-  worden. Die Signatur sagt jetzt, was gilt: eine Anfrage, ein Besitzer.
-* `Pool::new` und `Pool::with_seed` haben ein Argument weniger.
-* Wer `fanout = 1` in der Konfiguration stehen hat — der Default —, muss die
-  Zeile beim Update löschen. Unschön, aber B.1 Regel 5 lässt keine still
-  ignorierten Schlüssel zu, und ein Schlüssel, der nichts mehr tut, ist genau
-  das.
+* A cache miss costs, in the worst case, the latency of a dead upstream plus that
+  of the next one, instead of the maximum of both in parallel. That is the price,
+  and it is the latency of a timeout — not that of a request.
+* The `Mutex` on the request path is gone. It barely cost anything (ADR-0009 did
+  the math), but `Ctx::steps()` cloned the entire vector on **every** request,
+  because a mutex cannot hand out a reference. That copy is gone as well.
+* A mutex on the request path would at some point have been read as "this is how
+  we do things here". The signature now says what holds: one request, one owner.
+* `Pool::new` and `Pool::with_seed` have one argument fewer.
+* Anyone with `fanout = 1` in their configuration — the default — has to delete
+  the line on update. Ugly, but B.1 rule 5 permits no silently ignored keys, and a
+  key that does nothing any more is exactly that.
 
-## Alternativen
+## Alternatives
 
-* **`fanout` behalten und auf 1 festnageln.** Ein Schlüssel mit einem
-  zulässigen Wert, der weiterhin `FuturesUnordered` und den `Mutex` im Trace
-  rechtfertigt. Das Schlechteste aus beidem.
-* **`fanout` nur bei einem Upstream-Ausfall erlauben** ("hedged requests" nach
-  einem Zeitfenster). Verteidigbar — die zweite Anfrage geht dann nur raus, wenn
-  die erste ohnehin hängt. Aber es ist ein neues Feature mit eigenem Zeitparameter,
-  und der Auftrag hieß Fläche verkleinern. Notiert, nicht gebaut.
-* **Den Trace vorsichtshalber hinter dem `Mutex` lassen**, falls später etwas
-  Nebenläufiges kommt. Das ist Spekulation, und sie kostet bei jeder Anfrage eine
-  Kopie des Schritt-Vektors. Kommt der Fall, ist der Weg zurück ein Commit.
+* **Keep `fanout` and pin it to 1.** A key with one permitted value that continues
+  to justify `FuturesUnordered` and the `Mutex` in the trace. The worst of both.
+* **Allow `fanout` only on an upstream failure** ("hedged requests" after a time
+  window). Defensible — the second request then only goes out if the first is
+  hanging anyway. But it is a new feature with its own time parameter, and the
+  task was to shrink the surface. Noted, not built.
+* **Leave the trace behind the `Mutex` as a precaution**, in case something
+  concurrent comes later. That is speculation, and it costs a copy of the step
+  vector on every request. Should the case arrive, the way back is one commit.

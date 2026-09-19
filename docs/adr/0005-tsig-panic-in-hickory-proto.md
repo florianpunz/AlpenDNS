@@ -1,86 +1,83 @@
-# ADR-0005: Phase 1 wird trotz eines Fuzz-Crashes in `hickory-proto` abgenommen
+# ADR-0005: Phase 1 is accepted despite a fuzz crash in `hickory-proto`
 
-**Status:** abgelöst durch [ADR-0006](0006-tsig-panic-in-hickory-behoben.md) · **Datum:** 2026-08-29
+**Status:** superseded by [ADR-0006](0006-tsig-panic-in-hickory-behoben.md) · **Date:** 2026-08-29
 
-## Kontext
+## Context
 
-Das Abnahmekriterium von Phase 1 lautet: "Ein Fuzz-Target auf dem Anfragepfad läuft
-5 Minuten ohne Crash." Der erste Lauf hat nach wenigen Minuten einen Crash gefunden —
-nicht in unserem Code, sondern in `hickory-proto 0.26.1`.
+The acceptance criterion of phase 1 reads: "a fuzz target on the request path runs for
+5 minutes without a crash." The first run found a crash after a few minutes — not in our
+code, but in `hickory-proto 0.26.1`.
 
-`Message::from_vec` panict mit `attempt to subtract with overflow`, wenn eine
-Nachricht ein TSIG-Record enthält, dessen `RDLENGTH` kleiner ist als die festen
-Felder davor (`src/rr/rdata/tsig.rs:387`). Die Subtraktion steht in dem Fehlerpfad,
-der das kaputte Record gerade korrekt erkannt hat.
+`Message::from_vec` panics with `attempt to subtract with overflow` when a message
+contains a TSIG record whose `RDLENGTH` is smaller than the fixed fields before it
+(`src/rr/rdata/tsig.rs:387`). The subtraction sits in the error path that has just
+correctly recognized the broken record.
 
-Ob das ein Panic ist, hängt am Profil:
+Whether this is a panic depends on the profile:
 
-| `overflow-checks` | Verhalten |
+| `overflow-checks` | Behavior |
 |---|---|
-| aus — unser `[profile.release]` | Record wird sauber mit `incorrect rdata length read` abgelehnt |
-| an — Debug, `cargo test`, `cargo fuzz` per Default | Panic |
+| off — our `[profile.release]` | record is rejected cleanly with `incorrect rdata length read` |
+| on — debug, `cargo test`, `cargo fuzz` by default | panic |
 
-Das kollidiert mit B.1 Regel 1: ein Panic im Query-Handler ist eine
-Denial-of-Service-Lücke. Es kollidiert nicht mit dem Rest der Regel — es gibt kein
-`unwrap()` und kein Slice-Indexing von uns.
+That collides with B.1 rule 1: a panic in the query handler is a denial-of-service hole.
+It does not collide with the rest of the rule — there is no `unwrap()` and no slice
+indexing from us.
 
-Reparieren können wir es nicht. Der Panic passiert innerhalb von `Message::from_vec`,
-und genau diesen Aufruf ersetzen wir laut [ADR-0002](0002-hickory-proto-statt-eigenem-parser.md)
-bewusst nicht durch eigenen Code. `catch_unwind` scheidet aus: unser Release-Profil
-setzt `panic = "abort"`, dort gibt es nichts zu fangen.
+We cannot fix it. The panic happens inside `Message::from_vec`, and per
+[ADR-0002](0002-hickory-proto-statt-eigenem-parser.md) we deliberately do not replace
+exactly that call with our own code. `catch_unwind` is out: our release profile sets
+`panic = "abort"`, so there is nothing to catch.
 
-## Entscheidung
+## Decision
 
-Phase 1 gilt als abgenommen, mit drei Auflagen.
+Phase 1 counts as accepted, with three conditions.
 
-1. **Das Abnahmekriterium wird in der Auslieferungs-Konfiguration erfüllt**, nicht in
-   der Default-Konfiguration von `cargo fuzz`. Der Nachweislauf ist:
+1. **The acceptance criterion is met in the delivery configuration**, not in
+   `cargo fuzz`'s default configuration. The proof run is:
 
    ```bash
    cargo +nightly fuzz run -O parse_request -- -max_total_time=300
    ```
 
-   `-O` baut so, wie wir ausliefern: Release ohne `overflow-checks`. Das ist der
-   Code, der später auf einem Port lauscht, und für den gilt die Aussage "läuft
-   5 Minuten ohne Crash". Der Default-Lauf mit Overflow-Checks bleibt zusätzlich
-   sinnvoll, um *unsere* Arithmetik zu prüfen — er ist nur nicht das Kriterium.
+   `-O` builds the way we ship: release without `overflow-checks`. That is the code
+   that will later listen on a port, and it is for that code that the statement "runs
+   for 5 minutes without a crash" holds. The default run with overflow checks remains
+   useful in addition, to check *our* arithmetic — it is just not the criterion.
 
-   Nachweis vom 2026-08-29: 2.698.186 Läufe in 301 Sekunden, kein Crash, kein
-   neues Artefakt.
+   Proof from 2026-08-29: 2.698.186 runs in 301 seconds, no crash, no new artifact.
 
-2. **Der Fall bleibt als bekannter Crash im Repo**, in
-   `crates/alpendns/fuzz/known-crashes/`, mit der Anleitung, ihn nach jedem Update
-   einer Parser-Abhängigkeit erneut zu prüfen. Er liegt bewusst nicht im normalen
-   Corpus, weil sonst jeder Fuzz-Lauf sofort abbricht statt neue Fehler zu suchen.
+2. **The case stays in the repo as a known crash**, in
+   `crates/alpendns/fuzz/known-crashes/`, with instructions to check it again after every
+   update of a parser dependency. It deliberately does not sit in the normal corpus,
+   because otherwise every fuzz run would abort immediately instead of looking for new
+   bugs.
 
-3. **Der Fehler wird upstream gemeldet.** Der fertige Meldetext samt Minimal-Repro
-   liegt in `crates/alpendns/fuzz/known-crashes/UPSTREAM-ISSUE.md`.
+3. **The bug is reported upstream.** The finished report text together with a minimal
+   repro sits in `crates/alpendns/fuzz/known-crashes/UPSTREAM-ISSUE.md`.
 
-## Konsequenzen
+## Consequences
 
-* Debug-Builds von AlpenDNS lassen sich mit einem einzigen Paket abschießen. Für
-  Entwicklung und Tests ist das hinnehmbar, für Betrieb wäre es das nicht — es gibt
-  aber keinen Grund, eine Debug-Binary zu betreiben. Sollte je ein Paket mit
-  `debug = true` und aktiven Overflow-Checks entstehen, ist diese Entscheidung
-  hinfällig.
-* Wir verlassen uns an dieser Stelle darauf, dass `overflow-checks` im
-  Release-Profil aus bleibt. Das ist der Cargo-Default, aber es ist jetzt eine
-  Annahme mit Bedeutung: wer sie umdreht, muss vorher hier nachlesen.
-* Die Aussage "der Anfragepfad ist gefuzzt" ist schwächer als sie klingt, solange
-  dieser Crash offen ist: über den TSIG-Pfad hinaus sagt der Lauf nichts.
-* Sobald `hickory-proto` das behebt, entfällt die ganze Konstruktion: Version
-  anheben, `known-crashes` gegenprüfen, Datei und dieses ADR ablösen.
+* Debug builds of AlpenDNS can be taken down with a single packet. For development and
+  tests that is acceptable, for operations it would not be — but there is no reason to run
+  a debug binary. Should a build ever be produced with `debug = true` and overflow checks
+  active, this decision is void.
+* At this point we rely on `overflow-checks` staying off in the release profile. That is
+  the Cargo default, but it is now an assumption with weight: whoever flips it has to read
+  up here first.
+* The statement "the request path is fuzzed" is weaker than it sounds as long as this
+  crash is open: beyond the TSIG path the run says nothing.
+* Once `hickory-proto` fixes it, the whole construction goes away: bump the version,
+  re-check `known-crashes`, supersede the file and this ADR.
 
-## Alternativen
+## Alternatives
 
-* **Phase 1 offen lassen, bis upstream fixt.** Ehrlichste Variante, aber sie bindet
-  den Fortschritt des Projekts an den Release-Zyklus eines fremden Crates, für einen
-  Fehler, der den ausgelieferten Pfad nicht trifft.
-* **`overflow-checks = false` auch für Debug und Test setzen.** Würde das Symptom
-  beseitigen und gleichzeitig die Warnung vor *eigenen* Überläufen abschalten. Genau
-  falsch herum.
-* **Das Fuzz-Target so bauen, dass es TSIG nicht erreicht.** Das ist kein Fix,
-  sondern Wegsehen — und es würde echte Fehler in demselben Pfad verdecken.
-* **Auf `domain` (NLnet Labs) wechseln.** Ein Parser-Bug in einer Bibliothek ist kein
-  Grund, die Bibliothek zu wechseln; ADR-0002 hat die Wahl aus anderen Gründen
-  getroffen, und die gelten weiter.
+* **Leave phase 1 open until upstream fixes it.** The most honest variant, but it ties the
+  project's progress to the release cycle of a foreign crate, for a bug that does not hit
+  the shipped path.
+* **Set `overflow-checks = false` for debug and test too.** Would remove the symptom and
+  at the same time switch off the warning for *our own* overflows. Exactly backwards.
+* **Build the fuzz target so that it does not reach TSIG.** That is not a fix but looking
+  away — and it would hide real bugs in the same path.
+* **Switch to `domain` (NLnet Labs).** A parser bug in a library is no reason to switch
+  libraries; ADR-0002 made the choice for other reasons, and those still hold.

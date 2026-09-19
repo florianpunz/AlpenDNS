@@ -1,85 +1,84 @@
-# ADR-0009: Der Decision-Trace sammelt über einen Mutex und trägt Namen statt IDs
+# ADR-0009: The decision trace collects through a mutex and carries names instead of IDs
 
-**Status:** angenommen · **Datum:** 2026-08-29 · **Verfeinert:** [ARCHITECTURE.md §2](../ARCHITECTURE.md)
+**Status:** accepted · **Date:** 2026-08-29 · **Refined:** [ARCHITECTURE.md §2](../ARCHITECTURE.md)
 
-## Kontext
+## Context
 
-ARCHITECTURE.md §2 skizziert den Trace als `SmallVec<[Step; 8]>` mit Schritten,
-die auf IDs verweisen (`AllowlistHit { list: ListId, rule: RuleRef }`). Beim
-Umsetzen in Phase 5 stellten sich zwei Fragen, die die Skizze offen lässt.
+ARCHITECTURE.md §2 sketches the trace as `SmallVec<[Step; 8]>` with steps that
+refer to IDs (`AllowlistHit { list: ListId, rule: RuleRef }`). Implementing it in
+Phase 5 raised two questions the sketch leaves open.
 
-**Erstens: wie kommt der Trace durch die Pipeline?** Die naheliegende Antwort ist
-eine exklusive Referenz — `resolve(&self, request, ctx: &mut Ctx)`. Das
-funktioniert bis zum Upstream-Pool: bei `fanout > 1` fragt er mehrere Resolver
-**gleichzeitig**, und jede dieser Aufgaben will ihren Schritt eintragen. Zwei
-exklusive Referenzen auf denselben Trace gibt es nicht.
+**First: how does the trace get through the pipeline?** The obvious answer is an
+exclusive reference — `resolve(&self, request, ctx: &mut Ctx)`. That works up to
+the upstream pool: with `fanout > 1` it queries several resolvers **at the same
+time**, and each of those tasks wants to record its step. Two exclusive references
+to the same trace do not exist.
 
-**Zweitens: wer löst die IDs auf?** Ein Schritt mit `ListId(3)` ist ohne die
-Konfiguration daneben nicht lesbar. Genau das braucht aber `alpendns policy test`
-— und ab Phase 6 die UI, die "warum wurde das geblockt?" beantworten soll, ohne
-dass jemand eine Nachschlagetabelle mitliefert.
+**Second: who resolves the IDs?** A step carrying `ListId(3)` is not readable
+without the configuration next to it. But that is exactly what
+`alpendns policy test` needs — and, from Phase 6, the UI, which is supposed to
+answer "why was this blocked?" without anyone shipping a lookup table alongside.
 
-## Entscheidung
+## Decision
 
-**Der Trace liegt hinter einem `Mutex` und wird als `&Ctx` geteilt**, nicht als
-`&mut Ctx` durchgereicht.
+**The trace sits behind a `Mutex` and is shared as `&Ctx`**, not passed through as
+`&mut Ctx`.
 
-**Die Schritte tragen `Arc<str>` mit dem Namen**, nicht die ID: `BlocklistHit {
-list: Arc<str>, line: u32, matched: String }`. Ein Trace ist damit für sich allein
-lesbar.
+**The steps carry `Arc<str>` with the name**, not the ID: `BlocklistHit {
+list: Arc<str>, line: u32, matched: String }`. A trace is thereby readable on its
+own.
 
-Statt `SmallVec` wird ein `Vec::with_capacity(8)` benutzt. Das ist eine Allokation
-pro Anfrage — dieselbe Größenordnung wie das Klonen der Nachricht, das ohnehin
-passiert, und es spart ein Dependency.
+Instead of `SmallVec`, a `Vec::with_capacity(8)` is used. That is one allocation
+per request — the same order of magnitude as cloning the message, which happens
+anyway, and it saves a dependency.
 
-## Konsequenzen
+## Consequences
 
-* Ein unumkämpfter Mutex kostet einige Nanosekunden; eine Anfrage aus dem Cache
-  dauert 28 µs (BENCHMARKS.md). Bei fünf Schritten liegt der Anteil unter einem
-  Promille. Die Alternative wäre gewesen, `fanout > 1` vom Trace auszunehmen —
-  also ausgerechnet den Fall nicht zu erklären, in dem mehrere Upstreams
-  beteiligt sind.
-* Der Trace ist nach der Anfrage sofort verwendbar, ohne Registry. `explain()`
-  liefert die Begründungskette als Text, und die CLI gibt sie unverändert aus.
-* `Arc<str>`-Klone je Schritt statt `Copy`-IDs. Ein `Arc`-Klon ist ein
-  atomarer Zähler; gegenüber `matched: String`, das ohnehin allokiert, fällt das
-  nicht ins Gewicht.
-* **Der Trace enthält Query-Namen.** Das ist beabsichtigt und der Grund, warum er
-  laut ARCHITECTURE.md §2 unabhängig vom Log-Modus entsteht: erst die
-  Logging-Schicht entscheidet, was mit ihm passiert. Bis diese Schicht in Phase 6
-  existiert, darf ihn niemand ins Log schreiben — die Stellen, die heute loggen,
-  schreiben nur Listennamen und Zeilennummern (B.1 Regel 3).
+* An uncontended mutex costs a few nanoseconds; a request answered from the cache
+  takes 28 µs (BENCHMARKS.md). At five steps the share is under one per mille. The
+  alternative would have been to exempt `fanout > 1` from the trace — that is, to
+  leave unexplained precisely the case in which several upstreams are involved.
+* The trace is usable immediately after the request, without a registry.
+  `explain()` returns the chain of reasoning as text, and the CLI prints it
+  unchanged.
+* `Arc<str>` clones per step instead of `Copy` IDs. An `Arc` clone is one atomic
+  counter; next to `matched: String`, which allocates anyway, it does not weigh
+  much.
+* **The trace contains query names.** That is intentional and the reason it comes
+  into being independently of the log mode, per ARCHITECTURE.md §2: only the
+  logging layer decides what happens to it. Until that layer exists in Phase 6,
+  nobody may write it to the log — the places that log today write only list names
+  and line numbers (B.1 rule 3).
 
-## Alternativen
+## Alternatives
 
-* **`&mut Ctx` durchreichen.** Null Kosten, scheitert aber am nebenläufigen
-  Fanout. Ein Sonderweg für diesen einen Fall wäre schlechter als ein Mutex
-  überall.
-* **Jede Schicht gibt ihre Schritte zurück und der Aufrufer fügt zusammen.**
-  Ändert jede Signatur der Pipeline und verteilt die Reihenfolge auf alle
-  Schichten, statt sie an einer Stelle zu haben.
-* **IDs mit Registry.** Spart Speicher pro Schritt und kostet jedem Leser des
-  Traces eine Abhängigkeit auf die Konfiguration, aus der er stammt. Für ein
-  Projekt, dessen Zweck Erklärbarkeit ist, der falsche Tausch.
+* **Pass `&mut Ctx` through.** Zero cost, but it fails on the concurrent fanout. A
+  special path for this one case would be worse than a mutex everywhere.
+* **Every layer returns its steps and the caller assembles them.** Changes every
+  signature in the pipeline and spreads the ordering across all layers instead of
+  having it in one place.
+* **IDs with a registry.** Saves memory per step and costs every reader of the
+  trace a dependency on the configuration it came from. For a project whose
+  purpose is explainability, the wrong trade.
 
 ---
 
-## Nachtrag, 2026-08-30: der Mutex ist weg
+## Addendum, 2026-08-30: the mutex is gone
 
-Die erste der beiden Fragen oben hatte genau eine Antwort, und sie hieß `fanout`.
-Mit `fanout > 1` fragte der Pool mehrere Resolver gleichzeitig, und zwei exklusive
-Referenzen auf denselben Trace gibt es nicht — also ein `Mutex`.
+The first of the two questions above had exactly one answer, and it was called
+`fanout`. With `fanout > 1` the pool queried several resolvers at the same time,
+and two exclusive references to the same trace do not exist — so, a `Mutex`.
 
-`fanout` ist entfernt ([ADR-0012](0012-fanout-entfaellt.md)). Damit ist die
-Pipeline eine Kette ohne Verzweigung: jede Schicht reicht den Kontext an genau
-eine nächste weiter, der Pool fragt einen Upstream nach dem anderen. Ein `Mutex`,
-der nie umkämpft ist und nichts schützt, was gleichzeitig zugegriffen wird, ist
-kein Schutz, sondern Zeremonie — und er verdeckt, dass der Zugriff exklusiv ist.
+`fanout` is removed ([ADR-0012](0012-fanout-entfaellt.md)). The pipeline is
+therefore a chain without branching: every layer passes the context on to exactly
+one next layer, the pool asks one upstream after another. A `Mutex` that is never
+contended and protects nothing that is accessed concurrently is not protection but
+ceremony — and it obscures the fact that access is exclusive.
 
-`resolve` bekommt den Kontext deshalb wieder als `&mut Ctx`, wie ARCHITECTURE.md §2
-es ursprünglich skizziert hatte. `Ctx::record` nimmt `&mut self`, `Ctx::steps`
-liefert `&[Step]` statt einer Kopie — der Aufrufer in `server::handle_request`
-kopierte die Schritte bisher bei jeder Anfrage einmal, nur um sie zu lesen.
+`resolve` therefore gets the context back as `&mut Ctx`, as ARCHITECTURE.md §2
+originally sketched it. `Ctx::record` takes `&mut self`, `Ctx::steps` returns
+`&[Step]` instead of a copy — the caller in `server::handle_request` used to copy
+the steps once per request just to read them.
 
-**Die zweite Entscheidung dieses ADR bleibt unverändert:** Schritte tragen
-`Arc<str>` mit dem Namen, nicht IDs mit Registry. Daran ändert `fanout` nichts.
+**The second decision of this ADR stays unchanged:** steps carry `Arc<str>` with
+the name, not IDs with a registry. `fanout` changes nothing about that.

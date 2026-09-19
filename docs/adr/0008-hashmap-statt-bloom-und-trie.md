@@ -1,64 +1,63 @@
-# ADR-0008: Die `HashMap` bleibt — Bloom-Filter und invertierter Trie kommen nicht
+# ADR-0008: The `HashMap` stays — Bloom filter and inverted trie are not coming
 
-**Status:** angenommen · **Datum:** 2026-08-29
+**Status:** accepted · **Date:** 2026-08-29
 
-## Kontext
+## Context
 
-[ARCHITECTURE.md §3](../ARCHITECTURE.md) beschreibt als Zielmodell für die
-Blocklisten: Labels umdrehen und internieren, einen Bloom-Filter davor, dahinter
-eine exakte Struktur, die nur bei einem Bloom-Treffer befragt wird. Die Roadmap
-schreibt für Phase 4 dagegen ausdrücklich vor: "v1 als HashSet mit Suffix-Lookup",
-und der Fallstrick dazu lautet "Erst messen, dann optimieren. Bloom-Filter und
-invertierter Trie kommen nur, wenn Schritt 11 zeigt, dass es nötig ist."
+[ARCHITECTURE.md §3](../ARCHITECTURE.md) describes as the target model for the
+blocklists: reverse and intern labels, put a Bloom filter in front, behind it an
+exact structure that is only queried on a Bloom hit. The roadmap, by contrast,
+explicitly prescribes for Phase 4: "v1 as a HashSet with suffix lookup",
+and the pitfall for it reads "Measure first, then optimise. Bloom filter and
+inverted trie only come if step 11 shows they are needed."
 
-Schritt 11 ist gemessen. Mit zwei Millionen Einträgen
-(`cargo test --release --test load -- --ignored`, Zahlen in
+Step 11 is measured. With two million entries
+(`cargo test --release --test load -- --ignored`, numbers in
 [BENCHMARKS.md](../BENCHMARKS.md)):
 
 | | |
 |---|---|
-| Nachschlagen, Treffer | p50 230 ns, p99 620 ns |
-| Nachschlagen, **kein** Treffer | p50 390 ns, p99 880 ns |
-| Speicher des Matchers | 135 MB, rund 69 Byte je Eintrag |
-| Aufbau aus geparsten Einträgen | 0,8 s |
-| p99 einer Anfrage aus dem Cache, bei geladenen zwei Millionen Einträgen | 28 µs |
+| Lookup, hit | p50 230 ns, p99 620 ns |
+| Lookup, **no** hit | p50 390 ns, p99 880 ns |
+| Memory of the matcher | 135 MB, around 69 bytes per entry |
+| Build from parsed entries | 0.8 s |
+| p99 of a request answered from the cache, with two million entries loaded | 28 µs |
 
-Der teure Fall — ein Name, der auf keiner Liste steht und deshalb alle
-Suffix-Ebenen durchläuft — kostet unter einer Mikrosekunde. Das Abnahmekriterium
-der Phase verlangt für eine Anfrage aus dem Cache eine p99 unter einer
-Millisekunde; gemessen sind 28 Mikrosekunden, also das Fünfunddreißigfache
-Luft.
+The expensive case — a name that is on no list and therefore walks through every
+suffix level — costs under a microsecond. The phase's acceptance criterion demands
+a p99 under one millisecond for a request answered from the cache; measured are 28
+microseconds, so thirty-five times the headroom.
 
-## Entscheidung
+## Decision
 
-Die `HashMap` mit Suffix-Nachschlag bleibt. Bloom-Filter, Label-Umkehrung und
-invertierter Trie werden **nicht** gebaut.
+The `HashMap` with suffix lookup stays. Bloom filter, label reversal and inverted
+trie are **not** built.
 
-ARCHITECTURE.md §3 wird nicht gelöscht, sondern verweist auf dieses ADR: das
-Zielmodell bleibt als überlegter Plan dokumentiert, samt der Messung, die ihn
-vorerst überflüssig macht.
+ARCHITECTURE.md §3 is not deleted; it points to this ADR: the target model stays
+documented as a considered plan, together with the measurement that makes it
+superfluous for now.
 
-## Konsequenzen
+## Consequences
 
-* Rund 135 MB für zwei Millionen Einträge. Auf einem Raspberry Pi mit 1 GB ist
-  das viel, aber tragbar; bei vier Millionen Einträgen wäre es das nicht mehr.
-  **Das ist die Zahl, die diese Entscheidung umdreht** — nicht die Latenz.
-* Der Bloom-Filter hätte vor allem Speicher gekostet, nicht gespart: er kommt
-  *zusätzlich* zur exakten Struktur und lohnt erst, wenn diese so groß wird,
-  dass sie nicht mehr in den Cache passt und jeder Zugriff ein Speicher-Miss ist.
-  Bei p99 von 880 ns ist dieser Punkt sichtbar nicht erreicht.
-* Der Code ist rund 150 Zeilen statt einiger hundert, und das Nachschlagen ist in
-  einem Absatz erklärbar. Das ist bei einer Datenstruktur im heißen Pfad kein
-  Nebenaspekt.
-* Die Messung ist reproduzierbar im Repo (`tests/load.rs`). Wer die Entscheidung
-  umdrehen will, hat die Ausgangszahlen.
+* Around 135 MB for two million entries. On a Raspberry Pi with 1 GB that is a
+  lot, but bearable; at four million entries it would no longer be.
+  **That is the number that flips this decision** — not the latency.
+* The Bloom filter would above all have cost memory, not saved it: it comes
+  *in addition to* the exact structure and only pays off once that structure grows
+  so large it no longer fits in cache and every access is a memory miss.
+  At a p99 of 880 ns that point is visibly not reached.
+* The code is around 150 lines instead of several hundred, and the lookup is
+  explainable in one paragraph. For a data structure on the hot path that is not a
+  side note.
+* The measurement is reproducible in the repo (`tests/load.rs`). Anyone who wants
+  to flip the decision has the baseline numbers.
 
-## Alternativen
+## Alternatives
 
-* **Jetzt schon Bloom-Filter und Trie bauen.** Mehr Code, mehr Speicher, und
-  keine Zahl, die den Aufwand rechtfertigt. Genau der Fall, vor dem der
-  Fallstrick in der Roadmap warnt.
-* **Domains internieren, um Speicher zu sparen.** Naheliegender als der
-  Bloom-Filter, wenn der Speicher zum Problem wird: gemeinsame Suffixe wie
-  `.example.com` liegen derzeit hundertfach im Speicher. Das wäre der erste
-  Schritt, wenn 135 MB zu viel werden — nicht der Bloom-Filter.
+* **Build the Bloom filter and trie now.** More code, more memory, and no number
+  that justifies the effort. Exactly the case the pitfall in the roadmap warns
+  about.
+* **Intern domains to save memory.** More obvious than the Bloom filter when
+  memory becomes the problem: shared suffixes like `.example.com` currently sit in
+  memory a hundred times over. That would be the first step if 135 MB becomes too
+  much — not the Bloom filter.

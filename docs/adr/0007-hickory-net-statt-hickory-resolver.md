@@ -1,64 +1,61 @@
-# ADR-0007: Transporte aus `hickory-net`, Pool und Auswahl bleiben unsere
+# ADR-0007: Transports from `hickory-net`; pool and selection stay ours
 
-**Status:** angenommen · **Datum:** 2026-08-29 · **Ergänzt:** [ADR-0002](0002-hickory-proto-statt-eigenem-parser.md)
+**Status:** accepted · **Date:** 2026-08-29 · **Supplements:** [ADR-0002](0002-hickory-proto-statt-eigenem-parser.md)
 
-## Kontext
+## Context
 
-[ADR-0002](0002-hickory-proto-statt-eigenem-parser.md) hält fest:
-"`hickory-resolver` wird für die Upstream-Transporte (DoT/DoH/DoQ) verwendet, wo es
-passt." Beim Umsetzen von Phase 3 stellten sich zwei Dinge heraus.
+[ADR-0002](0002-hickory-proto-statt-eigenem-parser.md) records:
+"`hickory-resolver` is used for the upstream transports (DoT/DoH/DoQ) where it
+fits." Implementing Phase 3 turned up two things.
 
-**Erstens haben sich die Crates umsortiert.** In `hickory 0.26` ist `hickory-proto`
-auf das reine Wire-Format eingedampft; die Transporte liegen in einem neuen Crate
-`hickory-net`. `hickory-resolver` baut darauf auf und fügt hinzu: einen eigenen
-Cache, eine eigene Wiederholungslogik, einen eigenen Name-Server-Pool mit eigener
-Auswahl.
+**First, the crates have been rearranged.** In `hickory 0.26`, `hickory-proto` has
+been boiled down to the bare wire format; the transports live in a new crate,
+`hickory-net`. `hickory-resolver` builds on top of that and adds: its own cache,
+its own retry logic, its own name-server pool with its own selection.
 
-**Zweitens ist genau das der Teil, den wir selbst haben.** Der Cache ist Phase 2 und
-laut ARCHITECTURE.md §4 bewusst unserer — er speichert die *ungefilterte* Antwort,
-weil die Filterung davor liegt. Pool, Auswahlstrategien und Ausfallerkennung sind
-Phase 3, Schritte 3 bis 5, und `split_by_zone` gibt es anderswo nicht
-(FEATURES.md P2). `hickory-resolver` einzusetzen hieße, diese Teile doppelt zu haben
-und die eigenen gegen fremde durchzureichen.
+**Second, that is exactly the part we have ourselves.** The cache is Phase 2 and,
+per ARCHITECTURE.md §4, deliberately ours — it stores the *unfiltered* answer,
+because filtering sits in front of it. Pool, selection strategies and failure
+detection are Phase 3, steps 3 to 5, and `split_by_zone` exists nowhere else
+(FEATURES.md P2). Using `hickory-resolver` would mean having those parts twice and
+passing our own through to someone else's.
 
-## Entscheidung
+## Decision
 
-Wir benutzen **`hickory-net` für die Transporte** — DoT, DoH und DoQ, also
-TLS-Handshake, HTTP/2-Rahmen, QUIC-Streams und die Zuordnung von Antworten zu
-Anfragen auf einer gemultiplexten Verbindung. Das ist dieselbe Klasse riskanten
-Codes, um die es in ADR-0002 ging, und dieselbe Begründung gilt.
+We use **`hickory-net` for the transports** — DoT, DoH and DoQ, that is the TLS
+handshake, HTTP/2 framing, QUIC streams and the matching of answers to requests on
+a multiplexed connection. That is the same class of risky code ADR-0002 was about,
+and the same reasoning applies.
 
-**Nicht** benutzt wird `hickory-resolver`. Unser eigen bleiben:
+`hickory-resolver` is **not** used. Ours remain:
 
-* wann eine Verbindung aufgebaut, wiederverwendet und verworfen wird
-  (`upstream::transport`),
-* welcher Upstream eine Anfrage bekommt (`upstream::strategy`),
-* wann ein Upstream als ausgefallen gilt (`upstream::pool`),
-* der Cache (`cache`, Phase 2),
-* was vor dem Senden mit der Nachricht passiert (`privacy`).
+* when a connection is opened, reused and discarded (`upstream::transport`),
+* which upstream gets a request (`upstream::strategy`),
+* when an upstream counts as failed (`upstream::pool`),
+* the cache (`cache`, Phase 2),
+* what happens to the message before it is sent (`privacy`).
 
-Als Krypto-Backend werden durchgehend die `-ring`-Varianten gewählt, nicht
-`aws-lc-rs`: letzteres führt die OpenSSL-Lizenz mit, die nicht in der Allowlist von
-`deny.toml` steht.
+For the crypto backend, the `-ring` variants are chosen throughout, not
+`aws-lc-rs`: the latter brings the OpenSSL licence with it, which is not on the
+allowlist in `deny.toml`.
 
-## Konsequenzen
+## Consequences
 
-* Der Verbindungs-Lebenszyklus ist unser Code, rund 190 Zeilen. Er muss richtig
-  sein: eine Verbindung, die nach einem Fehler nicht verworfen wird, beantwortet
-  keine Anfrage mehr.
-* Ein API-Bruch in `hickory-net` trifft uns direkt. Dafür sind wir nicht an die
-  Release-Politik von `hickory-resolver` gebunden, das deutlich mehr Oberfläche hat.
-* Die Aussage aus ADR-0002 bleibt sinngemäß gültig, der Crate-Name darin ist
-  überholt. Dieses ADR ersetzt ADR-0002 nicht — die Entscheidung "kein eigener
-  Parser" steht unverändert.
-* `hickory-net` schreibt die Query-ID auf einer gemultiplexten Verbindung selbst um.
-  Sie zurückzusetzen ist unsere Aufgabe, und sie zu vergessen ist ein Fehler, den
-  keiner unserer Fake-Tests gesehen hat — siehe die Notiz zu Phase 3 in ROADMAP.md.
+* The connection lifecycle is our code, around 190 lines. It has to be right: a
+  connection that is not discarded after an error answers no more requests.
+* An API break in `hickory-net` hits us directly. In exchange, we are not bound to
+  the release policy of `hickory-resolver`, which has considerably more surface.
+* The statement from ADR-0002 remains valid in substance; the crate name in it is
+  outdated. This ADR does not replace ADR-0002 — the decision "no parser of our
+  own" stands unchanged.
+* `hickory-net` rewrites the query ID itself on a multiplexed connection.
+  Resetting it is our job, and forgetting to is a mistake none of our fake tests
+  saw — see the note on Phase 3 in ROADMAP.md.
 
-## Alternativen
+## Alternatives
 
-* **`hickory-resolver` mit seinem Pool.** Spart unseren Pool, bringt aber einen
-  zweiten Cache mit — genau das, was ARCHITECTURE.md §4 ausschließt — und macht
-  `split_by_zone` zu einem Fremdkörper in fremder Auswahl-Logik.
-* **Transporte selbst schreiben.** TLS-Handshake, HTTP/2 und QUIC von Hand: dieselbe
-  Antwort wie in ADR-0002, nur mit größerem Risiko.
+* **`hickory-resolver` with its pool.** Saves us our pool, but brings a second
+  cache with it — exactly what ARCHITECTURE.md §4 rules out — and turns
+  `split_by_zone` into a foreign body in someone else's selection logic.
+* **Write the transports ourselves.** TLS handshake, HTTP/2 and QUIC by hand: the
+  same answer as in ADR-0002, only with more risk.
