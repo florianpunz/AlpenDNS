@@ -5,11 +5,15 @@ it accepts queries from the LAN, filters them against blocklists and policies,
 and forwards them encrypted (DoT/DoH/DoQ) to upstreams. Recursion from the
 root servers is deliberately not a goal.
 
-> **Status: Phase 9.** Phases 1–9 are implemented — 1 forwarder, 2 cache,
-> 3 encrypted upstreams, 4 blocklists, 5 clients & policies, 6 visibility,
-> 7 privacy, 8 heuristics, 9 operations. Phases 1–7 are accepted; 8 and 9 are
-> currently running in the real network. Plan and acceptance criteria:
-> [docs/ROADMAP.md](docs/ROADMAP.md).
+**[Live demo →](https://florianpunz.github.io/alpendns/)** — the web UI with
+recorded data, no install. Built from [`web/demo/`](web/demo/), which produces
+a single self-contained HTML file.
+
+![The AlpenDNS web UI](docs/images/ui.png)
+
+> **Status.** Phases 1–9 are implemented; 1–7 are accepted, and the acceptance
+> run for 8 and 9 is in progress in a real home network. Where that stands, with
+> numbers and open gaps: [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Quick start
 
@@ -28,7 +32,7 @@ cargo run -- -c config/alpendns.minimal.toml policy test doubleclick.net
 ```bash
 cargo install cargo-deb --locked
 cargo deb -p alpendns
-sudo apt install ./target/debian/alpendns_0.0.1-1_amd64.deb
+sudo apt install ./target/debian/alpendns_<version>_amd64.deb
 
 dig @127.0.0.1 example.com
 ```
@@ -90,16 +94,23 @@ by IP.
 
 ```
 CLAUDE.md                    Rules for coding agents in this repo
-config/alpendns.example.toml Target configuration (serves as the specification)
+CONTRIBUTING.md              How to contribute
+SECURITY.md                  How to report a vulnerability
+LICENSE                      AGPL-3.0-or-later
+config/                      Example, minimal and shipped configurations
 crates/                      Rust workspace
+crates/alpendns/fuzz/        Fuzz targets, corpus, known crashes
 docs/ROADMAP.md              Phase plan with acceptance criteria
 docs/ARCHITECTURE.md         Structure, request pipeline, data model
 docs/FEATURES.md             Feature catalog with cost/benefit assessment
-docs/THREAT-MODEL.md         What this protects against — and what it doesn't
-docs/TESTING.md              Test strategy
+docs/TESTING.md              Test strategy, and the definition of done
 docs/OPERATIONS.md           Installation, upgrade, backup, troubleshooting
-packaging/                   systemd unit, Debian scripts, shipping configuration
+docs/THREAT-MODEL.md         What this protects against — and what it doesn't
 docs/adr/                    Architecture decisions with rationale
+docs/images/                 Screenshots used by this file
+packaging/                   systemd unit, Debian scripts, shipping configuration
+scripts/                     Version bump used before every commit
+web/                         Web UI; web/demo/ builds the self-contained demo page
 ```
 
 ## Development
@@ -108,16 +119,18 @@ Prerequisite: Rust stable (`rust-toolchain.toml` pins the appropriate version).
 
 ```bash
 cargo build
-
-# Definition of Done
-cargo fmt --all --check
-cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-features
-cargo deny check
 ```
 
-A change counts as done when all four check commands pass. Individual tests, fuzzing, and
-the `dig` smoke test are in [CLAUDE.md](CLAUDE.md) B.4.
+Before a change counts as finished, the **definition of done** has to be green —
+four commands, listed in [docs/TESTING.md](docs/TESTING.md) along with the
+manual smoke test, the fuzzing targets and the measurement runs.
+
+## Contributing
+
+[CONTRIBUTING.md](CONTRIBUTING.md) covers getting set up, the commit
+conventions, and what this project expects of a change. Found a security
+problem? [SECURITY.md](SECURITY.md) — please don't open a public issue for it.
 
 ## License
 
