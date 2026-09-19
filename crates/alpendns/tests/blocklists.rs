@@ -469,6 +469,41 @@ async fn a_body_that_grows_while_decoding_is_refused() {
     );
 }
 
+#[tokio::test]
+async fn an_oversized_list_falls_back_to_the_cached_copy() {
+    // B.1 Regel 6 gilt auch hier: eine zu große Liste ist kein Grund, ohne
+    // Filter zu starten. Ohne diese Prüfung bricht der Start ab, obwohl eine
+    // brauchbare Fassung im Cache liegt — genau der Fall, den die
+    // Größengrenze beim Lesen neu erreichbar gemacht hat.
+    let fake = http_fake(LIST_BODY, "\"v1\"").await;
+    let cache = TempDir::new("toolarge-fallback");
+    let loader = Loader::new(cache.path()).expect("Loader");
+
+    let first = loader
+        .load(&spec(
+            "test",
+            Source::Url(format!("http://{}/liste", fake.addr)),
+            Format::Hosts,
+        ))
+        .await
+        .expect("erster Abruf");
+    assert_eq!(first.origin, Origin::Network);
+
+    // Derselbe Listenname, aber ein Anbieter, dessen Antwort nie endet.
+    let addr = http_fake_never_ending(vec![b'a'; MAX_LIST_BYTES + 1]).await;
+    let second = loader
+        .load(&spec(
+            "test",
+            Source::Url(format!("http://{addr}/liste")),
+            Format::Hosts,
+        ))
+        .await
+        .expect("Rückfall auf den Cache");
+
+    assert_eq!(second.origin, Origin::StaleCache);
+    assert!(second.text.contains("ads.example.com"));
+}
+
 // ---------------------------------------------------------------------------
 // Filtern
 // ---------------------------------------------------------------------------

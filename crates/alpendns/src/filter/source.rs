@@ -205,9 +205,7 @@ impl Loader {
             .content_length()
             .is_some_and(|len| len > MAX_LIST_BYTES)
         {
-            return Err(LoadError::TooLarge {
-                name: spec.name.clone(),
-            });
+            return self.too_large(spec, &body_path).await;
         }
         let new_meta = Meta {
             etag: header(&response, reqwest::header::ETAG),
@@ -227,9 +225,7 @@ impl Loader {
                 }
             };
             if body.len() as u64 + chunk.len() as u64 > MAX_LIST_BYTES {
-                return Err(LoadError::TooLarge {
-                    name: spec.name.clone(),
-                });
+                return self.too_large(spec, &body_path).await;
             }
             body.extend_from_slice(&chunk);
         }
@@ -243,9 +239,7 @@ impl Loader {
         // dauerhaft zerstört.
         let text = String::from_utf8_lossy(&body).into_owned();
         if text.len() as u64 > MAX_LIST_BYTES {
-            return Err(LoadError::TooLarge {
-                name: spec.name.clone(),
-            });
+            return self.too_large(spec, &body_path).await;
         }
 
         // Schreibfehler sind kein Grund, die frisch geladene Liste zu verwerfen —
@@ -287,6 +281,32 @@ impl Loader {
             Err(_) => Err(LoadError::Unavailable {
                 name: spec.name.clone(),
                 reason: reason.to_owned(),
+            }),
+        }
+    }
+
+    /// Die Liste ist über der Größengrenze: die letzte gecachte Fassung gilt weiter.
+    ///
+    /// Dieselbe Regel wie bei `fall_back` (B.1 Regel 6) — eine zu große Liste ist
+    /// kein Grund, ungefiltert zu starten. Der Fehler bleibt trotzdem `TooLarge`
+    /// und wird nicht zu `Unavailable`: die Liste *war* erreichbar, sie ist nur
+    /// unbrauchbar, und beim Erststart soll genau das im Log stehen, statt einer
+    /// Meldung über einen Server, der nie geantwortet hat.
+    async fn too_large(&self, spec: &ListSpec, body_path: &Path) -> Result<Loaded, LoadError> {
+        match read_limited(body_path).await {
+            Ok(text) => {
+                tracing::warn!(
+                    list = %spec.name,
+                    limit = MAX_LIST_BYTES,
+                    "Liste über der Größengrenze, es gilt die zwischengespeicherte Fassung"
+                );
+                Ok(Loaded {
+                    text,
+                    origin: Origin::StaleCache,
+                })
+            }
+            Err(_) => Err(LoadError::TooLarge {
+                name: spec.name.clone(),
             }),
         }
     }
