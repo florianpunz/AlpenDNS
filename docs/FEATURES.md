@@ -1,383 +1,378 @@
-# Feature-Katalog
+# Feature Catalog
 
-Ideen mit Bewertung. Nicht alles davon wird gebaut — das ist der Sinn einer Liste mit
-Bewertung. Jeder Eintrag hat: was es ist, warum es interessant ist, was es kostet, und
-wo die ehrlichen Grenzen liegen.
+Ideas with an assessment. Not all of them get built — that is the point of a list with an
+assessment. Every entry has: what it is, why it is interesting, what it costs, and where
+the honest limits lie.
 
-**Legende**
+**Legend**
 
-* **Aufwand:** S (ein Abend) · M (2–4 Abende) · L (eine Woche+)
-* **Neu:** wie ungewöhnlich das in existierenden Resolvern ist —
-  ○ Standard · ◐ selten · ● praktisch nirgends
-* **Phase:** wo es in der [Roadmap](ROADMAP.md) liegt
+* **Effort:** S (one evening) · M (2–4 evenings) · L (a week+)
+* **Novel:** how unusual this is among existing resolvers —
+  ○ standard · ◐ rare · ● practically nowhere
+* **Phase:** where it sits in the [roadmap](ROADMAP.md)
 
 ---
 
 ## P — Privacy
 
-### P1 · Zero-Log mit k-Anonymität `Aufwand M` `Neu ◐` `Phase 6/7`
+### P1 · Zero logging with k-anonymity `Effort M` `Novel ◐` `Phase 6/7`
 
-Statt "Logging an/aus" vier Modi, Default aggregiert mit Schwellwert: eine Domain
-erscheint erst in Statistiken, wenn sie mindestens `k`-mal (Default 5) abgefragt wurde.
-Begründung und Details: [ADR-0004](adr/0004-logging-default-aggregiert.md).
+Instead of "logging on/off", four modes, default aggregated with a threshold: a domain
+appears in statistics only once it has been queried at least `k` times (default 5).
+Rationale and details: [ADR-0004](adr/0004-logging-default-aggregiert.md).
 
-**Warum das mehr ist als eine Einstellung:** die einmalig aufgerufenen Domains sind genau
-die verräterischen. Übliche Query-Logs speichern sie mit Zeitstempel und Client-IP. Hier
-existieren sie nach der Beantwortung nicht mehr.
+**Why this is more than a setting:** the domains queried exactly once are precisely the
+telling ones. Conventional query logs store them with a timestamp and client IP. Here
+they cease to exist after the answer.
 
-**Grenze, erledigt:** Umgesetzt war das zunächst mit einem Count-Min-Sketch, und der
-überschätzt seltene Elemente. Die k-Schwelle prüfte deshalb auf der *unteren*
-Schätzgrenze — korrekt, aber die Schranke wächst mit dem Verkehr: bei einer Million
-Anfragen lag sie bei 11 und damit über jedem üblichen `k`, sodass **keine** Domain mehr
-in der Statistik erschien. Gemessen in [BENCHMARKS.md](BENCHMARKS.md); seither wird exakt
-gezählt ([ADR-0015](adr/0015-exakte-zaehlung-statt-sketch.md)). Die Zusicherung ist
-dieselbe geblieben, nur hält sie jetzt auch bei Verkehr.
+**Limit, resolved:** this was first implemented with a count-min sketch, and that
+overestimates rare elements. The k threshold therefore checked against the *lower*
+estimate bound — correct, but the bound grows with traffic: at a million requests it stood
+at 11 and thus above any usual `k`, so that **no** domain appeared in the statistics any
+more. Measured in [BENCHMARKS.md](BENCHMARKS.md); since then counting is exact
+([ADR-0015](adr/0015-exakte-zaehlung-statt-sketch.md)). The guarantee stayed the same, only
+now it holds under traffic too.
 
-### P2 · Upstream-Splitting nach Zone `Aufwand M` `Neu ●` `Phase 3/7`
+### P2 · Upstream splitting by zone `Effort M` `Novel ●` `Phase 3/7`
 
-**Das interessanteste Feature des Projekts.** Statt alle Anfragen an einen Resolver zu
-schicken, wird der Upstream über `hash(seed, registrable_domain) % n` bestimmt.
+**The most interesting feature of the project.** Instead of sending all requests to one
+resolver, the upstream is determined by `hash(seed, registrable_domain) % n`.
 
-Konsequenzen:
+Consequences:
 
-* Derselbe Name geht immer zum selben Resolver → der Cache bleibt vollständig wirksam,
-  anders als bei Round-Robin.
-* Jeder Resolver sieht nur etwa `1/n` deiner Domains. Bei drei Upstreams sieht keiner mehr
-  als ein Drittel deines Profils.
-* Der Seed wird beim Start zufällig gezogen: nach einem Neustart sieht jeder Anbieter ein
-  *anderes* Drittel. Über die Zeit lernt keiner ein stabiles Bild.
-* Weil die Zuordnung an der registrierbaren Domain hängt (nicht am vollständigen Namen),
-  landen `mail.example.com` und `cdn.example.com` beim selben Resolver — die Struktur
-  einer besuchten Seite verrät sich damit nicht an mehrere Anbieter.
+* The same name always goes to the same resolver → the cache stays fully effective,
+  unlike with round-robin.
+* Each resolver sees only about `1/n` of your domains. With three upstreams, none sees
+  more than a third of your profile.
+* The seed is drawn at random at startup: after a restart each provider sees a *different*
+  third. Over time none of them learns a stable picture.
+* Because the assignment hangs on the registrable domain (not on the full name),
+  `mail.example.com` and `cdn.example.com` land at the same resolver — the structure of a
+  visited site thus does not reveal itself to several providers.
 
-**Grenzen, die dokumentiert gehören:** Jeder Upstream sieht weiterhin deine IP. Beliebte
-Domains verteilen sich bei allen Nutzern gleich. Ein Angreifer mit Zugriff auf mehrere der
-konfigurierten Upstreams hebt den Schutz auf — die Auswahl sollte verschiedene Betreiber
-und Rechtsräume abdecken.
+**Limits that need documenting:** every upstream still sees your IP. Popular domains are
+distributed the same way for all users. An attacker with access to several of the
+configured upstreams cancels the protection — the selection should therefore cover
+different operators and jurisdictions.
 
-**Nachgezogen in Phase 7** ([ADR-0018](adr/0018-public-suffix-list-und-seed-rotation.md)):
-Die registrierbare Domain kam aus einer Näherung ("letzte zwei Labels") und lieferte für
-`shop.example.co.uk` das wirkungslose `co.uk` — alle `.co.uk`-Namen landeten bei einem
-Upstream. Jetzt aus der Public Suffix List, einkompiliert. Und der Seed gilt nicht mehr
-bis zum Neustart, sondern wird per Default alle 24 Stunden neu gezogen: der Satz "über die
-Zeit lernt keiner ein stabiles Bild" stimmte vorher nur für den, der auch neu startet.
-Gemessen: 10 000 Domains über vier Poolgrößen und acht Seeds, Abweichung je Upstream unter
-5 %.
+**Followed up in phase 7** ([ADR-0018](adr/0018-public-suffix-list-und-seed-rotation.md)):
+the registrable domain came from an approximation ("last two labels") and for
+`shop.example.co.uk` yielded the ineffective `co.uk` — all `.co.uk` names landed at one
+upstream. Now it comes from the Public Suffix List, compiled in. And the seed no longer
+lasts until restart but is by default redrawn every 24 hours: the sentence "over time none
+of them learns a stable picture" previously only held for someone who also restarts.
+Measured: 10,000 domains across four pool sizes and eight seeds, deviation per upstream
+below 5 %.
 
-### P3 · Privacy-Budget `Aufwand S` `Neu ●` `Phase 7`
+### P3 · Privacy budget `Effort S` `Novel ●` `Phase 7`
 
-Der Server zählt, welcher Anteil der Anfragen zu welchem Upstream ging, und zeigt das in
-der UI: *"Quad9 hat 34 % deiner Domains gesehen, Mullvad 33 %, dnsforge 33 %."*
+The server counts which share of requests went to which upstream, and shows it in the UI:
+*"Quad9 has seen 34 % of your domains, Mullvad 33 %, dnsforge 33 %."*
 
-Klein umzusetzen, aber es macht ein abstraktes Versprechen zu einer nachprüfbaren Zahl.
-Es deckt auch Fehlkonfigurationen auf — wenn ein Upstream 90 % abbekommt, weil die
-anderen ständig ausfallen, sieht man das sofort statt nie.
+Small to implement, but it turns an abstract promise into a checkable number. It also
+exposes misconfigurations — when one upstream gets 90 % because the others keep failing,
+you see that immediately instead of never.
 
-### P4 · Oblivious DoH als Client `Aufwand M` `Neu ◐` `Phase 7`
+### P4 · Oblivious DoH as a client `Effort M` `Novel ◐` `Phase 7`
 
-RFC 9230. Die Anfrage wird für den Ziel-Resolver verschlüsselt und über einen Proxy
-geschickt: der Proxy kennt deine IP, aber nicht die Anfrage; der Resolver kennt die
-Anfrage, aber nicht deine IP. Das ist die einzige Technik in dieser Liste, die das
-Problem "der Upstream kennt deine IP" wirklich löst statt es zu verteilen.
+RFC 9230. The request is encrypted for the target resolver and sent through a proxy: the
+proxy knows your IP but not the request; the resolver knows the request but not your IP.
+This is the only technique in this list that actually solves the problem "the upstream
+knows your IP" instead of distributing it.
 
-**Grenze:** Braucht einen Proxy und einen ODoH-fähigen Zielresolver, die *nicht* demselben
-Betreiber gehören dürfen — sonst ist der Schutz Theater. Die Auswahl ist überschaubar.
-Zusätzliche Latenz durch den zusätzlichen Hop.
+**Limit:** needs a proxy and an ODoH-capable target resolver that must *not* belong to the
+same operator — otherwise the protection is theatre. The choice is manageable. Additional
+latency from the extra hop.
 
-**Umgesetzt in Phase 7** ([ADR-0017](adr/0017-oblivious-doh.md)), Default aus. Zwei
-Grenzen dazugelernt und dokumentiert: der Proxy weiß, *mit wem* du sprichst
-(`targethost` muss in der URL stehen, sonst kann er nicht weiterreichen), und der
-öffentliche Schlüssel des Ziels wird einmal je Prozessstart direkt bei ihm geholt — diese
-eine Verbindung geht nicht über den Proxy, das Ziel sieht dabei die Adresse, aber keine
-Frage. Über den Proxy ginge es nicht: der nimmt ausschließlich ODoH-Nachrichten entgegen.
-Eingeschaltet verlangt die Konfiguration, dass *alle* Resolver im Pool `doh://` sprechen —
-ein `dot://` daneben wäre eine Zusage, die für jede Anfrage nicht eingelöst würde.
+**Implemented in phase 7** ([ADR-0017](adr/0017-oblivious-doh.md)), default off. Two limits
+learned and documented: the proxy knows *whom* you are talking to (`targethost` must be in
+the URL, otherwise it cannot forward), and the target's public key is fetched directly from
+it once per process start — that one connection does not go through the proxy, and during
+it the target sees the address, but no question. Going through the proxy would not work:
+it accepts ODoH messages only. When enabled, the configuration demands that *all* resolvers
+in the pool speak `doh://` — a `dot://` next to them would be a promise not kept for every
+request.
 
-### P5 · DDR/DNR — Clients automatisch auf Verschlüsselung heben `Aufwand M` `Neu ●` `Phase 10`
+### P5 · DDR/DNR — raise clients to encryption automatically `Effort M` `Novel ●` `Phase 10`
 
-RFC 9462 (DDR) und RFC 9463 (DNR). Ein Client fragt `_dns.resolver.arpa` beim
-konfigurierten Klartext-Resolver und bekommt zurück: *"denselben Dienst gibt es
-verschlüsselt unter dieser Adresse."* Aktuelle Betriebssysteme werten das aus und wechseln
-selbstständig von UDP/53 auf DoH oder DoT.
+RFC 9462 (DDR) and RFC 9463 (DNR). A client asks `_dns.resolver.arpa` at the configured
+plaintext resolver and gets back: *"the same service exists encrypted under this address."*
+Current operating systems evaluate that and switch from UDP/53 to DoH or DoT on their own.
 
-**Warum das ungewöhnlich ist:** Praktisch kein Heim-Resolver kann das. Damit wird
-LAN-Verkehr zum Resolver verschlüsselt, ohne dass auf einem einzigen Gerät etwas
-konfiguriert werden muss — das ist der Unterschied zwischen "ich habe DoH eingerichtet"
-und "im ganzen Haushalt läuft DNS verschlüsselt".
+**Why that is unusual:** practically no home resolver can do it. It makes LAN traffic to
+the resolver encrypted without anything having to be configured on a single device — that
+is the difference between "I have set up DoH" and "DNS is encrypted throughout the
+household".
 
-**Voraussetzung:** ein Zertifikat, dem die Clients trauen, mit der IP oder dem Namen des
-Resolvers als SAN. Im LAN heißt das entweder eine echte Domain mit ACME-DNS-01 oder eine
-eigene CA, die auf den Geräten liegt.
+**Prerequisite:** a certificate the clients trust, with the resolver's IP or name as SAN.
+In the LAN that means either a real domain with ACME-DNS-01 or a CA of your own deployed
+on the devices.
 
-### P6 · Hygiene-Grundlagen `Aufwand S je` `Neu ○` `Phase 3`
+### P6 · Hygiene basics `Effort S each` `Novel ○` `Phase 3`
 
-Kein Alleinstellungsmerkmal, aber Voraussetzung dafür, dass der Rest nicht Fassade ist:
-ECS strippen (RFC 7871 nicht weiterreichen), EDNS-Padding (RFC 7830/8467), DNS Cookies
-(RFC 7873), 0x20-Encoding, Quellport-Randomisierung, TTL-Deckel gegen langlebiges
-Tracking über DNS-Cache.
+Not a unique selling point, but the prerequisite for the rest not being facade: strip ECS
+(do not forward RFC 7871), EDNS padding (RFC 7830/8467), DNS cookies (RFC 7873), 0x20
+encoding, source port randomisation, TTL cap against long-lived tracking via the DNS
+cache.
 
-### P7 · Cover-Traffic — bewusst verworfen
+### P7 · Cover traffic — deliberately discarded
 
-Zufällige Fake-Anfragen sollen das echte Muster verstecken. In der Praxis: hoher
-Upstream-Verkehr, und ein Beobachter kann echte von generierten Anfragen meist trennen
-(Timing, Wiederholungsmuster, Verteilung der Namen). Kosten sicher, Nutzen fraglich.
+Random fake requests are supposed to hide the real pattern. In practice: high upstream
+traffic, and an observer can usually separate real from generated requests (timing,
+repetition patterns, distribution of the names). Cost certain, benefit questionable.
 
-Die abgeschwächte Variante ist dagegen sinnvoll und steckt schon im Cache-Prefetch
-(Phase 2): häufig genutzte Namen werden im Hintergrund erneuert, wodurch Upstream-Verkehr
-entsteht, der nicht mit Nutzeraktivität korreliert. Das ist ein Nebeneffekt einer nützlichen
-Funktion, kein eigenes Feature.
-
----
-
-## D — Erkennung ohne Cloud
-
-Alle Detektoren liefern einen Score und eine Begründung, laufen lokal, und stehen per
-Default auf `flag`, nicht `block`. Ein Detektor, der das Internet kaputtmacht, wird
-abgeschaltet — und mit ihm alle anderen.
-
-### D1 · DNS-Rebinding-Schutz `Aufwand S` `Neu ○` `Phase 8`
-
-Antworten mit privaten IPs (RFC 1918, Loopback, Link-Local) auf öffentliche Namen werden
-verworfen. Klassischer Schutz gegen Angriffe, bei denen eine Webseite über den Browser auf
-Geräte im LAN zugreift. `dnsmasq` und `unbound` können das; es fehlt in vielen
-Blocklisten-Lösungen. Braucht eine Ausnahmeliste für interne Zonen und für Dienste, die
-das legitim tun.
-
-**Umgesetzt in Phase 8.** Der einzige der fünf, der keine Heuristik ist: eine
-Ja-Nein-Regel, Score immer 1,000, Ausnahmeliste statt Schwelle. Geprüft werden
-auch Glue-Records im Additional-Abschnitt und die als IPv6 verpackte
-IPv4-Adresse (`::ffff:192.168.1.1`) — die wäre sonst der offene Seiteneingang.
-Die `forward_zone`-Einträge kommen automatisch in die Ausnahmeliste; ohne das
-wäre der Schutz beim ersten Start eine Falle, denn der eigene LAN-Nameserver
-antwortet naturgemäß mit privaten Adressen.
-
-### D2 · DNS-Tunneling-Erkennung `Aufwand M` `Neu ◐` `Phase 8`
-
-Datenexfiltration über DNS hat auffällige Merkmale: sehr lange Labels, hohe Entropie in
-den Namen, viele einmalige Subdomains unter einer Zone, ungewöhnlich hoher Anteil an
-TXT-/NULL-Anfragen, hohe Anfragerate an eine einzelne Zone.
-
-Statt einer einzelnen Regel: mehrere Signale pro Zone über ein Zeitfenster, kombiniert zu
-einem Score. Der entscheidende Trick ist, **pro Zone** statt pro Anfrage zu bewerten —
-eine einzelne lange Subdomain ist normal, tausend davon unter derselben Zone nicht.
-
-**Grenze:** Manche CDNs und Antivirus-Produkte sehen genauso aus. Deshalb eine Ausnahmeliste
-und `flag` als Default.
-
-**Umgesetzt in Phase 8.** Fünf Signale, gewichtet, mit den einmaligen Subdomains
-je Zone als schwerstem — die Entropie hängt stark am Kodierverfahren (hex kommt
-über 4 Bit nicht hinaus, base64 über 6), die Zahl der einmaligen Namen dagegen an
-der Sache selbst. Gemessen (BENCHMARKS.md): gewöhnlicher Verkehr unter einer Zone
-0,17, `dnscat2`-artig 0,81, `iodine`-artig 1,0; **0,0000 % Falsch-Positive** auf
-100 000 echten Domains. Ein Tunnel mit zehn Anfragen pro Stunde fällt bewusst
-nicht auf — dafür wäre der Zustand zu teuer.
-
-### D3 · DGA-Erkennung `Aufwand M` `Neu ◐` `Phase 8`
-
-Malware erzeugt Domainnamen algorithmisch (`kqxvbnzmrt.com`). Ein Zeichen-N-Gramm-Modell
-über einem großen Korpus normaler Domains erkennt das gut, ist wenige hundert Kilobyte
-groß, braucht keine GPU und läuft in Mikrosekunden.
-
-Vorgehen: 3-Gramm-Wahrscheinlichkeiten aus einer Popularitätsliste lernen, Score = negative
-Log-Likelihood, normalisiert auf die Namenslänge. Ergänzende Merkmale: Konsonantenhäufungen,
-Ziffernanteil, Wörterbuch-Treffer.
-
-**Grenze:** kurze Namen sind statistisch nicht unterscheidbar; `bit.ly`, `t.co` und
-zufällig aussehende CDN-Hostnamen erzeugen Falsch-Positive. Wortlisten-basierte DGAs
-(zwei echte Wörter aneinander) erkennt das Modell nicht. Deshalb: Falsch-Positiv-Rate ist
-das Qualitätsmaß, nicht die Trefferquote.
-
-**Umgesetzt in Phase 8**, und die Grenzen oben sind gemessen statt vermutet
-(BENCHMARKS.md): **0,077 % Falsch-Positive** bei 92,8 % Trefferquote auf
-alphanumerischen, 40,6 % auf necurs-artigen und 28,6 % auf conficker-artigen
-Namen — aber **0,5 %** auf aussprechbaren und **0,0 %** auf wörterbuchbasierten.
-Die letzten beiden stehen als Test da, damit die Grenze eine bekannte bleibt und
-keine Überraschung wird.
-
-Zwei Klassen dazugelernt: Punycode (`xn--…`) und alles unterhalb eines *privaten*
-Suffixes (`cloudfront.net`, `github.io`) werden gar nicht erst bewertet. Beim
-ersten Messlauf waren vier der zwanzig auffälligsten Namen IDNs — ein
-systematischer Fehlalarm für ganze Sprachräume. Was bleibt, sind vor allem
-Pinyin-Kürzel wie `hnqxdzkj.com`.
-
-### D4 · Typosquat-Wächter `Aufwand M` `Neu ●` `Phase 8`
-
-Du hinterlegst die Domains, die dir wichtig sind — Bank, Behördenportal, Arbeitgeber.
-Jede aufgelöste Domain wird gegen diese kleine Liste geprüft: Damerau-Levenshtein-Distanz
-1–2, Tastatur-Nachbarschaft, Unicode-Confusables (kyrillisches `а` in `sparkasse.at`),
-IDN-Homographen, verwechselbare TLDs.
-
-**Warum das ungewöhnlich ist:** Bestehende Lösungen prüfen gegen globale Phishing-Listen —
-also gegen das, was gestern schon gemeldet war. Hier läuft der Vergleich gegen *deine*
-zwanzig Domains, wodurch auch eine Domain auffällt, die vor zehn Minuten registriert wurde
-und auf keiner Liste steht. Der Rechenaufwand ist trivial, weil die Schutzliste klein ist.
-
-**Umgesetzt in Phase 8**, mit vier Trefferarten: Homograph (1,000), fremder Name
-trägt die geschützte Domain wie `sparkasse.at.com` (0,950), Tippfehler mit
-Abstand 1 oder 2 (0,950 / 0,850), andere Endung (0,900). Punycode wird vorher
-aufgelöst — ein kyrillisches `а` erreicht uns als `xn--sprkasse-…` und sieht dem
-Original in dieser Form nicht im Geringsten ähnlich. Fünf geschützte Domains
-gegen 100 000 echte Namen ergaben 18 Meldungen und **kein einziges Mal die
-geschützte Domain selbst**.
-
-Sinnvolle Ergänzung: bei einem Treffer nicht stumpf blocken, sondern eine
-Sinkhole-Erklärseite ausliefern — *"dieser Name ähnelt sparkasse.at, unterscheidet sich
-aber in einem Zeichen"*. Das ist der Moment, in dem der Schutz tatsächlich wirkt.
-
-### D5 · Neu registrierte Domains `Aufwand S` `Neu ◐` `Phase 8`
-
-Domains, die vor weniger als 30 Tagen registriert wurden, sind überproportional oft
-bösartig. AlpenDNS liest eine lokale Datei mit Domain + Registrierungsdatum und flaggt
-Treffer.
-
-Die Datei kommt aus deinem AlpenShield-Projekt (CT-Logs, Zonendaten). Die Schnittstelle
-ist bewusst eine Datei und kein API-Aufruf: der Resolver darf nicht davon abhängen, dass
-ein zweiter Dienst läuft.
-
-**Umgesetzt in Phase 8.** Der Score fällt linear mit dem Alter — eine Domain von
-gestern ist verdächtiger als eine von vor drei Wochen, und die Abstufung zeigt
-das, statt alles im Fenster gleich zu behandeln. Eine fehlende Datei ist **kein**
-Startfehler: der Detektor läuft leer mit und erscheint im Status als `off`.
-
-### D6 · Erklärbarkeit ist Pflicht, nicht Kür
-
-Jeder Detektor liefert nicht nur einen Score, sondern die Merkmale, die dazu geführt haben
-(*"Label-Entropie 4.7, 340 einmalige Subdomains in 5 Minuten"*). Ohne das ist ein
-Falsch-Positiv nicht debugbar, und du wirst das Feature abschalten statt es zu verbessern.
-
-**Umgesetzt in Phase 8 als Pflichtfeld:** `Finding::reason` ist kein `Option`.
-Ein Detektor *kann* keinen Fund ohne Begründung liefern. So sieht das im Betrieb
-aus:
-
-```
-Algorithmisch erzeugter Name meldet (Score 0.900): 'kqxvbnzmrtwp' passt nicht zu
-gewachsenen Namen: 7.3 Bit Überraschung je Zeichentripel, längste
-Konsonantenkette 12, Ziffernanteil 0 %
-Neu registriert meldet (Score 0.933): 'kqxvbnzmrtwp.com' wurde am 2026-08-28
-registriert, vor 2 Tagen (Schwelle: 30 Tage)
-```
-
-Beide Funde zu derselben Anfrage — deshalb laufen alle Detektoren und nicht nur
-bis zum ersten Treffer. "Frisch registriert *und* algorithmisch erzeugt" ist eine
-andere Aussage als jeder Teil für sich.
-
-Der Preis: eine Begründung trägt den Query-Namen. Sie unterliegt damit denselben
-Regeln wie alles im Trace (CLAUDE.md B.1 Regel 3), und der Leck-Test durchsucht
-seit Phase 8 auch die Liste der auffälligen Anfragen.
+The weakened variant, by contrast, makes sense and is already in the cache prefetch
+(phase 2): frequently used names are renewed in the background, which produces upstream
+traffic that does not correlate with user activity. That is a side effect of a useful
+function, not a feature of its own.
 
 ---
 
-## C — Clients und Policies
+## D — Detection without a cloud
 
-### C1 · Client-Identität jenseits der IP `Aufwand M` `Neu ●` `Phase 5`
+All detectors deliver a score and a reason, run locally, and are by default on `flag`, not
+`block`. A detector that breaks the internet gets switched off — and all the others with
+it.
 
-IP-basierte Zuordnung bricht, sobald ein Gerät das Netz verlässt. AlpenDNS identifiziert
-zusätzlich über DoH-Pfad-Token (`/dns-query/<32 zufällige Bytes>`) und mTLS-Client-Zertifikate.
+### D1 · DNS rebinding protection `Effort S` `Novel ○` `Phase 8`
 
-**Folge:** Dein Handy behält seine Policy im Mobilfunknetz. Das Tablet der Kinder behält
-seine Regeln auch im WLAN der Nachbarn. Das ist der Punkt, an dem ein Heim-Resolver zum
-persönlichen Resolver wird — und es kostet nur die Token-Extraktion aus dem Pfad, weil
-jeder Standard-DoH-Client das ohne Anpassung mitmacht.
+Answers with private IPs (RFC 1918, loopback, link-local) for public names are discarded.
+Classic protection against attacks in which a website reaches devices in the LAN through
+the browser. `dnsmasq` and `unbound` can do it; it is missing from many blocklist
+solutions. Needs an exception list for internal zones and for services that do this
+legitimately.
 
-### C2 · Zeitpläne `Aufwand S` `Neu ○` `Phase 5`
+**Implemented in phase 8.** The only one of the five that is not a heuristic: a yes/no
+rule, score always 1.000, exception list instead of threshold. Glue records in the
+additional section are checked too, as is the IPv4 address wrapped as IPv6
+(`::ffff:192.168.1.1`) — that would otherwise be the open side entrance. The
+`forward_zone` entries automatically enter the exception list; without that, the
+protection would be a trap on first start, since your own LAN nameserver naturally answers
+with private addresses.
 
-Regeln, die zu bestimmten Zeiten gelten. Braucht eine injizierbare Uhr, sonst ist es nicht
-testbar. Zeitzonen und Sommerzeit sind die einzige echte Schwierigkeit.
+### D2 · DNS tunnelling detection `Effort M` `Novel ◐` `Phase 8`
 
-### C3 · Temporäre Freigaben `Aufwand S` `Neu ◐` `Phase 5`
+Data exfiltration over DNS has conspicuous traits: very long labels, high entropy in the
+names, many one-off subdomains under one zone, an unusually high share of TXT/NULL
+requests, a high request rate against a single zone.
 
-*"Erlaube `youtube.com` für 20 Minuten."* Über API, UI oder CLI. Läuft automatisch ab.
-Das Feature, das den Unterschied macht, wenn außer dir noch jemand im Haushalt wohnt —
-ohne das wird der Filter beim ersten Konflikt komplett abgeschaltet.
+Instead of a single rule: several signals per zone over a time window, combined into a
+score. The decisive trick is to assess **per zone** instead of per request — a single long
+subdomain is normal, a thousand of them under the same zone are not.
 
-### C4 · Policy-Simulation `Aufwand S` `Neu ●` `Phase 5`
+**Limit:** some CDNs and antivirus products look exactly the same. Hence an exception list
+and `flag` as default.
+
+**Implemented in phase 8.** Five signals, weighted, with the one-off subdomains per zone
+as the heaviest — entropy depends strongly on the encoding (hex gets no further than
+4 bits, base64 6), whereas the number of one-off names depends on the thing itself.
+Measured (BENCHMARKS.md): ordinary traffic under one zone 0.17, `dnscat2`-like 0.81,
+`iodine`-like 1.0; **0.0000 % false positives** on 100,000 real domains. A tunnel with ten
+requests per hour deliberately does not stand out — the state for that would be too
+expensive.
+
+### D3 · DGA detection `Effort M` `Novel ◐` `Phase 8`
+
+Malware generates domain names algorithmically (`kqxvbnzmrt.com`). A character n-gram model
+over a large corpus of normal domains detects that well, is a few hundred kilobytes in
+size, needs no GPU and runs in microseconds.
+
+Approach: learn 3-gram probabilities from a popularity list, score = negative
+log-likelihood, normalised to the name length. Supplementary features: consonant clusters,
+digit share, dictionary hits.
+
+**Limit:** short names are statistically indistinguishable; `bit.ly`, `t.co` and
+randomly looking CDN hostnames produce false positives. Wordlist-based DGAs (two real
+words joined together) are not detected by the model. Hence: the false positive rate is
+the quality measure, not the hit rate.
+
+**Implemented in phase 8**, and the limits above are measured rather than assumed
+(BENCHMARKS.md): **0.077 % false positives** at 92.8 % hit rate on alphanumeric, 40.6 % on
+necurs-like and 28.6 % on conficker-like names — but **0.5 %** on pronounceable and
+**0.0 %** on dictionary-based ones. The last two stand as a test so that the limit remains
+a known one and does not become a surprise.
+
+Two classes learned: punycode (`xn--…`) and everything below a *private* suffix
+(`cloudfront.net`, `github.io`) are not assessed at all. In the first measurement run, four
+of the twenty most conspicuous names were IDNs — a systematic false alarm for entire
+language areas. What remains are mostly Pinyin abbreviations like `hnqxdzkj.com`.
+
+### D4 · Typosquat guard `Effort M` `Novel ●` `Phase 8`
+
+You store the domains that matter to you — bank, government portal, employer. Every
+resolved domain is checked against this small list: Damerau-Levenshtein distance 1–2,
+keyboard adjacency, Unicode confusables (Cyrillic `а` in `sparkasse.at`), IDN homographs,
+confusable TLDs.
+
+**Why that is unusual:** existing solutions check against global phishing lists — that is,
+against what had already been reported yesterday. Here the comparison runs against *your*
+twenty domains, which means a domain registered ten minutes ago and on no list at all
+still stands out. The computational cost is trivial because the protection list is small.
+
+**Implemented in phase 8**, with four kinds of hit: homograph (1.000), a foreign name
+carrying the protected domain like `sparkasse.at.com` (0.950), typo with distance 1 or 2
+(0.950 / 0.850), other TLD (0.900). Punycode is resolved beforehand — a Cyrillic `а`
+reaches us as `xn--sprkasse-…` and in that form looks nothing at all like the original.
+Five protected domains against 100,000 real names yielded 18 reports and **not a single
+time the protected domain itself**.
+
+Useful addition: on a hit, don't block bluntly but serve a sinkhole explanation page —
+*"this name resembles sparkasse.at but differs in one character"*. That is the moment the
+protection actually takes effect.
+
+### D5 · Newly registered domains `Effort S` `Novel ◐` `Phase 8`
+
+Domains registered less than 30 days ago are disproportionately often malicious. AlpenDNS
+reads a local file with domain + registration date and flags hits.
+
+The file comes from your AlpenShield project (CT logs, zone data). The interface is
+deliberately a file and not an API call: the resolver must not depend on a second service
+running.
+
+**Implemented in phase 8.** The score falls linearly with age — a domain from yesterday is
+more suspicious than one from three weeks ago, and the gradation shows that instead of
+treating everything in the window the same. A missing file is **not** a startup error: the
+detector runs empty and appears in the status as `off`.
+
+### D6 · Explainability is a duty, not a nicety
+
+Every detector delivers not just a score but the features that led to it (*"label entropy
+4.7, 340 one-off subdomains in 5 minutes"*). Without that, a false positive is not
+debuggable, and you will switch the feature off instead of improving it.
+
+**Implemented in phase 8 as a mandatory field:** `Finding::reason` is not an `Option`.
+A detector *cannot* deliver a finding without a reason. This is what that looks like in
+operation:
+
+```
+Algorithmically generated name reports (score 0.900): 'kqxvbnzmrtwp' does not fit
+naturally grown names: 7.3 bits of surprise per character triple, longest
+consonant run 12, digit share 0 %
+Newly registered reports (score 0.933): 'kqxvbnzmrtwp.com' was registered on 2026-08-28,
+2 days ago (threshold: 30 days)
+```
+
+Both findings for the same request — which is why all detectors run and not just up to the
+first hit. "Freshly registered *and* algorithmically generated" is a different statement
+than either part on its own.
+
+The price: a reason carries the query name. It is therefore subject to the same rules as
+everything in the trace (CLAUDE.md B.1 rule 3), and since phase 8 the leak test also scans
+the list of conspicuous requests.
+
+---
+
+## C — Clients and policies
+
+### C1 · Client identity beyond the IP `Effort M` `Novel ●` `Phase 5`
+
+IP-based assignment breaks as soon as a device leaves the network. AlpenDNS additionally
+identifies via DoH path tokens (`/dns-query/<32 random bytes>`) and mTLS client
+certificates.
+
+**Consequence:** your phone keeps its policy on the mobile network. The children's tablet
+keeps its rules in the neighbours' WiFi too. This is the point at which a home resolver
+becomes a personal resolver — and it costs only the token extraction from the path,
+because every standard DoH client does that without modification.
+
+### C2 · Schedules `Effort S` `Novel ○` `Phase 5`
+
+Rules that apply at certain times. Needs an injectable clock, otherwise it is not testable.
+Time zones and daylight saving are the only real difficulty.
+
+### C3 · Temporary allowances `Effort S` `Novel ◐` `Phase 5`
+
+*"Allow `youtube.com` for 20 minutes."* Via API, UI or CLI. Expires automatically.
+The feature that makes the difference when someone besides you lives in the household —
+without it, the filter gets switched off completely at the first conflict.
+
+### C4 · Policy simulation `Effort S` `Novel ●` `Phase 5`
 
 ```
 $ alpendns policy test ads.example.com --client kids-tablet
 BLOCKED
   client   kids-tablet          ← matched by ip 10.0.10.42
   policy   kids
-  allowlist local-allow         ← kein Treffer
+  allowlist local-allow         ← no hit
   blocklist oisd-big:118432     ← ||ads.example.com^
   verdict  NXDOMAIN
 ```
 
-Testen, ohne die Anfrage zu stellen. Damit wird eine Policy-Änderung überprüfbar, bevor
-sie live ist — und es ist die Grundlage des Replay-Harness aus [TESTING.md](TESTING.md).
+Testing without making the request. That makes a policy change checkable before it goes
+live — and it is the basis of the replay harness from [TESTING.md](TESTING.md).
 
-### C5 · Conditional Forwarding `Aufwand S` `Neu ○` `Phase 3`
+### C5 · Conditional forwarding `Effort S` `Novel ○` `Phase 3`
 
-Interne Zonen (`home.arpa`, Reverse-Zonen des eigenen Netzes) gehen an den internen
-Server und nie ins Internet. Standard-Funktionalität, aber im Homelab unverzichtbar —
-ohne sie leakt jeder interne Hostname an den Upstream.
-
----
-
-## O — Beobachtbarkeit und Bedienung
-
-### O1 · Decision-Trace und "Warum wurde das geblockt?" `Aufwand M` `Neu ●` `Phase 5/6`
-
-Jede Antwort trägt intern eine vollständige Begründungskette (ARCHITECTURE.md §2). Die UI
-zeigt sie: welche Liste, welche Zeile, welche Policy, welcher Upstream, wie lange.
-
-**Warum das architektonisch früh entschieden werden muss:** Man kann es nicht nachträglich
-einbauen. Entweder die Pipeline sammelt die Schritte von Anfang an, oder man hat später
-nur ein `bool` und rät.
-
-### O2 · Breakage-Erkennung `Aufwand M` `Neu ●` `Phase 8+`
-
-Wenn ein Client dieselbe geblockte Domain innerhalb weniger Sekunden mehrfach anfragt und
-danach auffällig still ist, ist mit hoher Wahrscheinlichkeit gerade eine App kaputtgegangen.
-AlpenDNS erkennt dieses Muster und schlägt in der UI vor: *"`api.example.com` wurde 12-mal
-in 4 Sekunden von `florian-laptop` geblockt — vermutlich funktioniert etwas nicht.
-Freigeben?"*
-
-Das dreht die übliche Reihenfolge um: normalerweise merkt der Nutzer die Störung und sucht
-im Log. Hier meldet sich der Server, bevor die Suche anfängt. Braucht kein Query-Log —
-das Muster ist im Ringpuffer sichtbar.
-
-### O3 · Blocklist-Diff-Review `Aufwand M` `Neu ●` `Phase 10`
-
-Vor dem Anwenden eines Listen-Updates: *"Diese Aktualisierung blockiert 47 Domains neu,
-davon 3, die du in den letzten 30 Tagen tatsächlich aufgerufen hast: …"*
-
-Der Vergleich läuft gegen die aggregierten Zähler, nicht gegen ein Query-Log — also auch
-im Datenschutz-Default möglich. Löst das Problem, dass ein Listen-Update irgendwann still
-etwas kaputt macht und niemand die Verbindung zum Update herstellt.
-
-### O4 · Live-Query-Stream `Aufwand S` `Neu ○` `Phase 6`
-
-Server-Sent Events, in der UI als laufende Liste. Nützlich beim Einrichten eines neuen
-Geräts. Respektiert den Log-Modus: bei `none` fließen nur Zähler.
-
-### O5 · Prometheus + saubere Metriken `Aufwand S` `Neu ○` `Phase 6`
-
-Queries/s, Blocks, Cache-Trefferquote, Upstream-RTT pro Resolver, Fehlerraten,
-Listengrößen, RSS. Keine Metrik enthält je einen Query-Namen — ein Label mit hoher
-Kardinalität ist hier nicht nur ein Performance-Problem, sondern ein Datenleck.
-
-### O6 · Sinkhole mit Erklärung statt NXDOMAIN `Aufwand M` `Neu ◐` `Phase 6+`
-
-Statt NXDOMAIN eine lokale IP mit einer Seite, die erklärt, was und warum geblockt wurde.
-Funktioniert nur für HTTP; bei HTTPS bricht die Verbindung mit einem Zertifikatsfehler ab,
-was verwirrender ist als ein sauberes NXDOMAIN. Deshalb: konfigurierbar, nicht Default,
-und in der UI mit dieser Einschränkung beschrieben. Für D4 (Typosquat) ist es trotzdem die
-richtige Wahl — dort ist die Erklärung der eigentliche Nutzen.
+Internal zones (`home.arpa`, reverse zones of your own network) go to the internal server
+and never to the internet. Standard functionality, but indispensable in the homelab —
+without it every internal hostname leaks to the upstream.
 
 ---
 
-## Bewertung: was zuerst?
+## O — Observability and operation
 
-Wenn du nur drei Dinge baust, die AlpenDNS von allem anderen unterscheiden:
+### O1 · Decision trace and "why was this blocked?" `Effort M` `Novel ●` `Phase 5/6`
 
-1. **P2 Upstream-Splitting** — löst ein Problem, das sonst niemand löst, und ist mit
-   moderatem Aufwand machbar.
-2. **O1 Decision-Trace** — muss früh in die Architektur, macht alles danach debugbar,
-   und ist der Grund, warum die UI etwas kann, das andere UIs nicht können.
-3. **D4 Typosquat-Wächter** — kleiner Aufwand, konkreter Nutzen, und die Idee
-   "prüfe gegen *meine* wichtigen Domains statt gegen globale Listen" ist der Kern
-   dessen, was ein persönlicher Resolver besser kann als ein zentraler Dienst.
+Every answer carries a complete chain of reasoning internally (ARCHITECTURE.md §2). The UI
+shows it: which list, which line, which policy, which upstream, how long.
 
-**C1 (Client-Identität über DoH-Token)** ist der Nachzügler mit dem besten
-Aufwand-Nutzen-Verhältnis — technisch fast geschenkt, praktisch der Unterschied zwischen
-einem Heim-Resolver und einem persönlichen.
+**Why this has to be decided early in architectural terms:** you cannot retrofit it.
+Either the pipeline collects the steps from the beginning, or later you have only a `bool`
+and guess.
+
+### O2 · Breakage detection `Effort M` `Novel ●` `Phase 8+`
+
+If a client requests the same blocked domain several times within a few seconds and then
+goes conspicuously quiet, an app has very likely just broken. AlpenDNS recognises this
+pattern and suggests in the UI: *"`api.example.com` was blocked 12 times in 4 seconds from
+`florian-laptop` — something probably isn't working. Unblock?"*
+
+That reverses the usual order: normally the user notices the disruption and searches the
+log. Here the server speaks up before the search begins. Needs no query log — the pattern
+is visible in the ring buffer.
+
+### O3 · Blocklist diff review `Effort M` `Novel ●` `Phase 10`
+
+Before applying a list update: *"This update blocks 47 domains newly, 3 of which you
+actually visited in the last 30 days: …"*
+
+The comparison runs against the aggregated counters, not against a query log — so it is
+possible even under the privacy default. It solves the problem that a list update at some
+point quietly breaks something and nobody connects it to the update.
+
+### O4 · Live query stream `Effort S` `Novel ○` `Phase 6`
+
+Server-sent events, in the UI as a running list. Useful when setting up a new device.
+Respects the log mode: with `none` only counters flow.
+
+### O5 · Prometheus and clean metrics `Effort S` `Novel ○` `Phase 6`
+
+Queries/s, blocks, cache hit rate, upstream RTT per resolver, error rates, list sizes, RSS.
+No metric ever contains a query name — a label with high cardinality is not just a
+performance problem here but a data leak.
+
+### O6 · Sinkhole with explanation instead of NXDOMAIN `Effort M` `Novel ◐` `Phase 6+`
+
+Instead of NXDOMAIN, a local IP with a page explaining what was blocked and why. Works only
+for HTTP; with HTTPS the connection breaks with a certificate error, which is more
+confusing than a clean NXDOMAIN. Hence: configurable, not default, and described in the UI
+with that limitation. For D4 (typosquat) it is nevertheless the right choice — there the
+explanation is the actual benefit.
+
+---
+
+## Assessment: what first?
+
+If you build only three things that set AlpenDNS apart from everything else:
+
+1. **P2 Upstream splitting** — solves a problem nobody else solves, and is doable with
+   moderate effort.
+2. **O1 Decision trace** — has to go into the architecture early, makes everything after
+   it debuggable, and is the reason the UI can do something other UIs cannot.
+3. **D4 Typosquat guard** — small effort, concrete benefit, and the idea "check against
+   *my* important domains instead of against global lists" is the core of what a personal
+   resolver can do better than a central service.
+
+**C1 (client identity via DoH token)** is the latecomer with the best effort-to-benefit
+ratio — technically almost free, in practice the difference between a home resolver and a
+personal one.

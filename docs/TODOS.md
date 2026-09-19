@@ -1,173 +1,176 @@
-# TODOS — offene Punkte mit Umsetzungsplan
+# TODOS — open items with an implementation plan
 
-Die Liste stand hier vorher als reine Aufzählung. Sie steht weiter unten unverändert im
-Kern, jetzt aber mit je einem Plan: **Befund** (was der Code heute wirklich tut, mit
-Belegstelle), **Entwurf**, **Schritte im Verify-Format** wie in der Roadmap, was bewusst
-*nicht* gebaut wird, und Aufwand.
+This list stood here before as a bare enumeration. It still stands further down
+unchanged in substance, but now with a plan each: **finding** (what the code really does
+today, with a reference), **design**, **steps in the verify format** as in the roadmap,
+what is deliberately *not* being built, and effort.
 
-Keiner dieser Punkte gehört zu einer Phase mit Abnahmekriterium. Alles hier ist
-Phase-10-Material im Sinne von [ROADMAP.md](ROADMAP.md): jederzeit verwerfbar, keine
-Reihenfolge außer der am Ende empfohlenen.
+None of these items belongs to a phase with acceptance criteria. Everything here is
+phase 10 material in the sense of [ROADMAP.md](ROADMAP.md): discardable at any time, no
+order except the one recommended at the end.
 
-Alle Datei- und Zeilenangaben stammen vom 2026-09-01. Zeilennummern altern schneller als
-der Rest; die Modul- und Funktionsnamen sind der belastbare Teil.
-
----
-
-## Drei Befunde, die quer zu mehreren Punkten liegen
-
-Beim Durchsehen für diesen Plan sind drei Dinge aufgefallen, die in keinem TODO stehen,
-aber mehrere davon beeinflussen. Sie gehören zuerst geklärt, sonst setzen mehrere Pläne
-auf einer falschen Annahme auf.
-
-**B1 — Es gibt keinen `SIGHUP`-Reload — erledigt.** [ARCHITECTURE.md](ARCHITECTURE.md) §7
-beschreibt einen Reload, bei dem eine kaputte Konfiguration verworfen wird und die alte
-aktiv bleibt. Der ist jetzt gebaut: `reload_on_hangup` in `main.rs` lädt auf `SIGHUP` die
-Policy-Schicht neu — Clients, Policies, Regex, Zeitpläne und Listenquellen, atomar
-eingetauscht — und lässt bei einer kaputten Konfiguration den alten Stand stehen. Was nicht
-hot-reloadbar ist (Listener, Upstreams/TLS, Cache, Drosselung, Block-Modus, Detektoren),
-nennt das Log bei jedem Reload. §7 ist entsprechend angepasst; die Querverweise auf B1 in
-den Punkten 7, 9 und 10 sind damit überholt.
-
-**B2 — Blocklisten werden nur beim Start geladen.** In
-[filter/](../crates/alpendns/src/filter/) und [main.rs](../crates/alpendns/src/main.rs)
-gibt es keinen Update-Scheduler; der in CLAUDE.md B.3 genannte "Update-Scheduler" ist
-Zielbild, nicht Code. Die Listen kommen einmal über `filter::source`, das `<name>.list`
-und `<name>.meta` (mit `etag:` und `last-modified:`) ins `CacheDirectory` schreibt. Für
-Punkt 3 heißt das: "zuletzt aktualisiert vor 2 Tagen" misst heute im Wesentlichen, wie
-lange der Prozess läuft. Der Punkt ist damit nur halb so groß wie er aussieht — und die
-andere Hälfte (regelmäßig nachladen) ist das eigentlich Fehlende.
-
-**B3 — Das Query-Log wird synchron im Anfragepfad geschrieben.** `QueryLog::new`
-([logging/mod.rs:367-375](../crates/alpendns/src/logging/mod.rs#L367-L375)) öffnet die
-Datei einmal mit `create` + `append` und legt sie in einen `Mutex`; geschrieben wird mit
-`writeln!` direkt in der Aufzeichnung
-([logging/mod.rs:483-490](../crates/alpendns/src/logging/mod.rs#L483-L490)) — ohne Puffer,
-unter demselben Schloss für alle Anfragen. Betrifft nur `mode = "full"`, ist also nicht der
-Default, aber es ist genau die Sorte Schloss im Anfragepfad, die B.3 Regel 5 vermeiden
-will. Gehört zu Punkt 2 und wird dort mitgemacht.
+All file and line references date from 2026-09-01. Line numbers age faster than the
+rest; the module and function names are the durable part.
 
 ---
 
-## 1. TCP-Slowloris — erledigt.
+## Three findings that cut across several items
 
-> Timeout auf den Body-Read + ein Cap auf gleichzeitige Verbindungen. Im LAN reicht ein
-> kompromittiertes Gerät, um den Resolver lahmzulegen.
+While going through the code for this plan, three things stood out that are in no TODO
+but affect several of them. They belong settled first, otherwise several plans rest on a
+wrong assumption.
 
-**Gebaut** in [server/tcp.rs](../crates/alpendns/src/server/tcp.rs): `BODY_TIMEOUT = 5 s` um
-den Body-Read, im `select!` mit `shutdown`; ein `Semaphore` mit `MAX_CONNECTIONS`, dessen
-Permit **vor** dem `accept` geholt wird und am Task hängt; `MAX_PER_CLIENT = 8` je Quell-IP
-über eine `HashMap` unter einem Mutex im Verbindungsaufbau. Drei Zähler
-(`alpendns_tcp_connections_rejected_total`, `..._at_capacity_total`, `..._body_timeouts_total`),
-Zahlen in [BENCHMARKS.md](BENCHMARKS.md), Betriebsseite in
-[OPERATIONS.md](OPERATIONS.md) §4.
+**B1 — There is no `SIGHUP` reload — done.** [ARCHITECTURE.md](ARCHITECTURE.md) §7
+describes a reload in which a broken configuration is discarded and the old one stays
+active. That is now built: `reload_on_hangup` in `main.rs` reloads the policy layer on
+`SIGHUP` — clients, policies, regexes, schedules and list sources, swapped in atomically
+— and leaves the old state standing when the configuration is broken. What is not
+hot-reloadable (listeners, upstreams/TLS, cache, rate limiting, block mode, detectors)
+is named by the log on every reload. §7 has been adjusted accordingly; the
+cross-references to B1 in items 7, 9 and 10 are thereby obsolete.
 
-Drei Abweichungen vom Plan, jede mit Grund:
+**B2 — Blocklists are loaded only at startup.** In
+[filter/](../crates/alpendns/src/filter/) and [main.rs](../crates/alpendns/src/main.rs)
+there is no update scheduler; the "update scheduler" named in CLAUDE.md B.3 is the
+target picture, not code. The lists come in once via `filter::source`, which writes
+`<name>.list` and `<name>.meta` (with `etag:` and `last-modified:`) into the
+`CacheDirectory`. For item 3 that means: "last updated 2 days ago" today measures
+essentially how long the process has been running. The item is therefore only half as
+big as it looks — and the other half (reloading regularly) is the part that is really
+missing.
 
-* **`MAX_CONNECTIONS = 64` statt 256.** Die Zahl ist so klein, dass der Test die *echte*
-  Konstante prüfen kann, ohne 256 Deskriptoren zu brauchen — und 64 gleichzeitige
-  TCP-Verbindungen für DNS ist in einem Haushalts-LAN viel. Nebenbei heißt "Permit vor
-  `accept`", dass dauerhaft eines reserviert ist: gleichzeitig bedient werden 63.
-* **Ein dritter Zähler.** Die beiden geplanten hätten die Obergrenze unsichtbar gelassen:
-  sie weist nichts ab, sie lässt warten. Ohne `at_capacity` sähe "die Grenze trägt" genauso
-  aus wie "die Grenze ist nie erreicht worden". Er wird **vor** dem Warten gezählt, nicht
-  danach — hinterher gezählt käme die Zahl erst, wenn der Platz frei wird.
-* **Getestet wird zweigeteilt.** Der Body-Timeout läuft über `tokio::io::duplex` mit
-  angehaltener Uhr (`handle_connection` ist dafür über den Stream generisch geworden) — an
-  echten Sockets würde die automatisch vorlaufende Testuhr mit epoll um die Wette laufen.
-  Die beiden Obergrenzen laufen an echten Sockets ohne Uhr, weil dort keine Zeit im Spiel
-  ist; auf den Zähler wird kurz gewartet statt ihn zu unterstellen, weil der Annahme-Pfad
-  dem Kernel-Backlog nachläuft.
+**B3 — The query log is written synchronously in the request path.** `QueryLog::new`
+([logging/mod.rs:367-375](../crates/alpendns/src/logging/mod.rs#L367-L375)) opens the
+file once with `create` + `append` and puts it behind a `Mutex`; writes go with
+`writeln!` straight into the record
+([logging/mod.rs:483-490](../crates/alpendns/src/logging/mod.rs#L483-L490)) —
+unbuffered, under the same lock for all requests. Only affects `mode = "full"`, so it is
+not the default, but it is exactly the kind of lock in the request path that B.3 rule 5
+wants to avoid. Belongs to item 2 and is done there along with it.
 
-**Befund.** Zwei Lücken, beide in [server/tcp.rs](../crates/alpendns/src/server/tcp.rs):
+---
 
-1. Das `IDLE_TIMEOUT` von 10 s liegt nur auf dem Lesen des **Längenpräfixes**
-   ([tcp.rs:70-79](../crates/alpendns/src/server/tcp.rs#L70-L79)). Der Body wird eine Zeile
-   weiter mit `stream.read_exact(&mut packet).await?`
-   ([tcp.rs:85](../crates/alpendns/src/server/tcp.rs#L85)) **ohne jedes Zeitlimit** gelesen.
-   Wer zwei Bytes `0xFF 0xFF` schickt und dann schweigt, hält einen Task, einen
-   64-KB-Vektor und einen Deskriptor unbegrenzt. Der `select!` auf `shutdown` fehlt hier
-   ebenfalls — eine solche Verbindung verzögert zusätzlich das Herunterfahren, bis
-   `TimeoutStopSec=10s` greift.
-2. `tracker.spawn` in der Accept-Schleife
-   ([tcp.rs:43](../crates/alpendns/src/server/tcp.rs#L43)) hat **keine Obergrenze**. Die
-   Grenze ist heute das Deskriptor-Limit des Prozesses.
+## 1. TCP slowloris — done.
 
-Die bestehende Drosselung hilft nicht: `RateLimiter` wird in `handle_request` befragt, also
-**pro Anfrage** — und eine Slowloris-Verbindung stellt nie eine Anfrage. Die zweite Lücke
-ist die gefährlichere; ohne sie kostet die erste nur einen Task.
+> Timeout on the body read + a cap on concurrent connections. In a LAN one compromised
+> device is enough to bring the resolver to its knees.
 
-Serverseitig gibt es nur UDP und TCP (`server/` enthält `udp.rs`, `tcp.rs`, `mod.rs`);
-DoT/DoH/DoQ sind ausschließlich Upstream-Transporte. Der Fix betrifft genau eine Datei.
+**Built** in [server/tcp.rs](../crates/alpendns/src/server/tcp.rs): `BODY_TIMEOUT = 5 s`
+around the body read, in the `select!` with `shutdown`; a `Semaphore` with
+`MAX_CONNECTIONS` whose permit is taken **before** the `accept` and hangs on the task;
+`MAX_PER_CLIENT = 8` per source IP via a `HashMap` behind a mutex in connection setup.
+Three counters (`alpendns_tcp_connections_rejected_total`, `..._at_capacity_total`,
+`..._body_timeouts_total`), numbers in [BENCHMARKS.md](BENCHMARKS.md), operational side
+in [OPERATIONS.md](OPERATIONS.md) §4.
 
-**Entwurf.** Drei Konstanten im Modul, keine Konfiguration — im Sinne von B.2 gemessene
-Werte im Code statt eines weiteren Schalters, den niemand dreht:
+Three deviations from the plan, each with its reason:
 
-* `BODY_TIMEOUT = 5 s` um das `read_exact` des Bodys, im selben `tokio::select!` mit
-  `shutdown` wie das Präfix-Lesen. Fünf Sekunden für höchstens 64 KB aus dem LAN sind
-  großzügig.
-* `MAX_CONNECTIONS = 256` als `Arc<Semaphore>`. Der Permit wird **vor** dem `accept` geholt
-  (`acquire_owned().await`), nicht danach: dann läuft die Verbindung gar nicht erst auf,
-  statt akzeptiert und sofort geschlossen zu werden, und das Backlog des Kernels drosselt
-  von selbst. Der Permit hängt am Task und fällt mit ihm.
-* `MAX_PER_CLIENT = 8` gleichzeitige Verbindungen je Quell-IP. Ohne das belegt ein Gerät
-  alle 256 Plätze, und die Obergrenze wird selbst zur Waffe. Eine kleine
-  `HashMap<IpAddr, u32>` unter einem Mutex in der Accept-Schleife genügt — dieser Mutex
-  liegt nicht im Anfragepfad, sondern im Verbindungsaufbau.
+* **`MAX_CONNECTIONS = 64` instead of 256.** The number is small enough that the test can
+  check the *real* constant without needing 256 descriptors — and 64 concurrent TCP
+  connections for DNS is a lot in a household LAN. Incidentally, "permit before
+  `accept`" means one is permanently reserved: 63 are served at the same time.
+* **A third counter.** The two planned ones would have left the ceiling invisible: it
+  rejects nothing, it makes things wait. Without `at_capacity`, "the limit holds" would
+  look exactly like "the limit was never reached". It is counted **before** the wait, not
+  after — counted afterwards, the number would only arrive once the slot frees up.
+* **Testing is split in two.** The body timeout runs over `tokio::io::duplex` with the
+  clock halted (`handle_connection` became generic over the stream for that) — on real
+  sockets the automatically advancing test clock would race epoll. The two ceilings run
+  on real sockets without a clock, because no time is involved there; the counter is
+  waited for briefly instead of being assumed, because the accept path trails the kernel
+  backlog.
 
-Alle drei greifen nur, wenn es schon zu spät ist; im Normalbetrieb kosten sie einen
-Semaphor-Zugriff je Verbindung.
+**Finding.** Two gaps, both in [server/tcp.rs](../crates/alpendns/src/server/tcp.rs):
 
-**Schritte.**
+1. The `IDLE_TIMEOUT` of 10 s sits only on reading the **length prefix**
+   ([tcp.rs:70-79](../crates/alpendns/src/server/tcp.rs#L70-L79)). One line further the
+   body is read with `stream.read_exact(&mut packet).await?`
+   ([tcp.rs:85](../crates/alpendns/src/server/tcp.rs#L85)) **without any time limit**.
+   Anyone who sends two bytes `0xFF 0xFF` and then goes silent holds a task, a 64 KB
+   vector and a descriptor indefinitely. The `select!` on `shutdown` is missing here as
+   well — such a connection additionally delays shutdown until `TimeoutStopSec=10s`
+   takes effect.
+2. `tracker.spawn` in the accept loop
+   ([tcp.rs:43](../crates/alpendns/src/server/tcp.rs#L43)) has **no ceiling**. The limit
+   today is the process's descriptor limit.
+
+The existing rate limiting does not help: `RateLimiter` is consulted in `handle_request`,
+that is, **per request** — and a slowloris connection never makes a request. The second
+gap is the more dangerous one; without it, the first only costs a task.
+
+On the server side there is only UDP and TCP (`server/` contains `udp.rs`, `tcp.rs`,
+`mod.rs`); DoT/DoH/DoQ are upstream transports only. The fix touches exactly one file.
+
+**Design.** Three constants in the module, no configuration — in the sense of B.2,
+measured values in the code instead of another switch that nobody turns:
+
+* `BODY_TIMEOUT = 5 s` around the `read_exact` of the body, in the same `tokio::select!`
+  with `shutdown` as the prefix read. Five seconds for at most 64 KB from the LAN is
+  generous.
+* `MAX_CONNECTIONS = 256` as an `Arc<Semaphore>`. The permit is taken **before** the
+  `accept` (`acquire_owned().await`), not after: then the connection never builds up at
+  all, instead of being accepted and closed immediately, and the kernel backlog
+  throttles by itself. The permit hangs on the task and falls with it.
+* `MAX_PER_CLIENT = 8` concurrent connections per source IP. Without it, one device
+  occupies all 256 slots, and the ceiling itself becomes a weapon. A small
+  `HashMap<IpAddr, u32>` behind a mutex in the accept loop is enough — that mutex is not
+  in the request path but in connection setup.
+
+All three only take effect once it is already too late; in normal operation they cost one
+semaphore access per connection.
+
+**Steps.**
 
 ```
-1. BODY_TIMEOUT um den Body-Read, im select! mit shutdown → verify: Test schickt Präfix,
-   dann nichts; Verbindung ist nach 5 s zu, andere Verbindungen werden weiter bedient
-2. Semaphore vor accept, Permit am Task → verify: Test öffnet MAX_CONNECTIONS+1 stille
-   Verbindungen; die letzte kommt erst durch, wenn eine frühere fällt
-3. Grenze pro Quell-IP → verify: eine IP mit MAX_PER_CLIENT+1 Verbindungen blockiert keine
-   zweite IP; deren Anfrage wird normal beantwortet
-4. Zähler in metrics.rs: abgewiesene Verbindungen, Body-Zeitüberschreitungen
-   → verify: /metrics zeigt beide nach dem Lasttest
-5. Zahlen in BENCHMARKS.md → verify: Durchsatz vor/nach der Änderung, Abweichung benannt
+1. BODY_TIMEOUT around the body read, in the select! with shutdown → verify: test sends the
+   prefix, then nothing; the connection is closed after 5 s, other connections keep being
+   served
+2. Semaphore before accept, permit on the task → verify: test opens MAX_CONNECTIONS+1 silent
+   connections; the last one only gets through when an earlier one drops
+3. Limit per source IP → verify: one IP with MAX_PER_CLIENT+1 connections does not block a
+   second IP; its request is answered normally
+4. Counters in metrics.rs: rejected connections, body timeouts
+   → verify: /metrics shows both after the load test
+5. Numbers in BENCHMARKS.md → verify: throughput before/after the change, deviation named
 ```
 
-Getestet wird ohne `sleep`: `tokio::time::pause()` plus `advance()` macht die Timeouts
-deterministisch; die Semaphore braucht ohnehin keine Zeit.
+Testing happens without `sleep`: `tokio::time::pause()` plus `advance()` makes the
+timeouts deterministic; the semaphore needs no time anyway.
 
-**Bewusst nicht:** kein Schließen bestehender Verbindungen bei Erreichen der Grenze (wer
-schon spricht, spricht zu Ende), keine Konfigurierbarkeit, kein `slip`-Verhalten.
+**Deliberately not:** no closing of existing connections when the limit is reached
+(whoever is already talking talks to the end), no configurability, no `slip` behaviour.
 
-**Aufwand:** S, ein Abend. **Risiko:** gering, die Änderung ist lokal. Kein ADR nötig.
-**Priorität: hoch** — der einzige Punkt der Liste, der eine ausnutzbare Lücke schließt, und
-der billigste dazu.
+**Effort:** S, one evening. **Risk:** low, the change is local. No ADR needed.
+**Priority: high** — the only item on the list that closes an exploitable gap, and the
+cheapest one at that.
 
 ---
 
-## 2. Log-Rotation im Modus `full`
+## 2. Log rotation in `full` mode
 
-> logging/mod.rs schreibt append-only in eine Datei, die der Prozess selbst öffnet —
-> systemd/journald greift da nicht. Über Monate wächst das Query-Log unbegrenzt bis zur
-> vollen Platte.
+> logging/mod.rs writes append-only into a file that the process opens itself —
+> systemd/journald does not reach it. Over months the query log grows without bound until
+> the disk is full.
 
-**Befund.** Stimmt, siehe B3. Eine Aufbewahrungsdauer gibt es nirgends; der Abschnitt
-`[privacy.logging]` in [config.rs](../crates/alpendns/src/config.rs) hat keinen
-entsprechenden Schlüssel. Ein Eintrag ist eine JSON-Zeile mit Name, Typ, Client, RCode,
-Begründung, Dauer und Funden — grob 200 Byte. Bei 50 Anfragen/s sind das rund **850 MB pro
-Tag**. Die Platte ist nicht in Monaten voll, sondern in Tagen.
+**Finding.** Correct, see B3. A retention period exists nowhere; the
+`[privacy.logging]` section in [config.rs](../crates/alpendns/src/config.rs) has no
+corresponding key. An entry is a JSON line with name, type, client, RCode, reason,
+duration and findings — roughly 200 bytes. At 50 requests/s that is around **850 MB per
+day**. The disk fills not in months but in days.
 
-**Der entscheidende Punkt ist kein Platzproblem.** Diese Datei ist die einzige Stelle im
-System, an der Query-Namen den Prozess überleben (B.1 Regel 3, ADR-0004). "Rotation" heißt
-hier vor allem: **wie lange werden Namen aufbewahrt.** Das ist eine Datenschutzentscheidung
-und gehört deshalb in die Konfiguration, nicht in eine Konstante.
+**The decisive point is not a space problem.** This file is the only place in the system
+where query names survive the process (B.1 rule 3, ADR-0004). "Rotation" here means
+above all: **how long are names kept.** That is a privacy decision and therefore belongs
+in the configuration, not in a constant.
 
-**Entwurf — `logrotate`, kein Eigenbau.** Weil die Datei mit `.append(true)` geöffnet ist,
-schreibt jedes `write` ans aktuelle Dateiende, unabhängig vom Offset des Deskriptors. Damit
-funktioniert `logrotate` mit `copytruncate` **ohne jede Codeänderung und ohne
-Reopen-Signal** — kein Loch in der Datei, keine verlorene Zeile außer denen im Fenster
-zwischen Kopie und Truncate. Genau deshalb gewinnt der Eigenbau hier nichts.
+**Design — `logrotate`, not a homegrown solution.** Because the file is opened with
+`.append(true)`, every `write` goes to the current end of the file, regardless of the
+descriptor's offset. That makes `logrotate` with `copytruncate` work **without any code
+change and without a reopen signal** — no hole in the file, no lost line except those in
+the window between copy and truncate. That is exactly why a homegrown solution gains
+nothing here.
 
-Ins Paket kommt `packaging/logrotate/alpendns`:
+Into the package goes `packaging/logrotate/alpendns`:
 
 ```
 /var/log/alpendns/queries.jsonl {
@@ -183,261 +186,264 @@ Ins Paket kommt `packaging/logrotate/alpendns`:
 }
 ```
 
-`rotate 7` ist eine Vorgabe, kein Naturgesetz — sie gehört in OPERATIONS.md mit dem Satz,
-dass sie die **Aufbewahrungsdauer der Namen** ist. `create 0640` deckt sich mit
-`LogsDirectoryMode=0750` und `UMask=0077`; ohne die Zeile erbt die neue Datei die Rechte der
-alten, was hier zufällig richtig, aber nicht garantiert wäre.
+`rotate 7` is a default, not a law of nature — it belongs in OPERATIONS.md with the
+sentence that it is the **retention period of the names**. `create 0640` matches
+`LogsDirectoryMode=0750` and `UMask=0077`; without that line the new file inherits the
+permissions of the old one, which here would happen to be right but not guaranteed.
 
-Dazu zwei Ergänzungen, die derselbe Handgriff sind:
+Plus two additions that come with the same move:
 
-* **Ein `BufWriter` um die Datei** (B3). Der Anfragepfad schreibt dann in den Puffer statt
-  in einen Syscall; ein Task leert ihn im Sekundentakt und beim Herunterfahren. Ein Absturz
-  kostet höchstens eine Sekunde Protokoll — beim Query-Log ist das kein Verlust, über den
-  jemand traurig ist.
-* **Ein Hinweis in `alpendns check`**, wenn `mode = "full"` konfiguriert ist und
-  `/etc/logrotate.d/alpendns` fehlt. Das ist der Fall, in dem heute jemand die Platte
-  vollschreibt, ohne es zu merken.
+* **A `BufWriter` around the file** (B3). The request path then writes into the buffer
+  instead of into a syscall; a task flushes it once a second and on shutdown. A crash
+  costs at most one second of log — for the query log that is no loss anyone would
+  mourn.
+* **A hint in `alpendns check`** when `mode = "full"` is configured and
+  `/etc/logrotate.d/alpendns` is missing. That is the case in which someone today fills
+  the disk without noticing.
 
-**Verworfene Alternativen.**
+**Rejected alternatives.**
 
-* *Rotation im Prozess* (Größe, Alter, Anzahl): rund 150 Zeilen, die Debian schon hat,
-  inklusive der Fehlerfälle rund um Umbenennen unter laufendem Schreiben.
-* *An journald übergeben:* verstößt gegen B.1 Regel 3. Die Aufbewahrung folgte dann der
-  journald-Konfiguration statt der Projektkonfiguration, die Namen lägen an einem Ort, den
-  jedes `journalctl` liest, und `SystemMaxUse` ist eine Größenangabe, keine Frist.
-* *`maxsize` allein ohne `rotate`-Grenze:* begrenzt den Platz, nicht die Aufbewahrung.
+* *Rotation in the process* (size, age, count): around 150 lines that Debian already has,
+  including the error cases around renaming while writing is in progress.
+* *Handing it to journald:* violates B.1 rule 3. Retention would then follow the journald
+  configuration instead of the project configuration, the names would sit in a place that
+  every `journalctl` reads, and `SystemMaxUse` is a size, not a deadline.
+* *`maxsize` alone without a `rotate` limit:* bounds the space, not the retention.
 
-**Schritte.**
+**Steps.**
 
 ```
-1. logrotate-Datei ins Paket, in Cargo.toml (assets) eintragen → verify: dpkg -c zeigt sie
-   unter /etc/logrotate.d/; logrotate -d meldet keinen Fehler
-2. Test, dass Schreiben nach copytruncate weiterläuft → verify: Datei per truncate leeren,
-   weiterschreiben, Größe wächst ab 0 statt ab dem alten Offset
-3. BufWriter plus Leer-Task im Sekundentakt → verify: bestehende Logging-Tests grün; ein
-   Test belegt, dass ein Eintrag nach dem Leeren in der Datei steht
-4. Hinweis in alpendns check bei mode=full ohne logrotate-Datei → verify: check meldet es,
-   scheitert aber nicht daran
-5. OPERATIONS.md: rotate 7 = sieben Tage Namen, und wie man es ändert → verify: der Satz
-   steht im Abschnitt zum Protokoll
+1. logrotate file into the package, registered in Cargo.toml (assets) → verify: dpkg -c shows
+   it under /etc/logrotate.d/; logrotate -d reports no error
+2. Test that writing continues after copytruncate → verify: empty the file with truncate,
+   keep writing, the size grows from 0 instead of from the old offset
+3. BufWriter plus a flush task once a second → verify: existing logging tests green; one test
+   proves that an entry is in the file after the flush
+4. Hint in alpendns check when mode=full without a logrotate file → verify: check reports it,
+   but does not fail because of it
+5. OPERATIONS.md: rotate 7 = seven days of names, and how to change it → verify: the sentence
+   stands in the section on the log
 ```
 
-**Aufwand:** S–M, ein Abend. **Priorität: hoch, sobald jemand `full` einschaltet** — bis
-dahin null, weil im Default-Modus gar keine Datei geöffnet wird.
+**Effort:** S–M, one evening. **Priority: high as soon as someone turns on `full`** —
+until then zero, because in the default mode no file is opened at all.
 
 ---
 
-## 3. Alter der Blocklisten in der UI
+## 3. Age of the blocklists in the UI
 
-> Bei Blocklisten "Alter" festhalten im UI, zuletzt aktualisiert vor (2 Tagen…)
+> For blocklists, record "age" in the UI — last updated (2 days…) ago
 
-**Befund.** `ListInfo` ([api/mod.rs:70-76](../crates/alpendns/src/api/mod.rs#L70-L76)) hat
-`name`, `entries`, `format` — **keinen Zeitstempel**; gebaut wird es in
-[main.rs:329](../crates/alpendns/src/main.rs#L329). Der Loader kennt `Origin`
-(`File` / `Network` / `NotModified` / `StaleCache`,
-[filter/source.rs:41-52](../crates/alpendns/src/filter/source.rs#L41-L52)), aber nur als
-Herkunft dieses einen Ladevorgangs, nicht als Zeitpunkt. Auf Platte liegen `<name>.list` und
-`<name>.meta` mit `etag:` und `last-modified:` — Letzteres ist die Angabe des
-**Herausgebers**, nicht der Zeitpunkt des Abrufs.
+**Finding.** `ListInfo` ([api/mod.rs:70-76](../crates/alpendns/src/api/mod.rs#L70-L76))
+has `name`, `entries`, `format` — **no timestamp**; it is built in
+[main.rs:329](../crates/alpendns/src/main.rs#L329). The loader knows `Origin` (`File` /
+`Network` / `NotModified` / `StaleCache`,
+[filter/source.rs:41-52](../crates/alpendns/src/filter/source.rs#L41-L52)), but only as
+the origin of that one load, not as a point in time. On disk lie `<name>.list` and
+`<name>.meta` with `etag:` and `last-modified:` — the latter is the **publisher's**
+statement, not the time of retrieval.
 
-Dazu Befund B2: **es gibt keinen Refresh zur Laufzeit.** Ohne ihn beantwortet "zuletzt
-aktualisiert" nur, wann der Dienst zuletzt neu gestartet wurde — eine Anzeige, die genau
-dann nichts nützt, wenn man sie braucht.
+Plus finding B2: **there is no refresh at runtime.** Without it, "last updated" only
+answers when the service was last restarted — a display that is of no use exactly when
+you need it.
 
-**Entwurf.** Der Punkt zerfällt in zwei, und der zweite ist der wichtigere.
+**Design.** The item falls into two, and the second is the more important one.
 
-**(a) Alter anzeigen.** Zwei Zeitangaben je Liste, weil sie zwei verschiedene Fragen
-beantworten:
+**(a) Show the age.** Two times per list, because they answer two different questions:
 
-* *geholt am* — Zeitpunkt des letzten erfolgreichen Abrufs. Quelle ist die mtime von
-  `<name>.list`; die überlebt den Neustart und muss deshalb nicht im Prozess gehalten
-  werden. Bei `Origin::NotModified` wird die mtime angefasst, denn "der Server sagt, sie ist
-  unverändert" heißt: sie ist aktuell.
-* *veröffentlicht am* — der `last-modified:`-Wert aus der `.meta`-Datei, sofern der
-  Herausgeber ihn liefert. Eine Liste, die seit acht Monaten unverändert ist, ist ein
-  anderes Problem als eine, die seit acht Monaten nicht abgerufen wurde.
+* *fetched at* — the time of the last successful retrieval. The source is the mtime of
+  `<name>.list`; it survives the restart and therefore need not be held in the process.
+  On `Origin::NotModified` the mtime is touched, because "the server says it is
+  unchanged" means: it is current.
+* *published at* — the `last-modified:` value from the `.meta` file, provided the
+  publisher supplies it. A list that has been unchanged for eight months is a different
+  problem from one that has not been fetched for eight months.
 
-`ListInfo` bekommt zwei `Option`-Felder als absolute Zeitpunkte (RFC 3339). **Die
-Formatierung zu "vor 2 Tagen" macht der Browser**, nicht der Server: eine relative Angabe
-veraltet, während die Seite offen steht, und die Seite lädt ohnehin periodisch nach.
-`Intl.RelativeTimeFormat` ist Teil der Plattform und damit keine externe Abhängigkeit (B.6).
+`ListInfo` gets two `Option` fields as absolute points in time (RFC 3339). **The
+formatting into "2 days ago" is done by the browser**, not the server: a relative
+statement goes stale while the page is open, and the page reloads periodically anyway.
+`Intl.RelativeTimeFormat` is part of the platform and therefore not an external
+dependency (B.6).
 
-Zur Farbe: `--warn` ist laut B.6 der hohen Latenz vorbehalten, und die Regel steht als Test
-in [api/ui.rs](../crates/alpendns/src/api/ui.rs). Eine veraltete Liste ist damit **keine
-Farbe**, sondern Text — "geholt vor 34 Tagen" sagt alles, was Rot auch sagen würde. Wer eine
-Hervorhebung will, nimmt Schriftgewicht.
+On colour: per B.6, `--warn` is reserved for high latency, and the rule stands as a test
+in [api/ui.rs](../crates/alpendns/src/api/ui.rs). A stale list is therefore **not a
+colour** but text — "fetched 34 days ago" says everything red would say too. Whoever
+wants emphasis uses font weight.
 
-Dazu eine Metrik `alpendns_blocklist_age_seconds{list="…"}`, damit der Zustand auch ohne
-offene UI sichtbar ist.
+Plus a metric `alpendns_blocklist_age_seconds{list="…"}`, so that the state is visible
+without an open UI.
 
-**(b) Der eigentliche Punkt: regelmäßig nachladen.** Ein Task, der je Liste in einem
-konfigurierten Intervall (Default 24 h) neu lädt, den `Matcher` baut und ihn per `ArcSwap`
-austauscht (B.3 Regel 5). Ein Fehlschlag ist kein Fehler: die alte Liste bleibt aktiv, der
-Zähler steigt, das Alter wächst sichtbar — genau der fail-open-Fall aus B.1 Regel 6.
+**(b) The actual point: reload regularly.** A task that reloads each list at a configured
+interval (default 24 h), builds the `Matcher` and swaps it in via `ArcSwap` (B.3 rule 5).
+A failure is not an error: the old list stays active, the counter rises, the age grows
+visibly — exactly the fail-open case from B.1 rule 6.
 
-Das ist die größere Änderung und gehört **entschieden, nicht nebenbei gebaut**: es ist der
-in CLAUDE.md B.3 als eigenes Crate vorgesehene Update-Scheduler.
+That is the larger change and belongs **decided, not built on the side**: it is the
+update scheduler that CLAUDE.md B.3 envisages as its own crate.
 
-**Schritte.**
+**Steps.**
 
 ```
-1. mtime bei NotModified anfassen → verify: Test mit lokalem 304-Server, mtime ist danach neu
-2. Zwei Zeitfelder in ListInfo, Quelle mtime + .meta → verify: /api/lists liefert beide;
-   Test mit fehlender .meta liefert null statt Fehler
-3. UI: Zeile "geholt vor …" je Liste, Formatierung im Browser → verify: ui.rs-Regeltests
-   grün, insbesondere die Farbprüfung; danach ein Blick eines Menschen
-4. Metrik alpendns_blocklist_age_seconds → verify: /metrics zeigt je Liste einen Wert
-5. [getrennt entscheiden] Refresh-Task mit ArcSwap-Tausch → verify: Test mit zwei
-   Listenständen hinter einem lokalen Server; nach dem Intervall greift der neue Stand, ohne
-   dass eine Anfrage dazwischen scheitert
-6. [getrennt] Fehlschlag hält die alte Liste → verify: Server antwortet 500, Matcher
-   unverändert, Zähler steigt, Alter wächst
+1. Touch the mtime on NotModified → verify: test with a local 304 server, the mtime is new
+   afterwards
+2. Two time fields in ListInfo, source mtime + .meta → verify: /api/lists delivers both; a
+   test with a missing .meta delivers null instead of an error
+3. UI: line "geholt vor …" per list, formatting in the browser → verify: ui.rs rule tests
+   green, in particular the colour check; then a human look
+4. Metric alpendns_blocklist_age_seconds → verify: /metrics shows one value per list
+5. [decide separately] refresh task with ArcSwap swap → verify: test with two list states
+   behind a local server; after the interval the new state takes effect without any request
+   failing in between
+6. [separate] A failure keeps the old list → verify: server answers 500, matcher unchanged,
+   counter rises, age grows
 ```
 
-**Aufwand:** (a) S, ein halber Abend. (b) M, ein bis zwei Abende, plus ADR.
-**Priorität:** (a) niedrig, (b) mittel — eine Blockliste, die nie aktualisiert wird, ist der
-leise Ausfall des Kernversprechens.
+**Effort:** (a) S, half an evening. (b) M, one to two evenings, plus an ADR.
+**Priority:** (a) low, (b) medium — a blocklist that is never updated is the quiet failure
+of the core promise.
 
 ---
 
-## 4. Abhängigkeit von der Systemuhr dokumentieren
+## 4. Document the dependency on the system clock
 
-> Die eigene Validierung (ADR-0016) setzt eine korrekte Host-Uhr voraus — eine falsche Uhr
-> macht jede signierte Zone "bogus".
+> The project's own validation (ADR-0016) presupposes a correct host clock — a wrong
+> clock makes every signed zone "bogus".
 
-**Befund.** [dnssec.rs](../crates/alpendns/src/dnssec.rs) prüft die Signaturzeiten nicht
-selbst; das tut `hickory-net` beim Validieren, gegen die Systemuhr. Es gibt hier also
-**keinen Skew-Puffer, den man einstellen könnte** — und das ist richtig so: ein Puffer wäre
-die Aufweichung genau der Eigenschaft, für die ADR-0016 geschrieben wurde.
+**Finding.** [dnssec.rs](../crates/alpendns/src/dnssec.rs) does not check the signature
+times itself; `hickory-net` does that during validation, against the system clock. So
+there is **no skew buffer here that one could configure** — and that is as it should be:
+a buffer would water down exactly the property ADR-0016 was written for.
 
-Drei Dinge fehlen konkret:
+Three things are concretely missing:
 
-1. **Die Unit ordnet sich nicht hinter die Zeitsynchronisation.**
-   [alpendns.service](../packaging/systemd/alpendns.service) hat
-   `After=network-online.target`, aber **kein `After=time-sync.target`**. Beim Booten kann
-   der Resolver also starten, bevor die Uhr steht. Das ist der praktisch häufigste Fall
-   einer falschen Uhr — nicht der Angriff, sondern eine Kiste ohne RTC (Raspberry Pi), die
-   mit dem Epoch-Datum hochkommt.
-2. **Der Ausfallmodus ist hart.** Bogus heißt SERVFAIL. Eine falsche Uhr legt damit *jede
-   signierte Zone* lahm, also den größeren Teil des Netzes, und sieht in den Metriken genau
-   aus wie ein Angriff. Das ist die Sorte Ausfall, bei der man eine Stunde in die falsche
-   Richtung sucht.
-3. **Es steht nirgends.** Weder OPERATIONS.md §4 (Fehlersuche) noch THREAT-MODEL.md
-   erwähnen die Uhr.
+1. **The unit does not order itself after time synchronisation.**
+   [alpendns.service](../packaging/systemd/alpendns.service) has
+   `After=network-online.target`, but **no `After=time-sync.target`**. At boot the
+   resolver can therefore start before the clock is set. That is the practically most
+   common case of a wrong clock — not the attack, but a box without an RTC (Raspberry Pi)
+   that comes up with the epoch date.
+2. **The failure mode is hard.** Bogus means SERVFAIL. A wrong clock therefore paralyses
+   *every* signed zone, that is, the larger part of the net, and looks in the metrics
+   exactly like an attack. That is the kind of outage where you search in the wrong
+   direction for an hour.
+3. **It is written down nowhere.** Neither OPERATIONS.md §4 (troubleshooting) nor
+   THREAT-MODEL.md mentions the clock.
 
-Nebenbefund: `ProtectClock=yes` steht in der Unit. Der Dienst kann die Uhr nicht stellen —
-richtig so, und genau deshalb ist das Stellen Aufgabe des Systems und gehört ins Runbook.
+Side finding: `ProtectClock=yes` is in the unit. The service cannot set the clock — as it
+should be, and precisely for that reason setting it is the system's job and belongs in
+the runbook.
 
-**Entwurf — drei kleine Dinge, kein Feature.**
+**Design — three small things, no feature.**
 
-* **`After=time-sync.target` in die Unit.** Eine Zeile. `Wants=` ausdrücklich **nicht**: wer
-  `systemd-timesyncd` bewusst abgeschaltet hat und die Zeit anders stellt, soll den Resolver
-  nicht damit starten müssen. `After=` ohne `Wants=` ordnet nur, wenn das Ziel ohnehin
-  läuft — das ist die richtige Stärke der Aussage.
-* **Ein Abschnitt in OPERATIONS.md §4**, Titel etwa *"Fast alles ist SERVFAIL"*. Inhalt: Die
-  DNSSEC-Validierung rechnet Signaturzeiten gegen die Systemuhr; geht die Uhr um mehr als
-  das Signaturfenster falsch, ist jede signierte Zone bogus und damit SERVFAIL. Prüfen mit
-  `timedatectl` (`System clock synchronized: yes`). NTP ist Voraussetzung, nicht Komfort. Auf
-  Geräten ohne RTC steht die Uhr nach jedem Stromausfall falsch, bis das Netz da ist. Wer die
-  Ursache nachweisen will, sieht sie am Zähler der bogus-Antworten: er steigt ab einem
-  Zeitpunkt schlagartig und fällt nicht mehr.
-* **Ein Hinweis in `alpendns check`:** wenn DNSSEC aktiv ist und die Uhr laut
-  `/run/systemd/timesync/synchronized` bzw. `adjtimex` nicht synchron ist, sagt `check` das —
-  als **Hinweis, nicht als Fehler**. Es darf den Start nicht verhindern: ein Resolver, der
-  bei ungestellter Uhr gar nicht startet, ist beim Booten ohne Netz genau das
-  Henne-Ei-Problem, das `check` laut
-  [main.rs:812-822](../crates/alpendns/src/main.rs#L812-L822) bewusst meidet.
+* **`After=time-sync.target` into the unit.** One line. Explicitly **not** `Wants=`:
+  whoever has deliberately switched off `systemd-timesyncd` and sets the time otherwise
+  should not have to start the resolver with it. `After=` without `Wants=` only orders
+  when the target runs anyway — that is the right strength of the statement.
+* **A section in OPERATIONS.md §4**, title roughly *"Almost everything is SERVFAIL"*.
+  Content: DNSSEC validation computes signature times against the system clock; if the
+  clock is wrong by more than the signature window, every signed zone is bogus and
+  therefore SERVFAIL. Check with `timedatectl` (`System clock synchronized: yes`). NTP is
+  a prerequisite, not a comfort. On devices without an RTC the clock is wrong after every
+  power failure until the network is up. Whoever wants to prove the cause sees it in the
+  counter of bogus answers: from some point on it jumps and never falls again.
+* **A hint in `alpendns check`:** if DNSSEC is active and the clock is not synchronised
+  according to `/run/systemd/timesync/synchronized` or `adjtimex`, `check` says so — as a
+  **hint, not as an error**. It must not prevent startup: a resolver that does not start
+  at all with an unset clock is, when booting without a network, exactly the
+  chicken-and-egg problem that `check` deliberately avoids according to
+  [main.rs:812-822](../crates/alpendns/src/main.rs#L812-L822).
 
-**Verworfen:** ein Skew-Puffer (weicht ADR-0016 auf); automatisches Abschalten der
-Validierung bei unsynchroner Uhr (ein Angreifer, der die Uhr verstellen kann, schaltet damit
-DNSSEC ab — die Umkehrung des Schutzziels); eine eigene NTP-Abfrage (verstößt gegen B.1
-Regel 4, der Prozess kontaktiert genau drei Sorten Ziele).
+**Rejected:** a skew buffer (waters down ADR-0016); automatically switching off validation
+when the clock is unsynchronised (an attacker who can move the clock thereby switches off
+DNSSEC — the inversion of the protection goal); a NTP query of our own (violates B.1
+rule 4, the process contacts exactly three kinds of targets).
 
-**Schritte.**
+**Steps.**
 
 ```
-1. After=time-sync.target in die Unit → verify: systemd-analyze verify alpendns.service ohne
-   Fehler; systemctl list-dependencies --after zeigt das Ziel
-2. Abschnitt in OPERATIONS.md §4 → verify: jemand mit dem Symptom "alles SERVFAIL" findet ihn
-   über die Überschrift
-3. Uhr-Hinweis in alpendns check → verify: Test mit gefälschtem Synchronstatus; check gibt
-   den Hinweis und liefert trotzdem Exit 0
-4. Satz in THREAT-MODEL.md: falsche Uhr als Verfügbarkeitsrisiko, gegen das nicht geschützt
-   wird → verify: der Punkt steht in der Liste der bewusst offenen Punkte
+1. After=time-sync.target into the unit → verify: systemd-analyze verify alpendns.service
+   without errors; systemctl list-dependencies --after shows the target
+2. Section in OPERATIONS.md §4 → verify: someone with the symptom "everything SERVFAIL"
+   finds it via the heading
+3. Clock hint in alpendns check → verify: test with a faked synchronisation status; check
+   gives the hint and still returns exit 0
+4. Sentence in THREAT-MODEL.md: a wrong clock as an availability risk that is not protected
+   against → verify: the item stands in the list of deliberately open points
 ```
 
-**Aufwand:** S, ein halber Abend. **Priorität: mittel** — Schritt 1 ist eine Zeile mit echtem
-Nutzen auf jedem Gerät ohne RTC.
+**Effort:** S, half an evening. **Priority: medium** — step 1 is one line with real
+benefit on every device without an RTC.
 
 ---
 
-## 5. Befristete Freigaben und Sperren überleben keinen Neustart
+## 5. Time-limited grants and blocks do not survive a restart
 
-> Grants/Denials sind nur im RAM (temporary.rs). Ein Neustart verliert sie. Das ist
-> vertretbar, aber es gehört als bewusste Entscheidung dokumentiert.
+> Grants/denials are only in RAM (temporary.rs). A restart loses them. That is defensible,
+> but it belongs documented as a deliberate decision.
 
-**Befund.** Bestätigt: `Temporary` hält `Mutex<HashMap<String, Instant>>`
-([policy/temporary.rs:26-30](../crates/alpendns/src/policy/temporary.rs#L26-L30)), zweimal
-instanziiert — einmal für Freigaben, einmal für Sperren.
+**Finding.** Confirmed: `Temporary` holds a `Mutex<HashMap<String, Instant>>`
+([policy/temporary.rs:26-30](../crates/alpendns/src/policy/temporary.rs#L26-L30)),
+instantiated twice — once for grants, once for blocks.
 
-**Warum Persistenz hier teurer ist, als sie aussieht**, steht schon im Modulkopf: die Frist
-läuft über `Instant`, also über **monotone** Zeit, ausdrücklich damit eine verstellte
-Systemuhr keine Freigabe verlängert. Ein `Instant` überlebt keinen Prozess und lässt sich
-nicht serialisieren. Persistenz hieße: beim Schreiben in Wanduhrzeit umrechnen, beim Laden
-zurück — und damit exakt die Uhrabhängigkeit einführen, die das Modul vermeidet. Kein
-K.-o.-Argument (die Frist ist kurz, der Schaden begrenzt), aber der Kern der Entscheidung,
-und so gehört er aufgeschrieben.
+**Why persistence here is more expensive than it looks** is already in the module header:
+the deadline runs over `Instant`, that is, over **monotonic** time, explicitly so that a
+moved system clock does not extend a grant. An `Instant` does not survive a process and
+cannot be serialised. Persistence would mean: converting to wall-clock time when writing,
+back when loading — and thereby introducing exactly the clock dependency that the module
+avoids. Not a knockout argument (the deadline is short, the damage bounded), but the core
+of the decision, and that is how it belongs written down.
 
-**Entwurf — dokumentieren, nicht bauen.** Zwei Stellen, keine Änderung an der Logik:
+**Design — document, do not build.** Two places, no change to the logic:
 
-1. **Ein Absatz im Modulkopf von `temporary.rs`**, direkt nach dem bestehenden Absatz zur
-   monotonen Zeit, etwa:
+1. **A paragraph in the module header of `temporary.rs`**, directly after the existing
+   paragraph on monotonic time, roughly:
 
-   > **Nichts davon überlebt einen Neustart, und das ist Absicht.** Die Einträge sind
-   > befristet; sie zu persistieren hieße, ihre Frist in Wanduhrzeit umzurechnen und beim
-   > Laden zurück — und damit genau die Uhrabhängigkeit einzuführen, die der Absatz darüber
-   > vermeidet. Eine Freigabe, die einen Reboot überdauert, ist außerdem keine befristete
-   > Freigabe mehr, sondern eine Allowlist mit Verfallsdatum; wer das will, trägt den Namen
-   > in eine Allowlist ein.
+   > **None of this survives a restart, and that is deliberate.** The entries are
+   > time-limited; persisting them would mean converting their deadline to wall-clock
+   > time and back when loading — and thereby introducing exactly the clock dependency
+   > that the paragraph above avoids. A grant that outlives a reboot is, moreover, no
+   > longer a time-limited grant but an allowlist with an expiry date; whoever wants that
+   > enters the name in an allowlist.
 
-2. **Ein Satz in der Oberfläche.** Das ist der eigentliche Fix des TODO: der Nutzer soll es
-   nicht nach dem Reboot merken, sondern beim Klicken lesen. Im Panel der Freigaben, klein
-   und in `--muted`: *"Freigaben gelten bis zum Ablauf oder bis zum nächsten Neustart des
-   Dienstes."* Kostet eine Zeile HTML und beseitigt die Überraschung vollständig.
+2. **One sentence in the interface.** That is the actual fix of the TODO: the user should
+   not notice it after the reboot but read it on clicking. In the grants panel, small and
+   in `--muted`: *"Grants last until they expire or until the service is restarted."*
+   Costs one line of HTML and removes the surprise completely.
 
-Dazu eine Fußnote in OPERATIONS.md §3 (Backup): Freigaben und Sperren sind nicht im Backup,
-weil sie nicht auf Platte liegen.
+Plus a footnote in OPERATIONS.md §3 (backup): grants and blocks are not in the backup,
+because they do not lie on disk.
 
-**Falls doch Persistenz gewünscht ist** — dann so und nicht anders: geschrieben wird bei
-jeder Änderung (nicht beim Shutdown; ein Absturz ist der Fall, für den man es baut) nach
-`StateDirectory`, atomar über temporäre Datei plus `rename`. Gespeichert wird der
-**Ablaufzeitpunkt als Wanduhrzeit**; beim Laden wird alles Abgelaufene verworfen und alles
-Übrige auf `now() + Restlaufzeit` umgerechnet, gedeckelt auf `MAX_GRANT`. Springt die Uhr
-zurück, ist dieser Deckel die einzige Absicherung — und deshalb nicht verhandelbar. Rund 80
-Zeilen plus Tests. Der ehrliche Rat: nicht bauen, bevor sich jemand darüber beschwert hat.
+**If persistence is wanted after all** — then like this and not otherwise: written on
+every change (not on shutdown; a crash is the case you build it for) into
+`StateDirectory`, atomically via a temporary file plus `rename`. What is stored is the
+**expiry time as wall-clock time**; on loading, everything expired is discarded and
+everything remaining is converted to `now() + remaining lifetime`, capped at `MAX_GRANT`.
+If the clock jumps backwards, that cap is the only safeguard — and therefore not
+negotiable. Around 80 lines plus tests. The honest advice: do not build it before someone
+has complained about it.
 
-**Aufwand:** S, eine Stunde für Variante 1+2. **Priorität: hoch** — der billigste Punkt der
-Liste, und er beseitigt eine echte Überraschung.
+**Effort:** S, one hour for variants 1+2. **Priority: high** — the cheapest item on the
+list, and it removes a real surprise.
 
 ---
 
-## 6. Kontinuierliche Dependency-Triage
+## 6. Continuous dependency triage
 
-> cargo deny läuft, aber wer reagiert auf neue RUSTSEC-Advisories?
+> cargo deny runs, but who reacts to new RUSTSEC advisories?
 
-**Befund.** [.github/workflows/ci.yml](../.github/workflows/ci.yml) hat genau zwei Auslöser:
-`push` auf `main` und `pull_request`. **Kein `schedule`.** Die Advisory-Datenbank ändert sich
-aber, ohne dass jemand committet — in einem Repo, an dem abends unregelmäßig gearbeitet wird,
-fällt ein neues Advisory folglich erst beim nächsten Commit auf, also womöglich Wochen
-später. Das ist die eigentliche Lücke, und sie kostet fünf Zeilen.
+**Finding.** [.github/workflows/ci.yml](../.github/workflows/ci.yml) has exactly two
+triggers: `push` to `main` and `pull_request`. **No `schedule`.** But the advisory
+database changes without anyone committing — in a repo that is worked on irregularly in
+the evenings, a new advisory therefore only comes to light on the next commit, possibly
+weeks later. That is the actual gap, and it costs five lines.
 
-Die zweite Hälfte ist der Triage-Weg, und dessen Muster existiert bereits und ist gut: die
-Ausnahme für `RUSTSEC-2026-0009` in [deny.toml](../deny.toml) trägt Begründung,
-Erreichbarkeitsanalyse des verwundbaren Pfads und eine **Umkehrbedingung** ("fällt weg,
-sobald die MSRV auf 1.88 steigt"). Genau so gehört eine Ausnahme geschrieben. Was fehlt, ist
-nur der Anlass, sie regelmäßig anzusehen.
+The second half is the triage path, and its pattern already exists and is good: the
+exception for `RUSTSEC-2026-0009` in [deny.toml](../deny.toml) carries a rationale, a
+reachability analysis of the vulnerable path and a **reversal condition** ("falls away as
+soon as the MSRV rises to 1.88"). That is exactly how an exception belongs written. What
+is missing is only the occasion to look at it regularly.
 
-**Entwurf — ein `schedule`-Job, kein Bot.**
+**Design — a `schedule` job, not a bot.**
 
 ```yaml
 on:
@@ -445,506 +451,508 @@ on:
     branches: [main]
   pull_request:
   schedule:
-    - cron: '0 6 * * 1'     # montags 06:00 UTC
+    - cron: '0 6 * * 1'     # Mondays 06:00 UTC
 ```
 
-plus im `deny`-Job `issues: write` und ein Schritt, der bei Fehlschlag **ein** Issue anlegt —
-oder ein bestehendes aktualisiert, statt jede Woche ein neues zu erzeugen.
+plus in the `deny` job `issues: write` and a step that on failure creates **one** issue —
+or updates an existing one, instead of generating a new one every week.
 
-**Warum kein Dependabot und kein Renovate.** Beide erzeugen Pull Requests. In einem
-Ein-Personen-Projekt ist eine PR-Flut, die niemand merged, schlimmer als kein Bot: nach drei
-Monaten stehen vierzig offene PRs, und die eine sicherheitsrelevante darunter geht unter —
-die Meldung wird zu Rauschen, und Rauschen wird ignoriert. Dazu die Lieferkettenseite: ein
-Bot mit Schreibrecht im Repo ist ein weiterer Weg, auf dem Code hereinkommt, ohne dass ein
-Mensch ihn geschrieben hat. Für dieses Projekt gilt die Reihenfolge: **erst die Meldung, dann
-vielleicht die Automatisierung.**
+**Why no Dependabot and no Renovate.** Both create pull requests. In a one-person project,
+a flood of PRs that nobody merges is worse than no bot: after three months there are forty
+open PRs, and the one security-relevant among them gets lost — the report becomes noise,
+and noise gets ignored. Add the supply-chain side: a bot with write access in the repo is
+another way for code to come in that no human wrote. For this project the order holds:
+**first the report, then maybe the automation.**
 
-Falls es später doch Dependabot sein soll, dann so: `open-pull-requests-limit: 0` (nur
-Security-Updates, keine Versionspflege), `groups` für die übrigen, `interval: monthly`. Das
-ist der Kompromiss, der nicht zumüllt. Aber erst danach.
+If later it is to be Dependabot after all, then like this:
+`open-pull-requests-limit: 0` (security updates only, no version upkeep), `groups` for the
+rest, `interval: monthly`. That is the compromise that does not litter. But only after
+that.
 
-**Der Triage-Ablauf**, drei Sätze für OPERATIONS.md:
+**The triage flow**, three sentences for OPERATIONS.md:
 
-1. Issue kommt herein. Erste Frage: **Ist der verwundbare Pfad von hier aus erreichbar?**
-   Beantwortet wird das wie bei der `time`-Ausnahme — nicht "steckt das Crate im Baum",
-   sondern "wird die betroffene Funktion aufgerufen".
-2. Erreichbar → beheben, notfalls durch Ersetzen der Abhängigkeit. Nicht erreichbar oder
-   nicht behebbar → Eintrag in `deny.toml` mit Begründung **und Umkehrbedingung**.
-3. Jede Ausnahme wird beim nächsten wöchentlichen Fehlschlag mitgelesen. Eine Ausnahme ohne
-   Umkehrbedingung ist keine Ausnahme, sondern eine Kapitulation.
+1. The issue comes in. First question: **is the vulnerable path reachable from here?**
+   That is answered as with the `time` exception — not "is the crate in the tree" but "is
+   the affected function called".
+2. Reachable → fix it, if need be by replacing the dependency. Not reachable or not
+   fixable → an entry in `deny.toml` with a rationale **and a reversal condition**.
+3. Every exception is read along with the next weekly failure. An exception without a
+   reversal condition is not an exception but a capitulation.
 
-**Schritte.**
+**Steps.**
 
 ```
-1. schedule-Trigger in ci.yml → verify: Actions zeigt nach dem ersten Montag einen Lauf ohne
-   zugehörigen Commit
-2. Issue-Schritt bei Fehlschlag des deny-Jobs → verify: Testlauf mit künstlich eingefügter
-   verwundbarer Version legt genau ein Issue an; ein zweiter Lauf legt kein zweites an
-3. Triage-Ablauf aufschreiben → verify: die drei Schritte stehen neben der bestehenden
-   time-Ausnahme verlinkt
+1. schedule trigger in ci.yml → verify: after the first Monday, Actions shows a run with no
+   associated commit
+2. Issue step on failure of the deny job → verify: a test run with an artificially inserted
+   vulnerable version creates exactly one issue; a second run creates no second one
+3. Write down the triage flow → verify: the three steps stand linked next to the existing
+   time exception
 ```
 
-**Aufwand:** S, eine Stunde. **Priorität: hoch** — beste Wirkung pro Zeile in der ganzen
-Liste.
+**Effort:** S, one hour. **Priority: high** — the best effect per line in the whole list.
 
 ---
 
-## 7. Config-Versionierung
+## 7. Config versioning
 
-> Beim ersten breaking change (Key umbenennen) bricht eine alte Installation ohne
-> Migrationspfad.
+> At the first breaking change (renaming a key) an old installation breaks with no
+> migration path.
 
-**Befund.** [config.rs](../crates/alpendns/src/config.rs) hat **kein** `version`-Feld und
-benutzt an **keiner** Stelle `serde(alias)`. Beim Umbenennen eines Schlüssels bekommt der
-Betreiber heute genau das, was serde sagt: `unknown field 'x'` — und dank
-`deny_unknown_fields` scheitert der Start, was richtig ist (B.1 Regel 5), aber nicht verrät,
-was zu tun ist.
+**Finding.** [config.rs](../crates/alpendns/src/config.rs) has **no** `version` field and
+uses `serde(alias)` in **no** place. When a key is renamed, the operator today gets
+exactly what serde says: `unknown field 'x'` — and thanks to `deny_unknown_fields` the
+start fails, which is right (B.1 rule 5), but does not reveal what to do.
 
-**Der Punkt vermischt drei Dinge.** Sie sind zu trennen, sonst baut man das Falsche:
+**The item mixes three things.** They have to be separated, otherwise you build the wrong
+one:
 
-**(a) Bessere Fehlermeldung.** Bei einem unbekannten Schlüssel den ähnlichsten bekannten
-vorschlagen ("unbekannter Schlüssel `blocklists` — meintest du `blocklist`?"). Ein
-Levenshtein-Vergleich gegen die Feldliste, die serde im Fehler ohnehin mitliefert. Löst den
-mit Abstand häufigsten Fall: den Tippfehler. **Aufwand: S.**
+**(a) A better error message.** On an unknown key, suggest the most similar known one
+("unbekannter Schlüssel `blocklists` — meintest du `blocklist`?"). A Levenshtein
+comparison against the field list, which serde supplies in the error anyway. Solves by
+far the most common case: the typo. **Effort: S.**
 
-**(b) Umbenennungen ohne Bruch: `serde(alias)`.** Der alte Name bleibt eine Version lang als
-Alias stehen und erzeugt beim Laden eine `tracing::warn!`-Zeile mit dem neuen Namen. `alias`
-und `deny_unknown_fields` schließen einander **nicht** aus — ein Alias ist ein bekannter
-Name, kein unbekannter. Das ist die 90-%-Lösung des eigentlichen TODO, und sie kostet je
-Umbenennung eine Zeile. **Aufwand: S je Fall, null im Voraus.**
+**(b) Renaming without breakage: `serde(alias)`.** The old name stays as an alias for one
+version and produces a `tracing::warn!` line with the new name when loading. `alias` and
+`deny_unknown_fields` do **not** exclude each other — an alias is a known name, not an
+unknown one. That is the 90 % solution of the actual TODO, and it costs one line per
+rename. **Effort: S per case, zero in advance.**
 
-**(c) Ein `version`-Feld.** Klingt nach der Lösung, ist aber die schwächste der drei: es sagt
-dem Server, was er ohnehin merkt, und verlangt vom Betreiber, eine Zahl zu pflegen, die er
-nicht versteht. Nutzen hätte es nur mit einer echten Migration dahinter — und die ist hier
-verbaut: `/etc/alpendns/alpendns.toml` ist ein **Debian-conffile**. Ein Programm, das eine
-conffile-Datei selbsttätig umschreibt, bricht den conffile-Vertrag; `dpkg` fragt beim
-nächsten Upgrade nach lokalen Änderungen, die der Betreiber nie gemacht hat. Automatische
-Migration beim Start ist damit **ausgeschlossen**, nicht nur unschön.
+**(c) A `version` field.** Sounds like the solution, but is the weakest of the three: it
+tells the server what it notices anyway, and asks the operator to maintain a number he
+does not understand. It would only be useful with a real migration behind it — and that
+is blocked here: `/etc/alpendns/alpendns.toml` is a **Debian conffile**. A program that
+rewrites a conffile by itself breaks the conffile contract; on the next upgrade `dpkg`
+asks about local changes that the operator never made. Automatic migration at startup is
+therefore **ruled out**, not merely unattractive.
 
-**Empfehlung: (a) und (b) bauen, (c) nicht.** Kommt später doch eine große Umstellung, ist
-der richtige Weg ein ausdrücklicher Befehl `alpendns migrate --in <alt> --out <neu>`, der
-nach `stdout` oder in eine benannte Datei schreibt und die conffile-Datei nicht anfasst — der
-Betreiber kopiert sie selbst. Dann ist der Vertrag gewahrt und die Migration sichtbar.
+**Recommendation: build (a) and (b), not (c).** If a big conversion does come later, the
+right way is an explicit command `alpendns migrate --in <old> --out <new>` that writes to
+`stdout` or into a named file and does not touch the conffile — the operator copies it
+himself. Then the contract holds and the migration is visible.
 
-**Schritte.**
+**Steps.**
 
 ```
-1. Feldvorschlag bei unbekanntem Schlüssel → verify: Test mit "blocklists" statt "blocklist"
-   nennt den richtigen Namen im Fehlertext
-2. Muster für Umbenennungen festhalten (serde(alias) + Warnung), mit einem Beispiel
-   → verify: Test lädt Config mit altem Namen, Ergebnis identisch, Warnung wird geloggt
-3. Entscheidung gegen version-Feld und automatische Migration als ADR → verify: ADR liegt in
-   docs/adr/ und nennt den conffile-Vertrag als Grund
+1. Field suggestion on an unknown key → verify: a test with "blocklists" instead of
+   "blocklist" names the right name in the error text
+2. Record the pattern for renames (serde(alias) + warning), with an example
+   → verify: a test loads a config with the old name, the result is identical, the warning
+   is logged
+3. The decision against a version field and automatic migration as an ADR → verify: the ADR
+   is in docs/adr/ and names the conffile contract as the reason
 ```
 
-**Aufwand:** S, ein Abend für (a)+(b)+ADR. **Priorität: mittel** — (a) hilft ab sofort, (b)
-ist Vorsorge, die nichts kostet, bis sie gebraucht wird.
+**Effort:** S, one evening for (a)+(b)+ADR. **Priority: medium** — (a) helps immediately,
+(b) is provision that costs nothing until it is needed.
 
 ---
 
-## 8. Blockseite
+## 8. Block page
 
-> Wenn eine Website auf Blockliste steht → schöne Blockpage vom DNS-Server ("Diese Seite
+> When a website is on a blocklist → a nice block page from the DNS server ("Diese Seite
 > wurde blockiert weil…")
 
-**Befund.** Der Mechanismus ist zum Teil schon da:
-[filter/block.rs:26-44](../crates/alpendns/src/filter/block.rs#L26-L44) kennt drei Modi —
-`Nxdomain` (Default), `ZeroIp` und **`Sinkhole`**, der bereits eine konfigurierte IPv4- und
-IPv6-Adresse zurückgibt. Für eine Blockseite fehlt "nur" der HTTP-Server auf dieser Adresse.
+**Finding.** The mechanism is partly there already:
+[filter/block.rs:26-44](../crates/alpendns/src/filter/block.rs#L26-L44) knows three modes
+— `Nxdomain` (default), `ZeroIp` and **`Sinkhole`**, which already returns a configured
+IPv4 and IPv6 address. For a block page "only" the HTTP server on that address is missing.
 
-**Und jetzt die unangenehme Seite, die vor dem Bau zu klären ist.** Eine Blockseite wirkt nur
-bei **HTTP**. Bei HTTPS — also bei praktisch jedem Aufruf, den ein Mensch tätigt — sieht der
-Nutzer keine Seite, sondern eine **Zertifikatswarnung**: der Sinkhole kann für
-`www.beispiel.de` kein gültiges Zertifikat vorweisen. Bei einer Domain mit HSTS (alle großen)
-bietet der Browser nicht einmal ein "trotzdem fortfahren" an, sondern bricht hart ab. Das
-Ergebnis ist also nicht "schöne Seite statt Fehler", sondern **"Zertifikatsfehler statt
-Namensfehler"** — für den Laien die schlechtere der beiden Meldungen, weil sie nach Angriff
-aussieht.
+**And now the unpleasant side, which has to be settled before building.** A block page
+only works over **HTTP**. Over HTTPS — that is, on practically every request a human makes
+— the user sees not a page but a **certificate warning**: the sinkhole cannot present a
+valid certificate for `www.beispiel.de`. On a domain with HSTS (all the big ones) the
+browser does not even offer a "continue anyway" but aborts hard. The result is therefore
+not "a nice page instead of an error" but **"a certificate error instead of a name
+error"** — for the layman the worse of the two messages, because it looks like an attack.
 
-Drei weitere Punkte, die real sind:
+Three further points that are real:
 
-* **Nicht-Browser-Clients** — Apps, Update-Dienste, Telemetrie — sind die Mehrheit der
-  geblockten Anfragen. Sie sehen keine Seite, sondern hängen im TCP-Verbindungsaufbau zum
-  Sinkhole und laufen in Timeouts, statt sofort zu scheitern. `Nxdomain` ist für sie die
-  freundlichere Antwort.
-* **Wechselwirkung mit dem Rebinding-Detektor**
-  ([detect/rebinding.rs](../crates/alpendns/src/detect/rebinding.rs)): der Sinkhole ist per
-  Definition eine private Adresse als Antwort auf einen öffentlichen Namen — genau das
-  Muster, das der Detektor meldet. Beide gleichzeitig aktiv heißt: jede geblockte Domain
-  erzeugt einen Fund, und die Fundliste wird unlesbar. Das muss ausgenommen werden.
-* **Die Begründung an die Seite zu bekommen** rührt an B.1 Regel 3. Der HTTP-Server bekommt
-  vom Browser den `Host:`-Header, also den Namen — er müsste die Policy erneut befragen
-  ("warum wäre dieser Name geblockt?"). Das geht ohne jede Speicherung über den bestehenden
-  `explain`-Pfad ([api/mod.rs:386](../crates/alpendns/src/api/mod.rs#L386)), der genau diese
-  Frage schon beantwortet: kein neuer Speicher, keine Verknüpfung von Name und Client.
-  Wichtig: die Seite braucht `no-store`, sonst hält der Browser sie über das Ende der
-  Blockierung hinaus.
+* **Non-browser clients** — apps, update services, telemetry — are the majority of blocked
+  requests. They see no page but hang in the TCP connection setup to the sinkhole and run
+  into timeouts instead of failing immediately. `Nxdomain` is the friendlier answer for
+  them.
+* **Interaction with the rebinding detector**
+  ([detect/rebinding.rs](../crates/alpendns/src/detect/rebinding.rs)): the sinkhole is by
+  definition a private address as the answer to a public name — exactly the pattern the
+  detector reports. Both active at the same time means: every blocked domain produces a
+  finding, and the findings list becomes unreadable. That has to be exempted.
+* **Getting the reason onto the page** touches B.1 rule 3. From the browser the HTTP
+  server gets the `Host:` header, that is, the name — it would have to ask the policy
+  again ("why would this name be blocked?"). That works without any storage via the
+  existing `explain` path ([api/mod.rs:386](../crates/alpendns/src/api/mod.rs#L386)),
+  which already answers exactly this question: no new storage, no linking of name and
+  client. Important: the page needs `no-store`, otherwise the browser keeps it beyond the
+  end of the block.
 
-**Empfehlung: die billigere Hälfte bauen, die teure nicht.** Was der Nutzer wirklich will,
-ist nicht die Seite, sondern die **Antwort auf "warum geht das nicht?"** — und die gibt es
-bereits über `explain`. Nur der Weg dorthin ist umständlich. Vorschlag:
+**Recommendation: build the cheaper half, not the expensive one.** What the user really
+wants is not the page but the **answer to "why does this not work?"** — and that already
+exists via `explain`. Only the way there is cumbersome. Proposal:
 
-* Ein Suchfeld in der Oberfläche, in das man einen Namen tippt und die Begründung bekommt
-  ("geblockt durch Liste X, Regel Y"), daneben der bestehende Freigabeknopf. Der
-  `explain`-Endpunkt kann das bereits; es fehlt der Weg in der UI.
-* Wenn die Blockseite trotzdem gewünscht ist, dann **ausdrücklich als Option für HTTP-only**,
-  mit einem Satz in der Doku, der die Zertifikatswarnung benennt, statt sie zu verschweigen.
-  Ein Zertifikat aus einer eigenen CA, die auf allen Geräten ausgerollt wird, löst das
-  technisch — und ist in einem Haushalt eine Zumutung.
+* A search field in the interface into which one types a name and gets the reason ("blocked
+  by list X, rule Y"), next to it the existing "Allow" button. The `explain` endpoint
+  can already do that; the way into the UI is missing.
+* If the block page is wanted anyway, then **explicitly as an option for HTTP only**, with
+  a sentence in the docs that names the certificate warning instead of keeping quiet about
+  it. A certificate from an own CA rolled out on all devices solves it technically — and
+  is an imposition in a household.
 
-**Schritte (für die empfohlene Hälfte).**
+**Steps (for the recommended half).**
 
 ```
-1. Suchfeld in der UI, das /api/explain befragt → verify: Eingabe eines geblockten Namens
-   zeigt Liste und Regel; unbekannter Name zeigt "wird nicht geblockt"
-2. Leerzustand des Felds nach B.6 (kein leerer Kasten, sondern ein Satz) → verify:
-   ui.rs-Regeltests grün, danach ein Blick eines Menschen
-3. Rebinding-Ausnahme für die konfigurierte Sinkhole-Adresse → verify: Test mit aktivem
-   Sinkhole und aktivem Rebinding-Detektor erzeugt keinen Fund
+1. Search field in the UI that queries /api/explain → verify: entering a blocked name shows
+   the list and the rule; an unknown name shows "not blocked"
+2. Empty state of the field per B.6 (no empty box but a sentence) → verify: ui.rs rule tests
+   green, then a human look
+3. Rebinding exemption for the configured sinkhole address → verify: a test with an active
+   sinkhole and an active rebinding detector produces no finding
 ```
 
-**Aufwand:** Suchfeld S. Vollständige Blockseite M–L plus ADR, mit zweifelhaftem Ertrag.
-**Priorität: niedrig** — und das ist eine bewusste Empfehlung gegen den ursprünglichen
-Wunsch, keine Vergesslichkeit. **B.8-Entscheidung beim Autor.**
+**Effort:** search field S. Full block page M–L plus an ADR, with doubtful yield.
+**Priority: low** — and that is a deliberate recommendation against the original wish, not
+forgetfulness. **B.8 decision for the author.**
 
 ---
 
-## 9. Configuration Wizard in der Web-UI
+## 9. Configuration wizard in the web UI
 
-**Befund.** Die API ist heute lesend plus vier schreibende Endpunkte für befristete Einträge
-(`/api/allow` und `/api/deny`, je POST und DELETE,
-[api/mod.rs:110-131](../crates/alpendns/src/api/mod.rs#L110-L131)), abgesichert durch ein
-Bearer-Token, in konstanter Zeit verglichen. **Konfiguration kann sie nicht schreiben.**
+**Finding.** The API today is read-only plus four writing endpoints for time-limited
+entries (`/api/allow` and `/api/deny`, each POST and DELETE,
+[api/mod.rs:110-131](../crates/alpendns/src/api/mod.rs#L110-L131)), secured by a bearer
+token, compared in constant time. **It cannot write configuration.**
 
-Drei Hindernisse, alle echt:
+Three obstacles, all real:
 
-1. **`ProtectSystem=strict`** macht das ganze Dateisystem außer den `*Directory=`-Pfaden
-   schreibgeschützt. `/etc/alpendns/` ist **nicht** darunter. Ein schreibender Wizard
-   verlangt also `ReadWritePaths=/etc/alpendns` — eine Aufweichung der Härtung, die nach B.5
-   begründet und abgenommen gehört.
-2. **Kein Reload** (Befund B1). Selbst eine geschriebene Config wirkt erst nach `systemctl
-   restart` — und den kann der Dienst nicht selbst auslösen, ohne einen Weg zu systemd zu
-   bekommen, den `SystemCallFilter` und `CapabilityBoundingSet` gerade verhindern. Ein
-   Wizard, der schreibt und dann sagt "bitte jetzt neu starten", ist ein halber Wizard.
-3. **conffile.** Dieselbe Falle wie in Punkt 7.
+1. **`ProtectSystem=strict`** makes the whole file system read-only except the
+   `*Directory=` paths. `/etc/alpendns/` is **not** among them. A writing wizard therefore
+   demands `ReadWritePaths=/etc/alpendns` — a softening of the hardening that belongs
+   justified and accepted per B.5.
+2. **No reload** (finding B1). Even a written config only takes effect after `systemctl
+   restart` — and the service cannot trigger that itself without getting a way to systemd
+   that `SystemCallFilter` and `CapabilityBoundingSet` precisely prevent. A wizard that
+   writes and then says "please restart now" is half a wizard.
+3. **conffile.** The same trap as in item 7.
 
-**Entwurf — ein Wizard, der nicht schreibt.** Das klingt nach Rückzug und ist die bessere
-Lösung: der Wizard führt durch die Fragen (Listener-Adressen, Upstreams, Blocklisten, erste
-Policy) und erzeugt daraus **eine TOML-Vorschau** mit Kommentaren, zum Kopieren. Daneben
-stehen die drei Befehle:
+**Design — a wizard that does not write.** That sounds like retreat and is the better
+solution: the wizard leads through the questions (listener addresses, upstreams,
+blocklists, first policy) and from that generates **a TOML preview** with comments, to
+copy. Next to it stand the three commands:
 
 ```
-sudo tee /etc/alpendns/alpendns.toml     # Inhalt einfügen
+sudo tee /etc/alpendns/alpendns.toml     # paste the content
 sudo alpendns -c /etc/alpendns/alpendns.toml check
 sudo systemctl restart alpendns
 ```
 
-Damit sind alle drei Hindernisse umgangen, und der Betreiber sieht, was er einbaut — bei
-einer Datei, deren Inhalt darüber entscheidet, ob sein Netz gefiltert ist, ist das keine
-Unbequemlichkeit, sondern der Punkt. Die **Validierung** läuft trotzdem serverseitig: ein
-Endpunkt `POST /api/config/validate` nimmt den TOML-Text, parst ihn durch dieselbe
-`Config`-Struktur und dieselben Blueprint-Prüfungen wie `alpendns check` und antwortet mit
-Fehlern samt Zeilennummer — ohne irgendetwas zu speichern. So ist die Vorschau nachweislich
-gültig, bevor sie jemand einfügt.
+That bypasses all three obstacles, and the operator sees what he is installing — with a
+file whose content decides whether his network is filtered, that is not an inconvenience
+but the point. The **validation** still runs server-side: an endpoint
+`POST /api/config/validate` takes the TOML text, parses it through the same `Config`
+structure and the same blueprint checks as `alpendns check`, and answers with errors
+including the line number — without storing anything. That way the preview is
+demonstrably valid before anyone pastes it.
 
-Gestaltung nach B.6: die Seite scrollt nicht, ein mehrstufiger Wizard also als **eine Ansicht
-mit Schrittanzeige**, nicht als lange Formularstrecke — links die Frage, rechts die wachsende
-Vorschau. Ein Container, kein neuer.
+Design per B.6: the page does not scroll, so a multi-step wizard is **one view with a step
+indicator**, not a long form — the question on the left, the growing preview on the right.
+One container, no new one.
 
-**Wenn doch geschrieben werden soll**, dann in dieser Reihenfolge und nicht anders:
-`ReadWritePaths=/etc/alpendns` in die Unit (mit Begründung in OPERATIONS.md §5), Schreiben
-atomar über temporäre Datei plus `rename`, vorher Kopie nach `alpendns.toml.bak-<zeitstempel>`
-im StateDirectory, Validierung **vor** dem Schreiben, und die conffile-Frage ausdrücklich
-entschieden (etwa: die Datei aus dem conffile-Satz nehmen und stattdessen im `postinst`
-anlegen, wenn sie fehlt).
+**If writing is to happen after all**, then in this order and not otherwise:
+`ReadWritePaths=/etc/alpendns` into the unit (with a rationale in OPERATIONS.md §5),
+writes atomically via a temporary file plus `rename`, beforehand a copy to
+`alpendns.toml.bak-<timestamp>` in the StateDirectory, validation **before** the write,
+and the conffile question decided explicitly (for instance: take the file out of the
+conffile set and instead create it in `postinst` when it is missing).
 
-**Schritte.**
+**Steps.**
 
 ```
-1. POST /api/config/validate, parst und verwirft → verify: gültiges TOML → 200 mit
-   Zusammenfassung; unbekannter Schlüssel → 400 mit Schlüsselname und Zeile; nichts auf Platte
-2. Obergrenze auf die Bodygröße des Endpunkts → verify: 10-MB-Body wird abgelehnt, kein Panic
-3. Wizard-Ansicht mit Schrittanzeige und wachsender Vorschau → verify: ui.rs-Regeltests grün;
-   Seite scrollt bei 1400 px Breite nicht
-4. Kopierknopf und die drei Befehle darunter → verify: Blick eines Menschen
-5. [nur falls Schreiben gewünscht] B.8-Entscheidung zu ReadWritePaths und conffile → verify:
-   der Autor hat entschieden; ohne Entscheidung wird nicht gebaut
+1. POST /api/config/validate, parses and discards → verify: valid TOML → 200 with a
+   summary; unknown key → 400 with the key name and line; nothing on disk
+2. A ceiling on the endpoint's body size → verify: a 10 MB body is rejected, no panic
+3. Wizard view with step indicator and growing preview → verify: ui.rs rule tests green; the
+   page does not scroll at 1400 px width
+4. Copy button and the three commands below it → verify: a human look
+5. [only if writing is wanted] B.8 decision on ReadWritePaths and conffile → verify: the
+   author has decided; without a decision nothing is built
 ```
 
-**Aufwand:** M, zwei bis drei Abende für die schreibfreie Fassung. **Priorität: niedrig** —
-sie ist eine Komfortfunktion für die Erstinstallation, also für ein Ereignis, das pro
-Betreiber einmal stattfindet.
+**Effort:** M, two to three evenings for the write-free version. **Priority: low** — it is
+a convenience feature for the first installation, that is, for an event that happens once
+per operator.
 
 ---
 
-## 10. Ausfallsicherheit mit zwei Instanzen
+## 10. Resilience with two instances
 
-> Ausfallsicherheit steht als Phase-10-Option (zwei Instanzen).
-> [ROADMAP.md](ROADMAP.md): "Zwei Instanzen mit abgeglichenem Policy-Stand."
+> Resilience stands as a phase 10 option (two instances).
+> [ROADMAP.md](ROADMAP.md): "Two instances with a synchronized policy state."
 
-Der größte Punkt der Liste, deshalb ausführlicher — und von hinten aufgerollt: erst die
-Frage, welche Ausfälle es überhaupt gibt, dann was davon eine zweite Instanz löst, dann erst
-das Wie.
+The largest item on the list, hence more thorough — and unrolled from the back: first the
+question of which failures exist at all, then what of them a second instance solves, and
+only then the how.
 
-### 10.1 Welche Ausfälle gibt es, und was fängt sie heute schon ab?
+### 10.1 Which failures are there, and what already catches them today?
 
-| Ausfall | Heute abgefangen durch | Zweite Instanz hilft? |
+| Failure | Caught today by | Does a second instance help? |
 |---|---|---|
-| Prozessabsturz | `Restart=on-failure`, `RestartSec=2s` | **Nein.** Der Dienst ist in ~2 s zurück. Kein Stub-Resolver schaltet in 2 s um. |
-| Absturzschleife (5×/300 s) | `StartLimitBurst=5` → Dienst bleibt unten | **Ja**, aber nur auf einem zweiten Host. |
-| Kaputte Config nach Änderung | `ExecStartPre=alpendns check` — der alte Prozess läuft weiter | Teilweise: nur wenn **nacheinander** geändert wird. |
-| Kaputtes Blocklisten-Update | Platten-Cache, `Origin::StaleCache` | **Nein.** Beide Instanzen laden dieselbe URL. Dagegen hilft Diff-Review (Roadmap O3), nicht Redundanz. |
-| Upstream tot | Pool mit mehreren Upstreams, `serve_stale` ([cache.rs](../crates/alpendns/src/cache.rs)) | **Nein**, außer man konfiguriert die Pools bewusst verschieden. |
-| Paket-Upgrade | — | **Ja.** Der Fall mit dem besten Verhältnis: nacheinander upgraden, nie sind beide unten. |
-| Reboot des Hosts | — | **Ja**, zweiter Host. |
-| Hardware / Strom | — | **Ja**, zweiter Host — und nur bei getrennter Stromversorgung. Zwei Kisten an derselben Steckdosenleiste sind eine Kiste. |
-| Netzpartition | — | Kommt darauf an, wo. Nur mit zweitem Segment. |
+| Process crash | `Restart=on-failure`, `RestartSec=2s` | **No.** The service is back in ~2 s. No stub resolver switches over in 2 s. |
+| Crash loop (5×/300 s) | `StartLimitBurst=5` → the service stays down | **Yes**, but only on a second host. |
+| Broken config after a change | `ExecStartPre=alpendns check` — the old process keeps running | Partly: only when the change is made **one after the other**. |
+| Broken blocklist update | disk cache, `Origin::StaleCache` | **No.** Both instances load the same URL. What helps against that is diff review (roadmap O3), not redundancy. |
+| Upstream dead | pool with several upstreams, `serve_stale` ([cache.rs](../crates/alpendns/src/cache.rs)) | **No**, unless the pools are deliberately configured differently. |
+| Package upgrade | — | **Yes.** The case with the best ratio: upgrade one after the other, both are never down. |
+| Host reboot | — | **Yes**, second host. |
+| Hardware / power | — | **Yes**, second host — and only with separate power. Two boxes on the same power strip are one box. |
+| Network partition | — | Depends on where. Only with a second segment. |
 
-**Die ehrliche Bilanz:** von neun Ausfallarten fängt eine zweite Instanz drei ab, und alle
-drei setzen einen **zweiten Host** voraus. Eine zweite Instanz auf demselben Rechner ist fast
-wertlos — der häufigste Ausfall (Absturz) ist von systemd schneller behoben, als ein Client
-umschaltet. **Wer das baut, baut einen zweiten Rechner, nicht einen zweiten Prozess.** Das ist
-der wichtigste Satz dieses Abschnitts.
+**The honest balance:** of nine kinds of failure, a second instance catches three, and all
+three presuppose a **second host**. A second instance on the same machine is nearly
+worthless — the most common failure (a crash) is fixed by systemd faster than a client
+switches over. **Whoever builds this builds a second machine, not a second process.** That
+is the most important sentence in this section.
 
-### 10.2 Die Stelle, an der es meistens scheitert: die Client-Seite
+### 10.2 The place where it usually fails: the client side
 
-Zwei Server nützen nichts, wenn die Clients nicht umschalten. Das ist der Teil, der nicht im
-Code steht und den man **vor** dem Bau messen muss:
+Two servers are of no use if the clients do not switch over. That is the part that is not
+in the code and that has to be measured **before** building:
 
-* **glibc** (`resolv.conf`): probiert die Server der Reihe nach, Default `timeout:5`,
-  `attempts:2`, und **merkt sich den Ausfall ohne `options rotate` nicht**. Der Ausfall von
-  Server 1 heißt dann: jede Anfrage wartet fünf Sekunden, bevor Server 2 drankommt. Das ist
-  nicht "unbemerkt", das ist "es geht, aber alles hängt".
-* **systemd-resolved** bleibt nach wenigen Sekunden am funktionierenden Server kleben —
-  deutlich besser.
-* **Windows** kennt bevorzugten und alternativen Server mit einem Ausfallgedächtnis in
-  Minuten. **Android** fällt mit kurzen Timeouts am unauffälligsten um.
-* **Der häufigste Fall im Homelab ist keiner davon:** alle Geräte fragen den Router, der
-  Router forwardet an AlpenDNS. Dann zählt allein das Failover **des Routers** — und viele
-  Consumer-Router führen entweder nur einen Forwarder, oder sie fallen beim Ausfall auf den
-  Provider-DNS zurück. Im zweiten Fall ist die Folge des Ausfalls **ungefiltertes
-  Klartext-DNS**, und der zweite Server wird nie gefragt. Das ist schlimmer als ein sichtbarer
-  Ausfall.
-* Ein Gerät mit bestehender DHCP-Lease erfährt von der zweiten Adresse erst beim nächsten
-  Renew — unter Umständen stundenlang gar nicht.
+* **glibc** (`resolv.conf`): tries the servers in order, default `timeout:5`, `attempts:2`,
+  and **does not remember the failure without `options rotate`**. The failure of server 1
+  then means: every request waits five seconds before server 2 gets its turn. That is not
+  "unnoticed", it is "it works, but everything hangs".
+* **systemd-resolved** sticks to the working server after a few seconds — distinctly
+  better.
+* **Windows** knows a preferred and an alternate server with a failure memory in minutes.
+  **Android** fails over most inconspicuously with short timeouts.
+* **The most common case in the homelab is none of these:** all devices ask the router,
+  the router forwards to AlpenDNS. Then only the failover **of the router** counts — and
+  many consumer routers either carry only one forwarder, or they fall back to the provider
+  DNS on failure. In the second case the consequence of the failure is **unfiltered
+  plaintext DNS**, and the second server is never asked. That is worse than a visible
+  failure.
+* A device with an existing DHCP lease learns of the second address only at the next renew
+  — possibly not for hours.
 
-**Deshalb ist Schritt eins keine Zeile Code, sondern eine Messung.** Ohne sie weiß man nicht,
-ob man ein Problem löst oder eines dazubaut.
+**That is why step one is not a line of code but a measurement.** Without it you do not
+know whether you are solving a problem or adding one.
 
-### 10.3 Was abgeglichen werden müsste — und was ausdrücklich nicht
+### 10.3 What would have to be synchronized — and what explicitly not
 
-| Zustand | Wo | Abgleichen? |
+| State | Where | Sync? |
 |---|---|---|
-| Konfiguration, Policies, Clients | Datei, `Config::load` | **Nein — von Hand gleich halten.** Ein Abgleichkanal, der Config trägt, verteilt eine kaputte Config auf beide Instanzen und macht aus zwei Ausfallzonen eine. Das widerspricht dem Zweck (B.1 Regel 5 und 6). |
-| Blocklisten | eigener Download je Instanz | Nein. Gleicher Inhalt, unabhängig geladen. |
-| Antwort-Cache | RAM | Nein. Divergenz ist folgenlos. |
-| Protokoll, Ringpuffer, Zähler, 24-h-Verlauf | RAM, [history.rs:10-14](../crates/alpendns/src/history.rs#L10-L14) | Nein — und zwar **prinzipiell nicht**: der Modulkopf nennt die Flüchtigkeit ausdrücklich als Zusicherung, nicht als Mangel. Folge: jede UI zeigt die Hälfte des Verkehrs. Das gehört in die UI geschrieben. |
-| Rate-Limit-Buckets | RAM, je Instanz | Nein. Aber: zwei Instanzen verdoppeln effektiv das Budget je Client. `per_client_qps` gehört dann auf beiden halbiert — und nichts im Code erzwingt das. |
-| Tunneling-Fenster | RAM, je Instanz | **Kann nicht.** Es ist Verkehrsstatistik über Namen, also genau das, was nach B.1 Regel 3 nicht über die Leitung soll. Folge: jeder Detektor sieht die Hälfte des Verkehrs und wird stumpfer. **Redundanz kostet hier Erkennungsqualität.** Dafür gibt es keine gute Antwort, nur die ehrliche Erwähnung. |
-| NRD-Datei | Datei aus AlpenShield, [detect/nrd.rs](../crates/alpendns/src/detect/nrd.rs) | Kein Sync-Problem, sondern Betriebsarbeit: die Datei muss auf beiden Hosts liegen. Der Detektor lernt nichts, er liest nur — eine frisch gestartete Instanz entscheidet identisch. Fehlt die Datei, flaggt er dort schlicht nichts. |
-| **Befristete Freigaben und Sperren** | RAM, `Instant`, [temporary.rs](../crates/alpendns/src/policy/temporary.rs) | **Der einzige Kandidat.** Es ist der einzige Zustand, den ein Mensch in der UI erzeugt und der sonst nirgends steht. |
+| Configuration, policies, clients | file, `Config::load` | **No — keep them equal by hand.** A sync channel that carries config distributes a broken config to both instances and turns two failure zones into one. That contradicts the purpose (B.1 rules 5 and 6). |
+| Blocklists | separate download per instance | No. Same content, loaded independently. |
+| Answer cache | RAM | No. Divergence has no consequences. |
+| Log, ring buffer, counters, 24 h history | RAM, [history.rs:10-14](../crates/alpendns/src/history.rs#L10-L14) | No — and **not in principle**: the module header explicitly names the volatility as an assurance, not a defect. Consequence: each UI shows half the traffic. That belongs written into the UI. |
+| Rate limit buckets | RAM, per instance | No. But: two instances effectively double the budget per client. `per_client_qps` then belongs halved on both — and nothing in the code enforces that. |
+| Tunneling window | RAM, per instance | **Cannot be.** It is traffic statistics over names, that is, exactly what per B.1 rule 3 should not go over the wire. Consequence: every detector sees half the traffic and becomes duller. **Redundancy costs detection quality here.** There is no good answer for that, only the honest mention. |
+| NRD file | file from AlpenShield, [detect/nrd.rs](../crates/alpendns/src/detect/nrd.rs) | Not a sync problem but operational work: the file has to lie on both hosts. The detector learns nothing, it only reads — a freshly started instance decides identically. If the file is missing, it simply flags nothing there. |
+| **Time-limited grants and blocks** | RAM, `Instant`, [temporary.rs](../crates/alpendns/src/policy/temporary.rs) | **The only candidate.** It is the only state that a human creates in the UI and that stands nowhere else. |
 
-Damit ist die Aufgabe scharf: "abgeglichener Policy-Stand" aus der Roadmap heißt in der Praxis
-**eine einzige Datenart**, nicht "Zustandsreplikation".
+That makes the task sharp: "synchronized policy state" from the roadmap means in practice
+**a single kind of data**, not "state replication".
 
-### 10.4 Stufenplan
+### 10.4 Staged plan
 
-Jede Stufe bringt für sich einen Gewinn, und nach jeder kann man aufhören.
+Each stage brings a gain on its own, and after each one you can stop.
 
-**Stufe 0 — messen und dokumentieren. Kein Code.**
+**Stage 0 — measure and document. No code.**
 
-Der zweite Server wird eingerichtet, bevor irgendetwas gebaut wird, und dann wird gemessen:
-Instanz A abschalten, mit der Stoppuhr feststellen, wie lange Laptop, Handy, Fernseher und
-Router brauchen — oder ob sie es überhaupt tun. Die Zahl gehört in
-[BENCHMARKS.md](BENCHMARKS.md); sie ist die Rechtfertigung für alles Weitere. Ergibt die
-Messung "der Router fällt auf den Provider-DNS zurück", dann ist **das** das Problem, das
-gelöst gehört, und nicht der Zustandsabgleich.
-
-```
-1. Zweiten Host aufsetzen, dieselbe Config von Hand → verify: dig gegen beide liefert dieselbe
-   Antwort für einen geblockten und einen erlaubten Namen
-2. Beide Adressen per DHCP verteilen → verify: resolv.conf/ipconfig auf drei Geräten zeigt beide
-3. Instanz A abschalten, Umschaltzeit je Gerätetyp messen → verify: Zahlen in BENCHMARKS.md,
-   inklusive des Falls "Router fällt auf Provider-DNS zurück"
-4. Abschnitt "Zwei Instanzen" in OPERATIONS.md: Reihenfolge beim Upgrade, per_client_qps
-   halbieren, NRD-Datei auf beide Hosts → verify: jemand richtet danach ein zweites System ein,
-   ohne nachzufragen
-```
-
-**Gewinn:** Reboot, Upgrade, Hardwareausfall — die drei Fälle aus 10.1. **Aufwand:** ein
-Abend, keine Zeile Code. Für die meisten Homelabs endet der Punkt hier, und das ist ein gutes
-Ergebnis.
-
-**Stufe 1 — merken, dass die Instanzen auseinanderlaufen.**
-
-Der stille Ausfall von Stufe 0 ist eine zweite Instanz, die seit vier Monaten mit einer
-veralteten Konfiguration läuft, ohne dass es jemand merkt. Dagegen genügt eine **Prüfsumme**:
-`/api/status` und die UI nennen einen Hash über die geladene Konfiguration (Config-Datei plus
-Listen-Zusammenfassung), und der Betreiber vergleicht ihn zwischen beiden Instanzen — im
-einfachsten Fall mit dem Auge.
+The second server is set up before anything is built, and then measured: switch off
+instance A, determine with a stopwatch how long laptop, phone, TV and router take — or
+whether they do it at all. The number belongs in [BENCHMARKS.md](BENCHMARKS.md); it is the
+justification for everything further. If the measurement yields "the router falls back to
+the provider DNS", then **that** is the problem that belongs solved, and not the state
+sync.
 
 ```
-1. Hash über die geladene Config in /api/status → verify: gleiche Datei → gleicher Hash; ein
-   geänderter Schlüssel → anderer Hash
-2. Hash klein im Kopf der Oberfläche → verify: ui.rs-Regeltests grün
+1. Set up the second host, the same config by hand → verify: dig against both delivers the
+   same answer for a blocked and an allowed name
+2. Hand out both addresses via DHCP → verify: resolv.conf/ipconfig on three devices shows
+   both
+3. Switch off instance A, measure the switchover time per device type → verify: numbers in
+   BENCHMARKS.md, including the case "router falls back to provider DNS"
+4. Section "Two instances" in OPERATIONS.md: order during upgrade, halve per_client_qps, NRD
+   file on both hosts → verify: someone sets up a second system from it without asking
 ```
 
-**Gewinn:** der leise Konfigurationsdrift wird sichtbar. **Aufwand:** S, eine Stunde. Bester
-Ertrag pro Zeile im ganzen Punkt 10.
+**Gain:** reboot, upgrade, hardware failure — the three cases from 10.1. **Effort:** one
+evening, not a line of code. For most homelabs the item ends here, and that is a good
+result.
 
-**Stufe 2 — Freigaben auf beiden Instanzen, ohne Serveränderung.**
+**Stage 1 — notice that the instances drift apart.**
 
-Der konkrete Ärger aus 10.3 ist: der Nutzer gibt eine Seite frei, sie geht auf dem Laptop und
-nicht auf dem Handy — weil das Handy gerade Instanz B fragt. Die billigste ehrliche Lösung
-verlagert die Konsistenz in die Oberfläche statt in den Server: **die Web-UI kennt die Adresse
-der zweiten Instanz und schickt jeden Schreibvorgang an beide.** Ein Feld in der
-Konfiguration, zwei `fetch` statt einem, und eine Rückmeldung, wenn nur einer geklappt hat.
-
-Das kostet keine neue Server-Schnittstelle, kein Protokoll, keine Konfliktauflösung, und es
-hat einen ehrlichen Fehlermodus: schlägt einer der beiden fehl, **sagt es die Oberfläche**,
-statt still zu divergieren. Nachteil: es wirkt nur, wenn jemand die UI benutzt; eine Instanz,
-die zwischendurch neu startet, holt nichts nach.
+The silent failure of stage 0 is a second instance that has been running with an outdated
+configuration for four months without anyone noticing. A **checksum** is enough against
+that: `/api/status` and the UI name a hash over the loaded configuration (config file plus
+list summary), and the operator compares it between the two instances — in the simplest
+case by eye.
 
 ```
-1. Optionale zweite API-Adresse in der UI-Konfiguration → verify: ohne den Wert verhält sich
-   alles wie bisher
-2. Schreibvorgänge (allow/deny, setzen und widerrufen) an beide → verify: Test mit zwei
-   Loopback-Instanzen; nach dem Klick steht der Eintrag auf beiden
-3. Teilfehler wird angezeigt → verify: zweite Instanz nicht erreichbar → die Oberfläche sagt,
-   auf welcher der Eintrag fehlt, statt Erfolg zu melden
+1. Hash over the loaded config in /api/status → verify: same file → same hash; a changed
+   key → a different hash
+2. Hash small in the header of the interface → verify: ui.rs rule tests green
 ```
 
-**Gewinn:** der konkrete Nutzerärger ist weg. **Aufwand:** S–M, ein Abend, fast alles in
-`web/app.js`.
+**Gain:** the quiet configuration drift becomes visible. **Effort:** S, one hour. The best
+yield per line in the whole of item 10.
 
-**Stufe 3 — echter Peer-Abgleich der befristeten Einträge.**
+**Stage 2 — grants on both instances, without a server change.**
 
-Erst wenn Stufe 2 nachweislich nicht reicht (eine Instanz startet neu und verliert den Stand;
-Einträge werden auch außerhalb der UI gesetzt), lohnt der gebaute Abgleich. Der Entwurf in
-Kürze:
+The concrete annoyance from 10.3 is: the user grants a page, it works on the laptop and
+not on the phone — because the phone happens to be asking instance B. The cheapest honest
+solution moves consistency into the interface instead of the server: **the web UI knows
+the address of the second instance and sends every write to both.** One field in the
+configuration, two `fetch` calls instead of one, and a response when only one of them
+worked.
 
-* **Kein Leader.** Bei zwei Knoten gibt es kein Quorum, und eine feste Leader-Rolle verlöre
-  die Schreibfähigkeit genau dann, wenn der Leader ausfällt — also im einzigen Fall, für den
-  man das Ganze baut.
-* **Ein Endpunkt**, `POST /api/peer/state`, hinter der **bestehenden** Bearer-Auth
-  ([api/mod.rs:145-186](../crates/alpendns/src/api/mod.rs#L145-L186)) und demselben Token
-  (beide Instanzen bekommen dieselbe Token-Datei; sie steht in OPERATIONS.md §3 ohnehin auf
-  der Backup-Liste). Kein zweites Geheimnis — ein zweites Geheimnis ist das, was man beim
-  Neuaufsetzen vergisst.
-* **Push und Pull sind dieselbe Runde:** der Anrufer schickt seinen vollständigen Zustand, der
-  Angerufene merged und antwortet mit seinem Zustand nach dem Merge. Ein reiner Pull ist ein
-  Push mit leerer Liste. Übertragen wird der volle Zustand, kein Delta — er ist klein (Frist
-  höchstens `MAX_GRANT`), und ein volles Bild kennt keinen verlorenen Delta-Eintrag.
-* **Das `Instant`-Problem wird umgangen, nicht gelöst:** übertragen werden
-  **Restlaufzeiten**, nie Zeitpunkte. Der Empfänger rechnet `clock.now() + rest` — exakt das,
-  was `grant()` heute schon tut. Ein `Instant` verlässt den Prozess nie, es wird keine Wanduhr
-  verglichen, und eine verstellte Uhr auf dem Peer ist folgenlos. Der Fehler ist die
-  Übertragungslaufzeit auf einer Frist von Stunden.
-* **Widerruf ist ein Grabstein**, kein Löschen, mit derselben Restlaufzeit wie der widerrufene
-  Eintrag. Ohne das bringt der nächste Merge die widerrufene Freigabe zurück. Der Merge ist
-  damit kommutativ, idempotent und assoziativ und braucht weder Journal noch
-  Nachlaufprotokoll.
-* **Der Kanal trägt Domainnamen** — also genau den Datentyp, den B.1 Regel 3 schützt. Deshalb:
-  die Peer-Adresse muss Loopback sein, der Weg zum anderen Host führt durch einen Tunnel, den
-  der Betreiber legt (WireGuard, SSH), und `alpendns check` weist eine Nicht-Loopback-Adresse
-  ab. Eine im LAN im Klartext lauschende API wäre die falsche Antwort — sie liefert über
-  `/api/recent` ohnehin Namen aus.
-* **B.1 Regel 4 gerät unter Druck.** "Der Prozess kontaktiert genau drei Sorten Ziele:
-  konfigurierte Upstream-Resolver, konfigurierte Blocklisten-URLs, und sonst nichts." Ein
-  konfigurierter Peer ist eine vierte Sorte. Er ist keine Telemetrie — er geht an ein Ziel, das
-  der Betreiber selbst benannt hat, und trägt nichts nach außen. Aber die Regel sagt "sonst
-  nichts", und sie zu ergänzen ist eine **B.8-Entscheidung des Autors, kein Agentenbeschluss.**
-  Ohne diese Abnahme wird Stufe 3 nicht gebaut.
-* **Der Endpunkt verarbeitet Netzwerkdaten**, also gilt B.1 Regel 1 voll: Obergrenzen auf
-  Bodygröße und Einträgezahl, dieselbe `parse_grant`-Prüfung und dieselbe
-  `MAX_GRANT`-Kappung wie beim UI-Endpunkt, sättigende Arithmetik, kein Slice-Indexing.
-  Maximaler Schaden eines übernommenen Peers: ein für höchstens `MAX_GRANT` freigegebener oder
-  gesperrter Name. Er kann keine Config, keine Liste und keinen Detektor anfassen — das ist die
-  Begründung dafür, dass das Protokoll bewusst **keine** Felder für Konfiguration hat.
+That costs no new server interface, no protocol, no conflict resolution, and it has an
+honest failure mode: if one of the two fails, **the interface says so** instead of
+diverging silently. Drawback: it only works when someone uses the UI; an instance that
+restarts in between catches up on nothing.
 
-Berührte Dateien: `policy/temporary.rs` (Eintrag wird von `Instant` zu einem kleinen Record mit
-Frist, Grabstein-Flag und Zähler; dazu `export()` und `merge()`), `policy/mod.rs`
-(Durchreichen), `api/mod.rs` (Route, DTOs, Obergrenzen), ein neues `peer.rs` (Task: `Notify`
-bei lokaler Änderung mit Entprellung, dazu ein Ticker), `config.rs` (`[peer] url`), `main.rs`
-(Verdrahtung, `check`-Auflagen), `api/ui.rs` (Erreichbarkeitspunkt), `metrics.rs` (zwei Zähler,
-keine Namen). Nicht angefasst: `cache.rs`, `filter/*`, `ratelimit.rs`, `history.rs`,
-`logging/*`, `detect/*` — sie halten Zustand, der bewusst divergiert.
+```
+1. Optional second API address in the UI configuration → verify: without the value
+   everything behaves as before
+2. Writes (allow/deny, setting and revoking) to both → verify: test with two loopback
+   instances; after the click the entry stands on both
+3. Partial failure is displayed → verify: second instance unreachable → the interface says
+   on which one the entry is missing instead of reporting success
+```
 
-**Aufwand:** L, drei bis vier Abende, plus ADR-0021. **Priorität: niedrig** — der abgeglichene
-Zustand umfasst in einem Haushalt vielleicht ein Dutzend Einträge pro Woche.
+**Gain:** the concrete user annoyance is gone. **Effort:** S–M, one evening, almost all of
+it in `web/app.js`.
 
-### 10.5 Was an diesem Vorhaben schwach bleibt
+**Stage 3 — real peer sync of the time-limited entries.**
 
-Der Vollständigkeit halber, weil es zur Entscheidung gehört:
+Only when stage 2 demonstrably does not suffice (an instance restarts and loses the state;
+entries are also set outside the UI) does the built-in sync pay off. The design in brief:
 
-* Der Nutzen ist schmal, und der häufigste Ausfall wird davon nicht berührt.
-* Der Peer-Kanal hängt an einem Tunnel, den AlpenDNS weder baut noch überwacht. Bricht er,
-  divergiert der Zustand still; der Punkt in der UI mildert das, beseitigt es nicht.
-* Der geteilte Token macht jede Instanz zum vollwertigen Leser der anderen. Wer eine Kiste
-  übernimmt, hat beide Oberflächen inklusive der Namen im Ringpuffer.
-* Der Merge schreibt in denselben Mutex, den der Anfragepfad über `check()` liest. Bei ein paar
-  Dutzend Einträgen ist das messbar nichts, aber es ist genau die Sorte Schreiblast im
-  Anfragepfad, die B.3 Regel 5 im Blick hat.
-* Die Heuristiken werden stumpfer (10.3). Dafür gibt es keine Lösung, nur die Erwähnung.
+* **No leader.** With two nodes there is no quorum, and a fixed leader role would lose
+  write capability exactly when the leader fails — that is, in the only case for which the
+  whole thing is built.
+* **One endpoint**, `POST /api/peer/state`, behind the **existing** bearer auth
+  ([api/mod.rs:145-186](../crates/alpendns/src/api/mod.rs#L145-L186)) and the same token
+  (both instances get the same token file; it is on the backup list in OPERATIONS.md §3
+  anyway). No second secret — a second secret is what you forget when setting things up
+  again.
+* **Push and pull are the same round:** the caller sends its complete state, the callee
+  merges and answers with its state after the merge. A pure pull is a push with an empty
+  list. What is transferred is the full state, not a delta — it is small (deadline at most
+  `MAX_GRANT`), and a full picture knows no lost delta entry.
+* **The `Instant` problem is bypassed, not solved:** what is transferred are **remaining
+  lifetimes**, never points in time. The receiver computes `clock.now() + rest` — exactly
+  what `grant()` already does today. An `Instant` never leaves the process, no wall clock
+  is compared, and a moved clock on the peer has no consequences. The error is the
+  transfer latency against a deadline of hours.
+* **Revocation is a tombstone**, not a deletion, with the same remaining lifetime as the
+  revoked entry. Without that, the next merge brings the revoked grant back. The merge is
+  thereby commutative, idempotent and associative and needs neither a journal nor a
+  catch-up protocol.
+* **The channel carries domain names** — that is, exactly the data type that B.1 rule 3
+  protects. Therefore: the peer address must be loopback, the way to the other host leads
+  through a tunnel that the operator lays (WireGuard, SSH), and `alpendns check` rejects a
+  non-loopback address. An API listening in cleartext in the LAN would be the wrong answer
+  — via `/api/recent` it hands out names anyway.
+* **B.1 rule 4 comes under pressure.** "The process contacts exactly three kinds of
+  targets: configured upstream resolvers, configured blocklist URLs, and nothing else." A
+  configured peer is a fourth kind. It is not telemetry — it goes to a target the operator
+  has named himself and carries nothing outward. But the rule says "nothing else", and
+  amending it is a **B.8 decision of the author, not an agent's resolution.** Without that
+  acceptance, stage 3 is not built.
+* **The endpoint processes network data**, so B.1 rule 1 applies in full: ceilings on body
+  size and entry count, the same `parse_grant` check and the same `MAX_GRANT` capping as
+  with the UI endpoint, saturating arithmetic, no slice indexing. The maximum damage of a
+  peer that has been taken over: a name granted or blocked for at most `MAX_GRANT`. It
+  cannot touch a config, a list or a detector — that is the reason the protocol
+  deliberately has **no** fields for configuration.
 
-### 10.6 Offene Entscheidungen (B.8)
+Files touched: `policy/temporary.rs` (the entry goes from `Instant` to a small record with
+a deadline, a tombstone flag and a counter; plus `export()` and `merge()`), `policy/mod.rs`
+(passing through), `api/mod.rs` (route, DTOs, ceilings), a new `peer.rs` (task: `Notify` on
+local change with debouncing, plus a ticker), `config.rs` (`[peer] url`), `main.rs`
+(wiring, `check` conditions), `api/ui.rs` (reachability dot), `metrics.rs` (two counters,
+no names). Not touched: `cache.rs`, `filter/*`, `ratelimit.rs`, `history.rs`, `logging/*`,
+`detect/*` — they hold state that deliberately diverges.
 
-1. Wird B.1 Regel 4 um den konfigurierten Peer ergänzt? Ohne diese Abnahme entfällt Stufe 3.
-2. Wird der Reload aus ARCHITECTURE.md §7 gebaut oder der Absatz zurückgezogen (Befund B1)?
-3. Ist eine Nicht-Loopback-Peer-Adresse ein Startfehler oder eine Warnung? Empfehlung: Fehler.
+**Effort:** L, three to four evenings, plus ADR-0021. **Priority: low** — the synchronized
+state comprises perhaps a dozen entries per week in a household.
+
+### 10.5 What stays weak about this undertaking
+
+For completeness, because it belongs to the decision:
+
+* The benefit is narrow, and the most common failure is untouched by it.
+* The peer channel depends on a tunnel that AlpenDNS neither builds nor monitors. If it
+  breaks, the state diverges silently; the dot in the UI mitigates that, it does not remove
+  it.
+* The shared token makes each instance a full reader of the other. Whoever takes over one
+  box has both interfaces, including the names in the ring buffer.
+* The merge writes into the same mutex that the request path reads via `check()`. With a
+  few dozen entries that is measurably nothing, but it is exactly the kind of write load in
+  the request path that B.3 rule 5 has in view.
+* The heuristics become duller (10.3). There is no solution for that, only the mention.
+
+### 10.6 Open decisions (B.8)
+
+1. Will B.1 rule 4 be amended for the configured peer? Without that acceptance, stage 3
+   falls away.
+2. Will the reload from ARCHITECTURE.md §7 be built, or the paragraph withdrawn (finding
+   B1)?
+3. Is a non-loopback peer address a startup error or a warning? Recommendation: error.
 
 ---
 
-## Reihenfolge und Bündel
+## Order and bundles
 
-**Zuerst, weil billig und mit echter Wirkung:**
+**First, because cheap and with real effect:**
 
-1. **Punkt 5** (ein Satz in der UI, ein Absatz im Modulkopf) — eine Stunde.
-2. **Punkt 6** (`schedule`-Trigger) — eine Stunde, beste Wirkung pro Zeile.
-3. **Punkt 1** (Slowloris) — **erledigt.** Ein Abend, der einzige Punkt, der eine Lücke
-   schließt.
-4. **Punkt 4** (`After=time-sync.target` plus Runbook-Absatz) — ein halber Abend.
+1. **Item 5** (one sentence in the UI, one paragraph in the module header) — one hour.
+2. **Item 6** (`schedule` trigger) — one hour, the best effect per line.
+3. **Item 1** (slowloris) — **done.** One evening, the only item that closes a gap.
+4. **Item 4** (`After=time-sync.target` plus a runbook paragraph) — half an evening.
 
-**Danach, nach Bedarf:**
+**After that, as needed:**
 
-5. **Punkt 10, Stufe 0 und 1** — messen, dokumentieren, Config-Hash. Die Messung entscheidet,
-   ob überhaupt weitergebaut wird.
-6. **Punkt 2** (Log-Rotation) — sobald jemand `mode = "full"` einschaltet, vorher nicht.
-7. **Punkt 7** (a und b: Feldvorschlag und `serde(alias)`-Muster).
-8. **Punkt 3** — und zwar (b) vor (a): der Refresh-Task ist der eigentliche Punkt, die
-   Altersanzeige ist erst danach ehrlich.
+5. **Item 10, stages 0 and 1** — measure, document, config hash. The measurement decides
+   whether anything is built further at all.
+6. **Item 2** (log rotation) — as soon as someone switches on `mode = "full"`, not before.
+7. **Item 7** (a and b: field suggestion and the `serde(alias)` pattern).
+8. **Item 3** — and (b) before (a): the refresh task is the actual item, the age display is
+   only honest afterwards.
 
-**Zuletzt oder gar nicht:** Punkt 9 (Wizard), Punkt 8 (Blockseite), Punkt 10 Stufe 3.
+**Last or not at all:** item 9 (wizard), item 8 (block page), item 10 stage 3.
 
-**Was zusammen erledigt wird:**
+**What is done together:**
 
-* **Punkt 2 + Befund B3:** der `BufWriter` gehört in denselben Griff wie die Rotation.
-* **Punkt 3(b) + Punkt 10 Stufe 1:** beides beantwortet "läuft diese Instanz noch mit dem
-  richtigen Stand?" — Listenalter und Config-Hash gehören in denselben Kopf der UI.
-* **Punkt 7 + Punkt 9:** beide betreffen den Weg, auf dem Konfiguration ins System kommt. Der
-  Validierungs-Endpunkt aus Punkt 9 ist derselbe Pfad wie der Feldvorschlag aus Punkt 7 —
-  einmal bauen, zweimal benutzen.
-* **Punkt 8 + Rebinding-Detektor:** die Sinkhole-Ausnahme ist auch ohne Blockseite fällig,
-  sobald jemand `block_mode = "sinkhole"` benutzt. Das ist unabhängig vom Rest von Punkt 8 zu
-  prüfen.
+* **Item 2 + finding B3:** the `BufWriter` belongs in the same move as the rotation.
+* **Item 3(b) + item 10 stage 1:** both answer "is this instance still running with the
+  right state?" — list age and config hash belong in the same header of the UI.
+* **Item 7 + item 9:** both concern the way configuration gets into the system. The
+  validation endpoint from item 9 is the same path as the field suggestion from item 7 —
+  build once, use twice.
+* **Item 8 + rebinding detector:** the sinkhole exemption is due even without a block page,
+  as soon as someone uses `block_mode = "sinkhole"`. That is to be checked independently of
+  the rest of item 8.
 
-**Was sich widerspricht:** Punkt 9 (Wizard schreibt Config) und Punkt 7 (`alpendns migrate`
-schreibt nichts) treffen beide auf den Debian-conffile-Vertrag. Die Entscheidung "schreibt
-AlpenDNS jemals selbst in `/etc/alpendns/`?" ist **einmal** zu treffen und gilt dann für beide.
+**What contradicts itself:** item 9 (the wizard writes config) and item 7 (`alpendns
+migrate` writes nothing) both run into the Debian conffile contract. The decision "does
+AlpenDNS ever write into `/etc/alpendns/` itself?" has to be made **once** and then holds
+for both.
 
 ---
 
-## Die ursprüngliche Liste
+## The original list
 
-Zum Nachschlagen, unverändert:
+For reference, unchanged:
 
-- TCP-Slowloris — tcp.rs:86: Timeout auf den Body-Read + ein Cap auf gleichzeitige Verbindungen. Im LAN reicht ein kompromittiertes Gerät, um den Resolver lahmzulegen.
-- Configuration Wizard in WebUI
-- Log Rotation im full Mode: logging/mod.rs schreibt append-only in eine Datei, die der Prozess selbst öffnet — systemd/journald greift da nicht. Über Monate wächst das Query-Log unbegrenzt bis zur vollen Platte. Braucht Rotation (Größe/Alter)
-- Wenn eine Website auf Blockliste steht -> Schöne Blockpage vom DNS server (Diese Seite wurde blockiert weil...)
-- Uhrzeit Abhängigkeit dokumentieren: Die eigene Validierung (ADR-0016) setzt eine korrekte Host-Uhr voraus — eine falsche Uhr macht jede signierte Zone „bogus". Für den Betrieb gehört ein Satz ins Runbook: NTP/systemd-timesyncd ist Voraussetzung, nicht optional.
-- Bei Blocklisten "Alter" festhalten im UI, zuletzt aktualisiert vor (2 Tagen...)
-- Config Versionierung umsetzen: Heute ist die Config die Spezifikation (deny_unknown_fields). Beim ersten breaking change (Key umbenennen) bricht eine alte Installation ohne Migrationspfad. Für v1 kein Blocker, aber ein version-Feld + explizite Fehlermeldung wäre die Investition, die später teuer wird, wenn man sie nicht früh gemacht hat.
-- Grants/Denials sind nur im RAM (temporary.rs). Ein Neustart verliert sie. Das ist vertretbar (sie sind befristet), aber es gehört als bewusste Entscheidung dokumentiert — sonst wundert sich jemand nach dem Reboot, warum die Freigabe weg ist.
-- Dependency-Updates: cargo deny läuft, aber wer reagiert auf neue RUSTSEC-Advisories? Dependabot/Renovate einrichten, damit der Triage-Prozess für Ausnahmen (wie die dokumentierte time-Ausnahme) kontinuierlich ist statt einmalig.
-- Ausfallsicherheit steht als Phase-10-Option (zwei Instanzen)
+- TCP slowloris — tcp.rs:86: timeout on the body read + a cap on concurrent connections. In a LAN one compromised device is enough to bring the resolver to its knees.
+- Configuration wizard in the web UI
+- Log rotation in full mode: logging/mod.rs writes append-only into a file that the process opens itself — systemd/journald does not reach it. Over months the query log grows without bound until the disk is full. Needs rotation (size/age)
+- When a website is on a blocklist -> a nice block page from the DNS server (Diese Seite wurde blockiert weil...)
+- Document the clock dependency: the project's own validation (ADR-0016) presupposes a correct host clock — a wrong clock makes every signed zone "bogus". For operations a sentence belongs in the runbook: NTP/systemd-timesyncd is a prerequisite, not optional.
+- For blocklists, record "age" in the UI — last updated (2 days...) ago
+- Implement config versioning: today the config is the specification (deny_unknown_fields). At the first breaking change (renaming a key) an old installation breaks with no migration path. Not a blocker for v1, but a version field + an explicit error message would be the investment that becomes expensive later if you did not make it early.
+- Grants/denials are only in RAM (temporary.rs). A restart loses them. That is defensible (they are time-limited), but it belongs documented as a deliberate decision — otherwise someone wonders after the reboot why the grant is gone.
+- Dependency updates: cargo deny runs, but who reacts to new RUSTSEC advisories? Set up Dependabot/Renovate so that the triage process for exceptions (like the documented time exception) is continuous instead of one-off.
+- Resilience stands as a phase 10 option (two instances)

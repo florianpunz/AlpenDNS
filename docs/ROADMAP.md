@@ -1,787 +1,778 @@
 # Roadmap
 
-Der Plan ist in Phasen geschnitten. Jede Phase hat ein **Ziel**, eine **Schrittliste im
-Verify-Format** (siehe CLAUDE.md, Teil A.4) und ein **Abnahmekriterium**. Eine Phase gilt
-als fertig, wenn das Abnahmekriterium erfüllt ist — nicht, wenn der Code kompiliert.
+The plan is cut into phases. Every phase has a **Goal**, a **checklist in verify
+format** (see CLAUDE.md, part A.4) and an **acceptance criterion**. A phase counts
+as done when the acceptance criterion is met — not when the code compiles.
 
-**Aktuelle Phase: 9** — Code steht, die Abnahme läuft im echten Netz: die erste
-Beobachtungsperiode ist ausgewertet, die zweite läuft seit 2026-09-16.
+**Current phase: 9** — the code is in place, acceptance is running on the real
+network: the first observation period has been evaluated, the second has been
+running since 2026-09-16.
 
-Die Reihenfolge ist so gewählt, dass **nach Phase 4 ein Server steht, den du produktiv
-im eigenen Netz benutzen kannst**. Alles danach macht ihn besser, nicht erst benutzbar.
-Wenn die Motivation zwischendurch nachlässt: Phase 4 ist ein guter Ort zum Stehenbleiben.
+The order is chosen so that **after phase 4 there is a server you can use
+productively on your own network**. Everything after that makes it better, not
+usable in the first place. If motivation flags along the way: phase 4 is a good
+place to stop.
 
-Zeitangaben sind grobe Schätzungen für Abendarbeit mit Agentenunterstützung. Sie sind
-Orientierung, keine Zusage.
-
----
-
-## Phase 0 — Gerüst · ~1 Abend
-
-**Ziel:** Ein Repository, in dem `cargo test` läuft und CI grün ist.
-
-```
-1. Workspace anlegen (Cargo.toml, crates/alpendns) → verify: cargo build läuft durch
-2. rustfmt/clippy-Konfiguration aus dem Workspace ziehen → verify: cargo clippy --all-targets -- -D warnings ist grün
-3. Git-Repo initialisieren, erster Commit → verify: git log zeigt einen Commit, git status ist sauber
-4. CI-Workflow prüfen → verify: Push nach GitHub, Actions-Run ist grün
-5. cargo-deny einrichten (deny.toml) → verify: cargo deny check läuft ohne Fehler
-```
-
-**Abnahme:** Alle vier Kommandos aus der Definition of Done laufen lokal und in CI durch.
+Time estimates are rough guesses for evening work with agent support. They are
+orientation, not a promise.
 
 ---
 
-## Phase 1 — Ein Server, der antwortet · ~2–3 Abende
+## Phase 0 — Scaffolding · ~1 evening
 
-**Ziel:** UDP und TCP auf Port 53, Anfrage wird an *einen* fest konfigurierten Upstream
-weitergereicht, Antwort geht zurück. Kein Cache, kein Filter, keine Policy.
-
-Das ist der "Hello World" eines DNS-Servers. Ab hier kannst du `dig @127.0.0.1 -p 5353
-example.com` gegen deinen eigenen Code laufen lassen, und das ist der Punkt, ab dem das
-Projekt real wird.
+**Goal:** A repository in which `cargo test` runs and CI is green.
 
 ```
-1. tokio-Runtime + UDP-Socket auf konfigurierbarem Port → verify: Integrationstest schickt Bytes, Server empfängt sie
-2. Nachricht mit hickory-proto parsen, Query extrahieren → verify: Unit-Test mit aufgezeichnetem Query-Paket
-3. Upstream über UDP fragen, Antwort zurückschicken → verify: dig @127.0.0.1 -p 5353 example.com liefert eine A-Record-Antwort
-4. Antwort gegen die Frage validieren (ID, QNAME case-insensitive, QTYPE, QCLASS) → verify: Test mit manipulierter Antwort → verworfen
-5. TCP-Listener inkl. 2-Byte-Längenpräfix → verify: dig +tcp liefert dasselbe Ergebnis
-6. Truncation: Antwort > udp_payload_size setzt TC-Flag → verify: Test mit großer TXT-Antwort, dig ohne +tcp zeigt TC, mit +tcp die volle Antwort
-7. Config aus TOML laden, deny_unknown_fields → verify: Test mit Tippfehler im Schlüssel → Start bricht mit klarer Meldung ab
-8. Graceful Shutdown auf SIGTERM/SIGINT → verify: laufende Anfrage wird noch beantwortet, dann Exit 0
+1. Create the workspace (Cargo.toml, crates/alpendns) → verify: cargo build runs through
+2. Pull the rustfmt/clippy configuration out of the workspace → verify: cargo clippy --all-targets -- -D warnings is green
+3. Initialize the git repo, first commit → verify: git log shows one commit, git status is clean
+4. Check the CI workflow → verify: push to GitHub, the Actions run is green
+5. Set up cargo-deny (deny.toml) → verify: cargo deny check runs without errors
 ```
 
-**Abnahme:** `dig` über UDP und TCP liefert korrekte Antworten. Ein Fuzz-Target auf dem
-Anfragepfad läuft 5 Minuten ohne Crash.
-
-**Erledigt am 2026-08-29.** Mit einer Abweichung: der Fuzz-Lauf ist crashfrei in der
-Auslieferungs-Konfiguration (`cargo +nightly fuzz run -O`). Mit aktiven Overflow-Checks
-findet er einen Panic in `hickory-proto 0.26.1` selbst, den wir nicht reparieren können.
-Bewertung, Auflagen und der Weg zurück: [ADR-0005](adr/0005-tsig-panic-in-hickory-proto.md).
-Der damals offene CI-Lauf aus Phase 0 läuft inzwischen dauerhaft grün in GitHub Actions.
-
-**Fallstricke:** Port 53 braucht Rechte — in der Entwicklung auf 5353 gehen. UDP hat keine
-Verbindung: die Antwort muss an genau die Quelladresse zurück, von der die Anfrage kam,
-und über denselben Socket.
+**Acceptance:** All four commands from the Definition of Done run through locally
+and in CI.
 
 ---
 
-## Phase 2 — Cache · ~2 Abende
+## Phase 1 — A server that answers · ~2–3 evenings
 
-**Ziel:** Wiederholte Anfragen kommen aus dem Speicher. Der Upstream sieht sie nicht mehr.
+**Goal:** UDP and TCP on port 53, the query is passed on to *one* fixed configured
+upstream, the answer goes back. No cache, no filter, no policy.
+
+That is the "Hello World" of a DNS server. From here you can run
+`dig @127.0.0.1 -p 5353 example.com` against your own code, and that is the point
+at which the project becomes real.
 
 ```
-1. Cache-Key (Name lowercase, QType, QClass), Wert = Antwort + Ablaufzeitpunkt → verify: Unit-Test Insert/Lookup/Ablauf
-2. TTL auf [min_ttl, max_ttl] klemmen, negative Antworten separat (RFC 2308) → verify: Property-Test, TTL nie größer als beim Einfügen
-3. Cache in die Pipeline hängen → verify: Integrationstest, zweiter Query erzeugt keine Upstream-Anfrage
-4. Größenbegrenzung mit LRU-Verdrängung → verify: Test füllt über max_entries, RSS bleibt stabil
-5. Query-Deduplizierung für gleichzeitige identische Anfragen → verify: 100 parallele Queries → Fake-Upstream zählt genau 1
-6. serve-stale (RFC 8767) → verify: Upstream abschalten, abgelaufener Eintrag wird trotzdem ausgeliefert
-7. Prefetch bei 85 % der TTL → verify: Test mit Zeitraffer, Eintrag wird erneuert, ohne dass ein Client wartet
+1. tokio runtime + UDP socket on a configurable port → verify: integration test sends bytes, server receives them
+2. Parse the message with hickory-proto, extract the query → verify: unit test with a recorded query packet
+3. Query the upstream over UDP, send the answer back → verify: dig @127.0.0.1 -p 5353 example.com returns an A-record answer
+4. Validate the answer against the question (ID, QNAME case-insensitive, QTYPE, QCLASS) → verify: test with a manipulated answer → discarded
+5. TCP listener incl. 2-byte length prefix → verify: dig +tcp returns the same result
+6. Truncation: an answer > udp_payload_size sets the TC flag → verify: test with a large TXT answer, dig without +tcp shows TC, with +tcp the full answer
+7. Load the config from TOML, deny_unknown_fields → verify: test with a typo in the key → startup aborts with a clear message
+8. Graceful shutdown on SIGTERM/SIGINT → verify: a running query is still answered, then exit 0
 ```
 
-**Abnahme:** Cache-Trefferquote ist als Metrik sichtbar. `dnsperf` zeigt bei wiederholtem
-Korpus eine deutlich höhere Rate als in Phase 1.
+**Acceptance:** `dig` over UDP and TCP returns correct answers. A fuzz target on
+the request path runs for 5 minutes without a crash.
 
-**Abgenommen am 2026-08-29.**
+**Done on 2026-08-29.** With one deviation: the fuzz run is crash-free in the
+delivery configuration (`cargo +nightly fuzz run -O`). With overflow checks
+active it finds a panic in `hickory-proto 0.26.1` itself, which we cannot repair.
+Assessment, conditions and the way back:
+[ADR-0005](adr/0005-tsig-panic-in-hickory-proto.md). The CI run that was still
+open at the time from phase 0 now runs permanently green in GitHub Actions.
 
-* **Trefferquote sichtbar:** `Cache::stats()` zählt Treffer, stale-Treffer und Misses.
-  Der Server schreibt die Bilanz alle fünf Minuten ins Log — aber nur, wenn sich seit
-  der letzten Zeile etwas getan hat, damit ein Server im Leerlauf still bleibt — und
-  zusätzlich beim Herunterfahren. Nur Summen, keine Namen. Ein *abfragbarer Endpunkt*
-  dafür ist Phase 6, Schritt 2, und wurde bewusst nicht vorgezogen (CLAUDE.md B.8).
-* **Durchsatz:** `dnsperf` ist auf der Entwicklungsmaschine nicht installiert. An seine
-  Stelle tritt ein Lastgenerator im Repo (`crates/alpendns/tests/load.rs`, läuft nur
-  mit `--ignored`), damit die Zahlen reproduzierbar sind statt einmalig. Ergebnisse und
-  Messaufbau stehen in [BENCHMARKS.md](BENCHMARKS.md): 32 000 Anfragen erreichen den
-  Upstream bei lauter neuen Namen, genau **eine** bei wiederholtem Korpus; Durchsatz
-  Faktor 3,3.
-* **Nachtrag zu Schritt 4:** "RSS bleibt stabil" war zunächst nicht geprüft, nur die
-  Zahl der Einträge. Jetzt gemessen: 160 000 neue Namen bei `max_entries = 10 000`
-  lassen den Speicher um 764 KiB wachsen, nicht linear mit.
-
-**Fallstricke:** Zeit muss injizierbar sein (`Clock`-Trait), sonst sind alle TTL-Tests
-`sleep`-basiert und langsam. Nicht `SystemTime::now()` direkt im Cache aufrufen.
+**Pitfalls:** Port 53 needs privileges — use 5353 during development. UDP has no
+connection: the answer must go back to exactly the source address the query came
+from, and over the same socket.
 
 ---
 
-## Phase 3 — Verschlüsselte Upstreams · ~2–3 Abende
+## Phase 2 — Cache · ~2 evenings
 
-**Ziel:** Kein Klartext-DNS mehr nach außen. Mehrere Upstreams mit Auswahlstrategie.
+**Goal:** Repeated queries come from memory. The upstream no longer sees them.
 
 ```
-1. DoT-Transport (hickory-resolver, rustls) → verify: tcpdump zeigt Port 853 TLS, kein Klartext-DNS
-2. DoH-Transport (HTTP/2) → verify: Integrationstest gegen lokalen DoH-Fake
-3. Upstream-Pool mit mehreren Resolvern, Strategie fastest → verify: Test mit zwei Fakes unterschiedlicher Latenz, der schnellere gewinnt
-4. Passives Health-Tracking, toter Upstream wird übersprungen → verify: Fake antwortet nicht mehr, Anfragen gehen an den zweiten, Metrik zeigt den Ausfall
-5. Strategie split_by_zone mit Seed beim Start → verify: Unit-Test, gleiche Domain immer derselbe Upstream; anderer Seed → andere Verteilung
-6. forward_zone für interne Zonen (Klartext erlaubt) → verify: Query auf home.arpa geht an den LAN-Server, alles andere verschlüsselt
-7. Privacy-Grundlagen: ECS strippen, EDNS-Padding, DNS Cookies, 0x20 → verify: je ein Unit-Test; 0x20-Test prüft Round-Trip und case-insensitiven Vergleich
-8. DoQ-Transport → verify: Integrationstest gegen lokalen DoQ-Fake
+1. Cache key (name lowercase, QType, QClass), value = answer + expiry time → verify: unit test insert/lookup/expiry
+2. Clamp TTL to [min_ttl, max_ttl], negative answers separately (RFC 2308) → verify: property test, TTL never larger than at insert time
+3. Hang the cache into the pipeline → verify: integration test, the second query produces no upstream request
+4. Size limit with LRU eviction → verify: test fills beyond max_entries, RSS stays stable
+5. Query deduplication for simultaneous identical queries → verify: 100 parallel queries → fake upstream counts exactly 1
+6. serve-stale (RFC 8767) → verify: switch the upstream off, the expired entry is still served
+7. Prefetch at 85% of the TTL → verify: test with time-lapse, the entry is refreshed without a client waiting
 ```
 
-**Abnahme:** `tcpdump port 53` auf dem Uplink zeigt keinen einzigen DNS-Klartext-Paket
-mehr. Fällt ein Upstream aus, merkt es kein Client.
+**Acceptance:** The cache hit rate is visible as a metric. With a repeated corpus
+`dnsperf` shows a clearly higher rate than in phase 1.
 
-**Abgenommen am 2026-08-29.** Damit ist die letzte offene Abweichung von B.1 Regel 7
-geschlossen: `udp://` in einem `upstream_pool` ist jetzt ein Startfehler, nicht mehr
-der Normalfall.
+**Accepted on 2026-08-29.**
 
-* **Kein Klartext nach außen:** `tcpdump` braucht root und stand nicht zur Verfügung.
-  Stattdessen über `ss` geprüft, welche Verbindungen der laufende Prozess hat:
-  `9.9.9.9:853` (DoT) und `194.242.2.4:443` (DoH), keine einzige auf Port 53. Dazu
-  ein Integrationstest, der einen Klartext-Resolver als Falle aufstellt und prüft,
-  dass er nie kontaktiert wird.
-* **Ausfall bleibt unbemerkt:** Unit-Tests im Pool decken das ab — toter Upstream
-  wird nach drei Fehlversuchen übersprungen, erholt sich nach der Sperre wieder, und
-  wenn alle als tot gelten, wird trotzdem gefragt (B.1 Regel 6).
-* **Fallstrick, der teuer war:** `hickory-net` schreibt die Query-ID auf einer
-  gemultiplexten Verbindung um und gibt sie in der Antwort nicht zurück. Die Fakes
-  prüften nur Antwortinhalt und RCODE und waren deshalb grün, während `dig` gegen
-  den echten Prozess "ID mismatch" meldete und in den Timeout lief. Der Test
-  `every_transport_returns_the_clients_query_id_and_question` hält das jetzt fest.
-  Lehre: ein Fake, der nur prüft, was man erwartet, prüft zu wenig.
-* **Offen gelassen:** `split_by_zone` bestimmt die registrierbare Domain über die
-  letzten beiden Labels. Für `example.co.uk` ist das zu grob — die Folge ist eine
-  ungleiche Verteilung, keine Privacy-Lücke. Die saubere Lösung braucht die Public
-  Suffix List und ist als Phase 7, Schritt 1 eingeplant, wo die Verteilung ohnehin
-  gemessen wird.
-* **Nachträglich zurückgebaut (Phase 7):** Schritt 3 baute `fastest`, dazu kamen
-  `round_robin` und `fanout`. Alle drei sind wieder weg — `split_by_zone` ist die
-  einzige Strategie, und es wird immer genau ein Upstream gefragt.
-  [ADR-0011](adr/0011-eine-upstream-strategie.md),
+* **Hit rate visible:** `Cache::stats()` counts hits, stale hits and misses. The
+  server writes the tally to the log every five minutes — but only if something
+  has happened since the last line, so that an idle server stays quiet — and
+  additionally on shutdown. Only totals, no names. A *queryable endpoint* for
+  that is phase 6, step 2, and was deliberately not brought forward (CLAUDE.md
+  B.8).
+* **Throughput:** `dnsperf` is not installed on the development machine. Its
+  place is taken by a load generator in the repo
+  (`crates/alpendns/tests/load.rs`, only runs with `--ignored`), so that the
+  numbers are reproducible instead of one-off. Results and measurement setup are
+  in [BENCHMARKS.md](BENCHMARKS.md): 32,000 queries reach the upstream with
+  all-new names, exactly **one** with a repeated corpus; throughput factor 3.3.
+* **Addendum on step 4:** "RSS stays stable" was initially not checked, only the
+  number of entries. Now measured: 160,000 new names at `max_entries = 10,000`
+  grow memory by 764 KiB, not linearly with it.
+
+**Pitfalls:** Time must be injectable (the `Clock` trait), otherwise all TTL tests
+are `sleep`-based and slow. Do not call `SystemTime::now()` directly in the cache.
+
+---
+
+## Phase 3 — Encrypted upstreams · ~2–3 evenings
+
+**Goal:** No more cleartext DNS to the outside. Several upstreams with a selection
+strategy.
+
+```
+1. DoT transport (hickory-resolver, rustls) → verify: tcpdump shows port 853 TLS, no cleartext DNS
+2. DoH transport (HTTP/2) → verify: integration test against a local DoH fake
+3. Upstream pool with several resolvers, strategy fastest → verify: test with two fakes of different latency, the faster one wins
+4. Passive health tracking, a dead upstream is skipped → verify: fake stops answering, queries go to the second, the metric shows the outage
+5. Strategy split_by_zone with a seed at startup → verify: unit test, the same domain always the same upstream; different seed → different distribution
+6. forward_zone for internal zones (cleartext allowed) → verify: a query for home.arpa goes to the LAN server, everything else encrypted
+7. Privacy basics: strip ECS, EDNS padding, DNS cookies, 0x20 → verify: one unit test each; the 0x20 test checks round-trip and case-insensitive comparison
+8. DoQ transport → verify: integration test against a local DoQ fake
+```
+
+**Acceptance:** `tcpdump port 53` on the uplink shows not a single cleartext DNS
+packet anymore. If an upstream fails, no client notices.
+
+**Accepted on 2026-08-29.** That closes the last open deviation from B.1 rule 7:
+`udp://` in an `upstream_pool` is now a startup error, no longer the normal case.
+
+* **No cleartext to the outside:** `tcpdump` needs root and was not available.
+  Checked via `ss` instead, which connections the running process has:
+  `9.9.9.9:853` (DoT) and `194.242.2.4:443` (DoH), not a single one on port 53.
+  Plus an integration test that sets up a cleartext resolver as a trap and checks
+  that it is never contacted.
+* **An outage stays unnoticed:** unit tests in the pool cover this — a dead
+  upstream is skipped after three failed attempts, recovers after the block, and
+  if all count as dead, queries are still made (B.1 rule 6).
+* **A pitfall that was expensive:** `hickory-net` rewrites the query ID on a
+  multiplexed connection and does not give it back in the answer. The fakes only
+  checked answer content and RCODE and were therefore green, while `dig` against
+  the real process reported "ID mismatch" and ran into the timeout. The test
+  `every_transport_returns_the_clients_query_id_and_question` now pins this down.
+  Lesson: a fake that only checks what you expect checks too little.
+* **Left open:** `split_by_zone` derives the registrable domain from the last two
+  labels. For `example.co.uk` that is too coarse — the consequence is an uneven
+  distribution, not a privacy hole. The clean solution needs the Public Suffix
+  List and is planned as phase 7, step 1, where the distribution is measured
+  anyway.
+* **Subsequently removed (phase 7):** step 3 built `fastest`, to which
+  `round_robin` and `fanout` were added. All three are gone again —
+  `split_by_zone` is the only strategy, and exactly one upstream is always
+  queried. [ADR-0011](adr/0011-eine-upstream-strategie.md),
   [ADR-0012](adr/0012-fanout-entfaellt.md).
 
-**Fallstricke:** 0x20 vertragen nicht alle Upstreams — pro Pool abschaltbar machen und im
-Fehlerfall automatisch deaktivieren, statt Anfragen scheitern zu lassen.
+**Pitfalls:** Not all upstreams tolerate 0x20 — make it switchable per pool and
+deactivate it automatically on failure, instead of letting queries fail.
 
 ---
 
-## Phase 4 — Blocklisten · ~3–4 Abende · **hier ist der Server benutzbar**
+## Phase 4 — Blocklists · ~3–4 evenings · **this is where the server becomes usable**
 
-**Ziel:** Listen importieren, matchen, blocken, aktuell halten. Ab hier ersetzt AlpenDNS
-ein Pi-hole im eigenen Netz.
+**Goal:** Import lists, match, block, keep them current. From here AlpenDNS
+replaces a Pi-hole on your own network.
 
 ```
-1. Parser für Format hosts → verify: Unit-Tests inkl. Kommentaren, CRLF, IPv6-Zeilen, Müllzeilen
-2. Parser für domains und wildcard → verify: Unit-Tests, führende Punkte und *. werden korrekt normalisiert
-3. ~~Parser für Adblock-Syntax~~ → in Phase 7 wieder entfernt, [ADR-0014](adr/0014-adblock-und-rpz-parser-entfallen.md)
-4. ~~Parser für RPZ-Zonendateien~~ → in Phase 7 wieder entfernt, [ADR-0014](adr/0014-adblock-und-rpz-parser-entfallen.md)
-5. Matcher, v1 als HashSet mit Suffix-Lookup, liefert RuleRef → verify: Property-Test Wildcard-Semantik; notexample.com matcht nie wegen example.com
-6. Allowlist mit Vorrang vor Blocklisten → verify: Integrationstest, Domain auf beiden Listen wird durchgelassen
-7. Block-Antwort synthetisieren (nxdomain / zero_ip / sinkhole) → verify: je ein Test, RCODE und Antwortinhalt korrekt
-8. Listen-Download mit ETag/If-Modified-Since, Cache auf Platte → verify: zweiter Abruf gegen lokalen HTTP-Fake liefert 304, keine Neuverarbeitung
-9. Atomarer Tausch per ArcSwap, kein Ausfall beim Update → verify: Lasttest während eines Updates, keine Fehlerantwort, keine Latenzspitze
-10. Erststart ohne erreichbare Liste bricht ab, späterer Ausfall nicht → verify: zwei Tests für beide Fälle
-11. Benchmark Matcher, RSS bei 2 Mio. Einträgen messen → verify: Zahlen stehen in docs/BENCHMARKS.md
+1. Parser for the hosts format → verify: unit tests incl. comments, CRLF, IPv6 lines, garbage lines
+2. Parser for domains and wildcard → verify: unit tests, leading dots and *. are normalized correctly
+3. ~~Parser for Adblock syntax~~ → removed again in phase 7, [ADR-0014](adr/0014-adblock-und-rpz-parser-entfallen.md)
+4. ~~Parser for RPZ zone files~~ → removed again in phase 7, [ADR-0014](adr/0014-adblock-und-rpz-parser-entfallen.md)
+5. Matcher, v1 as a HashSet with suffix lookup, returns a RuleRef → verify: property test wildcard semantics; notexample.com never matches because of example.com
+6. Allowlist with precedence over blocklists → verify: integration test, a domain on both lists is let through
+7. Synthesize the block answer (nxdomain / zero_ip / sinkhole) → verify: one test each, RCODE and answer content correct
+8. List download with ETag/If-Modified-Since, cache on disk → verify: the second fetch against a local HTTP fake returns 304, no reprocessing
+9. Atomic swap via ArcSwap, no outage during an update → verify: load test during an update, no error answers, no latency spike
+10. A first start without a reachable list aborts, a later outage does not → verify: two tests for both cases
+11. Benchmark the matcher, measure RSS at 2 million entries → verify: the numbers are in docs/BENCHMARKS.md
 ```
 
-**Abnahme:** 2 Millionen Einträge geladen, p99-Latenz für einen Cache-Hit unter 1 ms,
-RSS dokumentiert.
+**Acceptance:** 2 million entries loaded, p99 latency for a cache hit under 1 ms,
+RSS documented.
 
-**Abgenommen am 2026-08-29.**
+**Accepted on 2026-08-29.**
 
-* **Zahlen erfüllt und deutlich:** zwei Millionen Einträge geladen, p99 für eine
-  Anfrage aus dem Cache **28 µs** statt der geforderten 1 ms. Der Matcher braucht
-  135 MB, rund 69 Byte je Eintrag; Nachschlagen p99 880 ns im teuren Fall (kein
-  Treffer, alle Suffix-Ebenen). Alles in [BENCHMARKS.md](BENCHMARKS.md).
-* **Fallstrick beantwortet:** die Messung rechtfertigt weder Bloom-Filter noch
-  invertierten Trie. Entscheidung und Umkehrbedingung in
-  [ADR-0008](adr/0008-hashmap-statt-bloom-und-trie.md) — der Speicherbedarf ist die
-  Zahl, die sie kippen würde, nicht die Latenz.
-* Gegen die echte StevenBlack-Liste geprüft: 79 747 Einträge, `doubleclick.net`
-  liefert NXDOMAIN, ein zweiter Start meldet `origin=NotModified` — der ETag greift.
+* **Numbers met and clearly:** two million entries loaded, p99 for a query from
+  the cache **28 µs** instead of the required 1 ms. The matcher needs 135 MB,
+  around 69 bytes per entry; lookup p99 880 ns in the expensive case (no match,
+  all suffix levels). All in [BENCHMARKS.md](BENCHMARKS.md).
+* **Pitfall answered:** the measurement justifies neither a Bloom filter nor an
+  inverted trie. Decision and reversal condition in
+  [ADR-0008](adr/0008-hashmap-statt-bloom-und-trie.md) — memory footprint is the
+  number that would tip it, not latency.
+* Checked against the real StevenBlack list: 79,747 entries, `doubleclick.net`
+  returns NXDOMAIN, a second start reports `origin=NotModified` — the ETag works.
 
-**Verschoben:** der Dauerbetrieb im echten Netz ("eine Woche als einziger Resolver
-im LAN") stand ursprünglich hier. Er gehört zu Phase 9: vorher gibt es keine
-systemd-Unit, und ohne sie läuft der Server nicht auf Port 53 und nicht über einen
-Neustart hinweg. Einen Resolver im LAN aus einer Shell heraus zu betreiben wäre
-kein Praxistest, sondern eine andere Baustelle.
+**Deferred:** continuous operation on the real network ("a week as the only
+resolver in the LAN") originally stood here. It belongs to phase 9: before that
+there is no systemd unit, and without one the server does not run on port 53 and
+does not survive a restart. Running a resolver in the LAN out of a shell would not
+be a practical test but a different piece of work.
 
-**Fallstricke:** Erst messen, dann optimieren. Bloom-Filter und invertierter Trie
-(ARCHITECTURE.md §3) kommen nur, wenn Schritt 11 zeigt, dass es nötig ist.
+**Pitfalls:** Measure first, then optimize. Bloom filter and inverted trie
+(ARCHITECTURE.md §3) only come if step 11 shows they are necessary.
 
 ---
 
-## Phase 5 — Clients und Policies · ~3 Abende
+## Phase 5 — Clients and policies · ~3 evenings
 
-**Ziel:** Nicht mehr eine Regel für alle. Unterschiedliche Geräte, unterschiedliche Regeln,
-Zeitfenster.
+**Goal:** No longer one rule for everyone. Different devices, different rules,
+time windows.
 
 ```
-1. Client-Identifikation über IP/Subnetz → verify: Integrationstest, zwei Quell-IPs bekommen unterschiedliche Verdikte
-2. Policy-Modell (Listen, Allowlists, Aktionen) + Auswertungsreihenfolge → verify: Tabellen-getriebener Test über alle Kombinationen
-3. Decision-Trace vollständig befüllen → verify: Test prüft die Schrittfolge für einen Blocklisten-Treffer
-4. Zeitpläne mit injizierbarer Uhr → verify: derselbe Query zu zwei simulierten Uhrzeiten, zwei Ergebnisse
-5. Temporäre Freigaben mit TTL über die API → verify: Freigabe für 60 s, Query erlaubt; nach Ablauf wieder geblockt
-6. Regex-Regeln pro Policy, mit Längen- und Laufzeitbegrenzung → verify: Fuzz-Test, keine katastrophale Backtracking-Laufzeit
-7. Policy-Simulation als CLI: alpendns policy test <domain> --client <name> → verify: Ausgabe zeigt Verdikt plus vollständige Begründungskette
+1. Client identification via IP/subnet → verify: integration test, two source IPs get different verdicts
+2. Policy model (lists, allowlists, actions) + evaluation order → verify: table-driven test over all combinations
+3. Fill the decision trace completely → verify: test checks the sequence of steps for a blocklist match
+4. Schedules with an injectable clock → verify: the same query at two simulated times, two results
+5. Temporary exemptions with TTL via the API → verify: exemption for 60 s, query allowed; blocked again after expiry
+6. Regex rules per policy, with length and runtime limits → verify: fuzz test, no catastrophic backtracking runtime
+7. Policy simulation as a CLI: alpendns policy test <domain> --client <name> → verify: the output shows the verdict plus the complete chain of reasoning
 ```
 
-**Abnahme:** Ein Gerät im Netz hat eine strengere Policy als der Rest, inklusive
-Zeitfenster, und `alpendns policy test` erklärt jede Entscheidung ohne Blick ins Log.
+**Acceptance:** One device on the network has a stricter policy than the rest,
+including time windows, and `alpendns policy test` explains every decision without
+looking into the log.
 
-**Abgenommen am 2026-08-29.** Gegen die echte StevenBlack-Liste:
+**Accepted on 2026-08-29.** Against the real StevenBlack list:
 
 ```
 $ alpendns -c … policy test doubleclick.net
 Verdikt:  GEBLOCKT
-  1. kein Client-Eintrag passt, es gilt 'default'
+  1. no client entry matches, 'default' applies
   2. Policy 'default'
-  3. Blockliste 'stevenblack-unified' Zeile 7092: 'doubleclick.net'
-  4. Antwort selbst erzeugt, Modus Nxdomain
+  3. Blocklist 'stevenblack-unified' line 7092: 'doubleclick.net'
+  4. Answer synthesized locally, mode Nxdomain
 
 $ alpendns -c … policy test www.spiele.example --client kids-tablet
 Verdikt:  GEBLOCKT
-  3. Regex-Regel von Policy 'kids': /(?:^|\.)spiele\./
+  3. Regex rule from policy 'kids': /(?:^|\.)spiele\./
 ```
 
-Dieselbe Domain ohne `--client` läuft durch — die Regel gehört nur der einen Policy.
+The same domain without `--client` passes through — the rule belongs to that one
+policy only.
 
-* **Strukturell:** `resolve` bekommt jetzt einen `Ctx` mit Client-Adresse und Trace.
-  Er lag zunächst hinter einem Mutex, weil bei `fanout > 1` mehrere
-  Upstream-Aufgaben gleichzeitig eintrugen; seit `fanout` entfallen ist, wird er
-  wieder exklusiv durchgereicht ([ADR-0009](adr/0009-decision-trace-mit-mutex.md)
-  samt Nachtrag, [ADR-0012](adr/0012-fanout-entfaellt.md)).
-* **Schritt 5 nachgeholt** mit der API aus Phase 6. Gegen den laufenden Server:
-  `doubleclick.net` liefert NXDOMAIN, nach `POST /api/allow` NOERROR, nach Ablauf
-  wieder NXDOMAIN.
-* **Zum Backtracking (Schritt 6):** die Regex-Engine arbeitet mit endlichen
-  Automaten. `(a+)+$` gegen 10 000 Zeichen läuft in unter einer Millisekunde statt
-  exponentiell. Das ist eine Eigenschaft der Engine, keine Vorsichtsmaßnahme.
+* **Structural:** `resolve` now gets a `Ctx` with client address and trace. It
+  initially sat behind a mutex, because with `fanout > 1` several upstream tasks
+  entered it at the same time; since `fanout` was dropped it is passed through
+  exclusively again ([ADR-0009](adr/0009-decision-trace-mit-mutex.md) including
+  the addendum, [ADR-0012](adr/0012-fanout-entfaellt.md)).
+* **Step 5 caught up** with the API from phase 6. Against the running server:
+  `doubleclick.net` returns NXDOMAIN, after `POST /api/allow` NOERROR, after
+  expiry NXDOMAIN again.
+* **On backtracking (step 6):** the regex engine works with finite automata.
+  `(a+)+$` against 10,000 characters runs in under a millisecond instead of
+  exponentially. That is a property of the engine, not a precaution.
 
 ---
 
-## Phase 6 — Sichtbarkeit: API, Metriken, Web-UI · ~4–5 Abende
+## Phase 6 — Visibility: API, metrics, web UI · ~4–5 evenings
 
-**Ziel:** Man sieht, was der Server tut, ohne sich einzuloggen.
-
-```
-1. HTTP-API (axum) mit Token-Auth: Status, Statistik, Listen, Policies, temp. Freigaben → verify: Integrationstests pro Endpunkt, 401 ohne Token
-2. Prometheus-Endpunkt → verify: promtool check metrics ist zufrieden; Zähler für Queries, Blocks, Cache-Trefferquote, Upstream-RTT, Fehler
-3. Logging-Schicht mit den vier Modi aus ADR-0004 → verify: Test pro Modus; in none und aggregate taucht kein Query-Name in der Ausgabe auf
-4. Ringpuffer für den ring-Modus → verify: Test, Einträge älter als ring_seconds sind weg, RAM wächst nicht
-5. Live-Query-Stream über Server-Sent Events → verify: Testclient empfängt Ereignisse; bei Log-Modus none kommen nur Zähler
-6. Web-UI Grundgerüst, vom Server selbst ausgeliefert, keine externen Ressourcen → verify: Seite lädt mit getrennter Netzwerkverbindung; Browser-Netzwerktab zeigt keine Fremd-Requests
-7. UI-Ansicht "Warum wurde das geblockt?" auf Basis des Decision-Trace → verify: manuell — eine geblockte Domain zeigt Liste, Regel, Policy, Zeitpunkt
-8. UI-Startseite beantwortet Läuft er? / Was wurde geblockt? / Warum? ohne Klick → verify: Screenshot-Review gegen die Vorgaben in CLAUDE.md B.6
-```
-
-**Abnahme:** Ein Außenstehender öffnet die UI und versteht in 30 Sekunden, was der Server
-gerade tut. Die Seite funktioniert ohne Internetzugang.
-
-**Umgesetzt am 2026-08-29; abgenommen am 2026-08-31.**
-
-Gegen den laufenden Server geprüft:
+**Goal:** You see what the server does without logging in.
 
 ```
-/api/status ohne Token          → HTTP 401
-/api/status mit Token           → {"logging_mode":"ring","queries":2,"blocked":1, …}
-/api/recent                     → Namen samt vollständiger Begründungskette
-POST /api/allow                 → geblockte Domain wird durchgelassen
-GET  /                          → HTTP 200, die UI
-/metrics ohne Token             → alpendns_queries_total 3, keine Namen
+1. HTTP API (axum) with token auth: status, statistics, lists, policies, temporary exemptions → verify: integration tests per endpoint, 401 without a token
+2. Prometheus endpoint → verify: promtool check metrics is satisfied; counters for queries, blocks, cache hit rate, upstream RTT, errors
+3. Logging layer with the four modes from ADR-0004 → verify: test per mode; in none and aggregate no query name appears in the output
+4. Ring buffer for the ring mode → verify: test, entries older than ring_seconds are gone, RAM does not grow
+5. Live query stream via Server-Sent Events → verify: test client receives events; with log mode none only counters come
+6. Web UI skeleton, served by the server itself, no external resources → verify: the page loads with the network connection disconnected; the browser's network tab shows no third-party requests
+7. UI view "Why was this blocked?" based on the decision trace → verify: manual — a blocked domain shows list, rule, policy, timestamp
+8. UI start page answers Is it running? / What was blocked? / Why? without a click → verify: screenshot review against the requirements in CLAUDE.md B.6
 ```
 
-Am 2026-08-30 dazugekommen und ebenfalls gegen den laufenden Server geprüft:
+**Acceptance:** An outsider opens the UI and understands in 30 seconds what the
+server is currently doing. The page works without internet access.
+
+**Implemented on 2026-08-29; accepted on 2026-08-31.**
+
+Checked against the running server:
+
+```
+/api/status without a token     → HTTP 401
+/api/status with a token        → {"logging_mode":"ring","queries":2,"blocked":1, …}
+/api/recent                     → names plus the complete chain of reasoning
+POST /api/allow                 → the blocked domain is let through
+GET  /                          → HTTP 200, the UI
+/metrics without a token        → alpendns_queries_total 3, no names
+```
+
+Added on 2026-08-30 and likewise checked against the running server:
 
 ```
 /api/top                        → {"threshold":5,"domains":[{"name":"ads.example.com","count":6,…}],
                                    "below_threshold_queries":1,"below_threshold_names":1}
 /api/history                    → {"bucket_seconds":300,"upstreams":["quad9","mullvad"],"buckets":[…]}
-                                   — nur Zähler, kein Feld für einen Namen
-/api/explain?domain=…           → dieselbe Kette wie `alpendns policy test`
+                                   — only counters, no field for a name
+/api/explain?domain=…           → the same chain as `alpendns policy test`
 ```
 
-* **Der wichtigste Test** ist `no_query_name_leaves_the_process_in_the_quiet_modes`:
-  er fährt eine Anfrage durch und greppt alles, was der Prozess ausgeben kann —
-  Zähler, Top-Domains, Ringpuffer, Datei — nach dem Query-Namen. In `none` und
-  `aggregate` darf er nirgends stehen. Das ist der automatisierte Nachweis für
-  das zentrale Versprechen des Projekts und läuft ab jetzt bei jedem `cargo test`.
-* **k-Anonymität:** zunächst über einen Count-Min-Sketch, dessen Schwelle auf der
-  *unteren* Schätzgrenze prüfte. In Phase 7 gemessen und ersetzt: die Fehlerschranke
-  wuchs so schnell mit dem Verkehr, dass bei einer Million Anfragen gar keine Domain
-  mehr in der Statistik erschien. Jetzt exakt gezählt, unter einem gesalzenen Hash
-  statt unter dem Namen ([ADR-0015](adr/0015-exakte-zaehlung-statt-sketch.md)).
-* **Entscheidungen zur Oberfläche** (zwei Listener, Token in der SSE-URL, UI ohne
-  Build-Schritt, Prometheus von Hand):
-  [ADR-0010](adr/0010-api-ui-und-metriken.md).
+* **The most important test** is `no_query_name_leaves_the_process_in_the_quiet_modes`:
+  it drives a query through and greps everything the process can output —
+  counters, top domains, ring buffer, file — for the query name. In `none` and
+  `aggregate` it must not appear anywhere. That is the automated proof of the
+  project's central promise and now runs with every `cargo test`.
+* **k-anonymity:** initially via a Count-Min sketch whose threshold was checked
+  against the *lower* estimate bound. Measured and replaced in phase 7: the error
+  bound grew so fast with traffic that at one million queries no domain appeared
+  in the statistics at all. Now counted exactly, under a salted hash instead of
+  under the name ([ADR-0015](adr/0015-exakte-zaehlung-statt-sketch.md)).
+* **Decisions on the interface** (two listeners, token in the SSE URL, UI without
+  a build step, Prometheus by hand): [ADR-0010](adr/0010-api-ui-und-metriken.md).
 
-**Schritt 8 — abgenommen am 2026-08-31.** Ein Mensch hat die gerenderte Seite
-gegen die Vorgaben in CLAUDE.md B.6 geprüft: die drei Fragen ohne Klick, beide
-Farbschemata, den "ruhig"-Eindruck, das "Auffällig"-Panel. Was sich
-automatisiert prüfen lässt, läuft ohnehin als Test: keine Verweise nach außen,
-die drei Fragen als Überschriften vorhanden, die semantischen Farben in beiden
-Schemata und nur in Selektoren mit Bedeutung, zentrierter Container,
-8er-Abstände, vier Kennzahlenkarten, Sparkline als Inline-SVG ohne Bibliothek,
-erklärte Leerflächen, tabellarische Ziffern, kein `innerHTML`.
+**Step 8 — accepted on 2026-08-31.** A human checked the rendered page against the
+requirements in CLAUDE.md B.6: the three questions without a click, both color
+schemes, the "calm" impression, the "Flagged" panel. What can be checked
+automatically runs as a test anyway: no outward references, the three questions
+present as headings, the semantic colors in both schemes and only in selectors
+with meaning, centered container, 8-px spacing, four metric cards, sparkline as
+inline SVG without a library, explained empty areas, tabular figures, no
+`innerHTML`.
 
-Die Gestaltung wurde am 2026-08-30 überarbeitet: zentrierter Container (max.
-1400 px), Kennzahlen als Karten mit Sparkline der letzten 60 Sekunden, Upstreams
-als Zeilen mit Statuspunkt und Latenz, Badges und Latenzschwellen im Protokoll,
-echte Leerzustände. Der eine Akzentton ist dabei durch die vier semantischen
-Farben aus B.6 ersetzt worden, dazu kommt `--brand` allein für den Schriftzug;
-Datenquellen und Endpunkte blieben unverändert.
+The design was revised on 2026-08-30: centered container (max. 1400 px), metrics as
+cards with a sparkline of the last 60 seconds, upstreams as rows with a status dot
+and latency, badges and latency thresholds in the log, real empty states. The
+single accent tone was replaced by the four semantic colors from B.6, plus
+`--brand` for the wordmark alone; data sources and endpoints stayed unchanged.
 
-**Stand 2026-09-13 — die zweite Überarbeitung: Glas als Fläche.** Die Oberfläche
-liegt jetzt als transluzente Scheibe über einem Hintergrund aus vier Farbfeldern
-(Himmel, Alpenglühen, Wiese, Schatten). Damit ändert sich genau eine Regel aus
-B.6: der Hintergrund darf Farbe ohne Bedeutung tragen — er wiederholt keinen
-Zustand und liegt unter der Textschwelle. Alles andere bleibt: die semantischen
-Farben, die Graustufenrampe für gestapelte Flächen, der zentrierte Container, die
-8er-Abstände, die eine Sorte Container (jetzt als Glaskante mit 18px Radius).
-Dazu kommt ein Umschalter zwischen hell und dunkel in der Kopfzeile; der Modus
-steht als `data-theme` am Wurzelelement statt in einer Media-Query, damit der
-Knopf den Systemwunsch überstimmen kann. Begründung und verworfene Alternativen:
-[ADR-0022](adr/0022-glas-als-flaeche.md).
+**As of 2026-09-13 — the second revision: glass as a surface.** The interface now
+lies as a translucent pane over a background of four color fields (sky, alpenglow,
+meadow, shadow). That changes exactly one rule from B.6: the background may carry
+color without meaning — it repeats no state and lies below the text threshold.
+Everything else stays: the semantic colors, the grayscale ramp for stacked areas,
+the centered container, the 8-px spacing, the one kind of container (now as a
+glass edge with an 18px radius). Added is a switch between light and dark in the
+header; the mode sits as `data-theme` on the root element instead of in a media
+query, so the button can override the system preference. Rationale and rejected
+alternatives: [ADR-0022](adr/0022-glas-als-flaeche.md).
 
-Was die Regel „Farbe ist ausschließlich semantisch" bisher als Vorsatz schützte,
-schützt jetzt eine Rechnung: `the_text_stays_readable_on_every_field` in
-`crates/alpendns/src/api/ui.rs` prüft jede Textfarbe gegen jedes Feld in beiden
-Modi und schlägt unter 4,5:1 fehl. Der Test hat beim ersten Lauf einen echten
-Fehler gefunden — `--faint` kam auf dem nackten Himmel auf 3,2:1. Seitdem ist
-jede Fläche mit Text eine Scheibe, auch die Anmeldeseite.
+What the rule "color is exclusively semantic" used to protect as an intention is
+now protected by a computation: `the_text_stays_readable_on_every_field` in
+`crates/alpendns/src/api/ui.rs` checks every text color against every field in
+both modes and fails below 4.5:1. On its first run the test found a real bug —
+`--faint` came out at 3.2:1 on the bare sky. Since then every surface with text is
+a pane, including the login page.
 
-Datenquellen, Endpunkte und die Struktur der Seite blieben unverändert; die
-Arbeit fand ausschließlich in `web/` und in den UI-Tests statt.
+Data sources, endpoints and the structure of the page stayed unchanged; the work
+took place exclusively in `web/` and in the UI tests.
 
-**Fallstricke:** Das ist die Phase, in der ein Agent am ehesten in generisches
-Dashboard-Design abrutscht. CLAUDE.md B.6 ist dafür da; bei jeder UI-Aufgabe explizit
-darauf verweisen.
+**Pitfalls:** This is the phase in which an agent is most likely to slide into
+generic dashboard design. CLAUDE.md B.6 exists for that; refer to it explicitly in
+every UI task.
 
 ---
 
-## Phase 7 — Privacy-Ausbau · ~3 Abende
+## Phase 7 — Privacy build-out · ~3 evenings
 
-**Ziel:** Die Mechanismen, die AlpenDNS von "Pi-hole mit DoH" unterscheiden.
-Details zu jedem Punkt in [FEATURES.md](FEATURES.md).
+**Goal:** The mechanisms that distinguish AlpenDNS from "Pi-hole with DoH".
+Details on each point in [FEATURES.md](FEATURES.md).
 
 ```
-1. split_by_zone härten: Seed-Rotation, Verteilung messen → verify: Test über 10k Domains, Abweichung pro Upstream unter 5 %
-2. Privacy-Budget: pro Upstream zählen, welcher Anteil der Anfragen dorthin ging → verify: API liefert die Verteilung, UI zeigt sie
-3. Eigene DNSSEC-Validierung statt dem AD-Bit des Upstreams zu glauben → verify: Testvektoren mit gültiger, ungültiger und fehlender Signatur
-4. Oblivious DoH als Client (RFC 9230) → verify: Integrationstest gegen lokalen ODoH-Proxy-Fake
-5. Aggregierte Statistik mit k-Anonymitätsschwelle → verify: Domain mit weniger als k Treffern erscheint in keiner API-Antwort
-6. Sicherstellen, dass kein Codepfad Query-Namen unter Modus none/aggregate ausgibt → verify: Test fährt eine Session und greppt die gesamte Ausgabe nach dem Testnamen
+1. Harden split_by_zone: seed rotation, measure the distribution → verify: test over 10k domains, deviation per upstream under 5%
+2. Privacy budget: count per upstream what share of queries went there → verify: the API delivers the distribution, the UI shows it
+3. Own DNSSEC validation instead of believing the upstream's AD bit → verify: test vectors with a valid, an invalid and a missing signature
+4. Oblivious DoH as a client (RFC 9230) → verify: integration test against a local ODoH proxy fake
+5. Aggregated statistics with a k-anonymity threshold → verify: a domain with fewer than k hits appears in no API response
+6. Ensure that no code path outputs query names in none/aggregate mode → verify: the test drives a session and greps the entire output for the test name
 ```
 
-**Abnahme:** Punkt 6 ist der wichtigste — er ist der automatisierte Beweis für das
-zentrale Versprechen des Projekts und muss dauerhaft in CI laufen.
+**Acceptance:** Point 6 is the most important — it is the automated proof of the
+project's central promise and must run permanently in CI.
 
-**Stand 2026-08-30 — Punkte 2 und 5 sind in der Oberfläche angekommen.** Die UI ist
-entlang ADR-0004 ausgebaut worden, Leitsatz "alles zeigen, nichts merken":
+**As of 2026-08-30 — points 2 and 5 have arrived in the interface.** The UI was
+built out along ADR-0004, guiding principle "show everything, remember nothing":
 
-* Der Privacy-Streifen im Kopf nennt dauerhaft Modus, k-Schwelle und ob etwas auf
-  der Platte landet. Die letzte Angabe kommt aus dem laufenden Prozess
-  (`QueryLog::writes_to_disk`), nicht aus einer Annahme — im Modus `full` steht
-  dort "schreibt auf Platte".
-* Zwei Kurven über 24 Stunden (Anfragen gegen geblockt, Cache-Trefferquote) aus
-  `crate::history`: 288 Eimer à fünf Minuten im RAM, gespeist aus dem
-  Zähler-Snapshot alle 30 Sekunden. Keine neue Persistenz; ein Neustart setzt die
-  Reihe zurück. Die Struktur nimmt nur `Sample` entgegen und hat damit kein Feld,
-  in das je ein Name passen würde.
-* Punkt 2 sichtbar: die Aufteilung über die Zeit als gestapelte Fläche je Upstream,
-  dazu der Transport-Mix und die Privacy-Zähler (ECS entfernt, Padding, 0x20,
-  Cookies). Gezählt wird die *Wirkung* — `strip_ecs` zählt nur, wenn wirklich eine
-  Option entfernt wurde, sonst zeigte die Zahl bloß, dass ein Schalter an ist.
-* Punkt 5 vollständig: `/api/top` liefert Namen ausschließlich über der Schwelle
-  und daneben die Summe dessen, was darunter bleibt (`below_threshold_queries`,
-  `below_threshold_names`). Ohne diese Summe sähe ein Server mit viel seltenem
-  Verkehr aus wie einer ohne Verkehr.
-* Neues Panel "Block-Gründe" über `logging::BlockReason`, abgeleitet aus dem Trace.
-  Kategorien heute: Blockliste, Regex-Regel, Zeitplan, ohne Zuordnung. **Die
-  Heuristiken DGA, Tunneling und Rebinding fehlen darin, weil es sie noch nicht
-  gibt** — sie sind Phase 8, Punkte 2 bis 4. Die Aufzählung nimmt sie dann ohne
-  Umbau von Zählern, API oder UI auf.
-* Ein Klick auf eine Protokollzeile fragt `/api/explain` und bekommt dieselbe
-  Auswertung wie `alpendns policy test`: beide rufen `policy::explain` auf, damit
-  Kommandozeile und UI nicht verschiedene Antworten auf dieselbe Frage geben.
-* Alle Zähler im deutschen Zahlenformat (`de-AT`).
+* The privacy strip in the header permanently states the mode, the k threshold and
+  whether anything lands on disk. The last item comes from the running process
+  (`QueryLog::writes_to_disk`), not from an assumption — in `full` mode it says
+  "writes to disk".
+* Two curves over 24 hours (queries against blocked, cache hit rate) from
+  `crate::history`: 288 buckets of five minutes in RAM, fed from the counter
+  snapshot every 30 seconds. No new persistence; a restart resets the series. The
+  structure only accepts `Sample` and therefore has no field into which a name
+  could ever fit.
+* Point 2 visible: the split over time as a stacked area per upstream, plus the
+  transport mix and the privacy counters (ECS removed, padding, 0x20, cookies).
+  What is counted is the *effect* — `strip_ecs` only counts if an option was
+  actually removed, otherwise the number would merely show that a switch is on.
+* Point 5 complete: `/api/top` delivers names exclusively above the threshold and
+  next to it the sum of what stays below (`below_threshold_queries`,
+  `below_threshold_names`). Without that sum, a server with lots of rare traffic
+  would look like one with no traffic.
+* New panel "Block reasons" via `logging::BlockReason`, derived from the trace.
+  Categories today: Blocklist, Regex rule, Schedule, unassigned. **The DGA,
+  tunneling and rebinding heuristics are missing from it because they do not exist
+  yet** — they are phase 8, points 2 to 4. The enumeration will then take them up
+  without a rebuild of counters, API or UI.
+* A click on a log line queries `/api/explain` and gets the same evaluation as
+  `alpendns policy test`: both call `policy::explain`, so that command line and UI
+  do not give different answers to the same question.
+* All counters in German number format (`de-AT`).
 
-Nachgezogen am selben Tag: der Live-Strom war so gebaut, dass er je Anfrage eine
-Nachricht schickte. Bei einem Lasttest legte das die Oberfläche lahm. Jetzt
-deckelt der Server auf 25 Nachrichten je Sekunde und trägt die ausgelassenen als
-Zahl nach (`skipped`), damit die Sparkline nicht lügt; der Browser sammelt
-Ereignisse und zeichnet einmal je Bild. Zahlen in
-[BENCHMARKS.md](BENCHMARKS.md#phase-7--live-strom-unter-last--gemessen-am-2026-08-30).
+Followed up the same day: the live stream was built to send one message per query.
+In a load test that slowed the interface to a crawl. Now the server caps at 25
+messages per second and reports the omitted ones as a number (`skipped`), so the
+sparkline does not lie; the browser collects events and draws once per frame.
+Numbers in
+[BENCHMARKS.md](BENCHMARKS.md#phase-7--live-stream-under-load--measured-on-2026-08-30).
 
-Dazu zwei neue Tests, die die Grenze festhalten: `every_label_key_comes_from_a_closed_set`
-nagelt die Prometheus-Label-Schlüssel auf eine Positivliste fest (bisher waren nur
-drei Schreibweisen verboten, eine vierte wäre durchgerutscht), und
-`no_metric_label_carries_a_domain_or_client_name` fährt in allen vier Log-Modi
-echten Verkehr durch und greppt die gerenderte Metrik nach Query- und Client-Namen.
+Plus two new tests that pin down the boundary:
+`every_label_key_comes_from_a_closed_set` nails the Prometheus label keys to an
+allowlist (previously only three spellings were forbidden, a fourth would have
+slipped through), and `no_metric_label_carries_a_domain_or_client_name` drives
+real traffic through all four log modes and greps the rendered metric for query
+and client names.
 
-**Umgesetzt am 2026-08-30 — alle sechs Punkte.** Die vier Kommandos der Definition
-of Done laufen durch. Was dazugekommen ist:
+**Implemented on 2026-08-30 — all six points.** The four commands of the
+Definition of Done run through. What was added:
 
-**Schritt 1 — `split_by_zone` gehärtet** ([ADR-0018](adr/0018-public-suffix-list-und-seed-rotation.md)).
-Die registrierbare Domain kommt jetzt aus der Public Suffix List (`psl`,
-einkompiliert, kein Netzabruf, keine Laufzeitdatei) statt aus der Näherung
-"letzte zwei Labels" — die lieferte für `shop.example.co.uk` das wirkungslose
-`co.uk`. Der Seed wird per Default alle 24 Stunden neu gezogen
-(`[[upstream_pool]] seed_rotation`, `"0s"` schaltet ab); vorher galt er bis zum
-Neustart, und der Satz aus FEATURES.md P2 "über die Zeit lernt keiner ein
-stabiles Bild" stimmte nur für den, der auch neu startet. Das Abnahmekriterium
-ist ein Test und keine einmalige Messung: `ten_thousand_domains_stay_within_five_percent_per_upstream`
-fährt 10 000 Domains — ein Fünftel unter mehrteiligen Suffixen — über vier
-Poolgrößen und acht Seeds, größte Abweichung je Upstream **unter 5 %**. In der
-Metrik steht `alpendns_zone_seed_rotations_total`, damit "die Zuordnung rotiert"
-im Betrieb eine Zahl ist und keine Behauptung.
+**Step 1 — `split_by_zone` hardened** ([ADR-0018](adr/0018-public-suffix-list-und-seed-rotation.md)).
+The registrable domain now comes from the Public Suffix List (`psl`, compiled in,
+no network fetch, no runtime file) instead of the approximation "last two labels" —
+which delivered the ineffective `co.uk` for `shop.example.co.uk`. The seed is
+redrawn every 24 hours by default (`[[upstream_pool]] seed_rotation`, `"0s"`
+switches it off); before, it held until a restart, and the sentence from
+FEATURES.md P2 "over time nobody learns a stable picture" was only true for
+someone who also restarts. The acceptance criterion is a test and not a one-off
+measurement: `ten_thousand_domains_stay_within_five_percent_per_upstream` drives
+10,000 domains — a fifth of them under multi-part suffixes — across four pool
+sizes and eight seeds, largest deviation per upstream **under 5%**. The metric
+carries `alpendns_zone_seed_rotations_total`, so that "the assignment rotates" is
+a number in operation and not a claim.
 
-**Schritt 3 — eigene DNSSEC-Validierung** ([ADR-0016](adr/0016-dnssec-validierung-im-forwarder.md)).
-Per Default an; eine Antwort, deren Zone sich als signiert ausweist und deren
-Kette nicht schließt, wird verworfen (SERVFAIL, RFC 4035). Die drei Testvektoren
-in `tests/dnssec.rs` laufen mit **echten** Signaturen durch dieselbe Prüfung wie
-der Betrieb: gültig → `Secure` und durchgelassen, verdrehtes Bit → `Bogus` und
-verworfen, fehlende Signatur in signierter Zone → `Bogus` und verworfen. Damit
-ist der offene Punkt aus THREAT-MODEL.md A3 geschlossen.
+**Step 3 — own DNSSEC validation** ([ADR-0016](adr/0016-dnssec-validierung-im-forwarder.md)).
+On by default; an answer whose zone declares itself signed and whose chain does not
+close is discarded (SERVFAIL, RFC 4035). The three test vectors in `tests/dnssec.rs`
+run with **real** signatures through the same check as production: valid → `Secure`
+and let through, flipped bit → `Bogus` and discarded, missing signature in a signed
+zone → `Bogus` and discarded. That closes the open point from THREAT-MODEL.md A3.
 
-Drei Entscheidungen, die im ADR begründet sind und von außen willkürlich
-aussehen: zusammengefasst wird pessimistisch (ein fauler Record macht die
-Antwort faul, Authority-Abschnitt eingeschlossen); `Bogus` ist terminal und
-zählt *nicht* als Ausfall des Upstreams (sonst markiert eine kaputte Zone nach
-drei Anfragen den ganzen Pool als tot); die Signaturen gehen nur an Clients
-weiter, die mit DO danach gefragt haben.
+Three decisions that are justified in the ADR and look arbitrary from the outside:
+summarization is pessimistic (one lazy record makes the answer lazy, the authority
+section included); `Bogus` is terminal and does *not* count as an upstream failure
+(otherwise a broken zone would mark the whole pool as dead after three queries);
+the signatures are only passed on to clients that asked for them with DO.
 
-**Schritt 4 — Oblivious DoH** ([ADR-0017](adr/0017-oblivious-doh.md)), Default
-aus. `tests/odoh.rs` baut die vollständige Kette auf Loopback — ein Proxy, der
-weiterreicht ohne entschlüsseln zu können, und ein Ziel mit echtem
-Schlüsselpaar. Der wichtigste Test durchsucht die Bytes, die durch den Proxy
-gingen, nach den Labels des Query-Namens; sie stehen nicht drin. Dazu geprüft:
-der Schlüssel des Ziels wird genau einmal geholt, eine vom Proxy veränderte
-Antwort wird verworfen, ein toter Proxy ergibt einen Fehler statt eines Hängers.
-DNSSEC gilt auch über ODoH — der Transport ist als `DnsHandle` verpackt, damit
-sich der validierende Griff davorhängen kann; sonst täte `dnssec = true` mit
-eingeschaltetem ODoH still nichts.
+**Step 4 — Oblivious DoH** ([ADR-0017](adr/0017-oblivious-doh.md)), off by default.
+`tests/odoh.rs` builds the complete chain on loopback — a proxy that forwards
+without being able to decrypt, and a target with a real key pair. The most
+important test searches the bytes that went through the proxy for the labels of
+the query name; they are not in there. Also checked: the target's key is fetched
+exactly once, an answer altered by the proxy is discarded, a dead proxy yields an
+error instead of a hang. DNSSEC also applies over ODoH — the transport is wrapped
+as a `DnsHandle` so that the validating handle can be hung in front of it;
+otherwise `dnssec = true` with ODoH switched on would silently do nothing.
 
-**Abweichungen und Preise, die notiert gehören:**
+**Deviations and prices that belong on the record:**
 
-* **`time` ist jetzt Produktionsabhängigkeit.** `hickory-proto/dnssec-ring`
-  zieht es herein, und damit stimmt die alte Begründung der Advisory-Ausnahme
-  RUSTSEC-2026-0009 ("steckt gar nicht im Binary") nicht mehr. Die Ausnahme
-  bleibt mit engerer Begründung — der verwundbare Pfad (RFC-2822-Datumsparsen)
-  wird nicht betreten; hickory benutzt aus `time` nur `OffsetDateTime` für
-  RRSIG-Zeitstempel, die als Zahlen vom Draht kommen. Vollständig in `deny.toml`.
-  Sie fällt weg, sobald die MSRV auf 1.88 steigt; dagegen steht die
-  Debian-Paketierung aus Phase 9 (Debian 13 liefert `rustc 1.85`).
-* **Der ODoH-Schlüsselabruf geht direkt zum Ziel**, nicht über den Proxy — das
-  Ziel sieht dabei einmal je Prozessstart die Adresse, aber keine Frage. Über
-  den Proxy ginge es nicht: der nimmt nur ODoH-Nachrichten entgegen.
-* **Drei Fehler kamen erst beim Lauf gegen echte Upstreams heraus** und sind
-  behoben: ein verworfenes `dnssec-failed.org` wurde nicht gezählt und dem
-  Upstream als Fehlversuch angerechnet (hickory liefert diesen Fall als Fehler,
-  nicht als gestempelte Nachricht); `dig` bekam die Signaturkette, ohne danach
-  gefragt zu haben (AD in der Anfrage ist nach RFC 6840 §5.7 kein Wunsch nach
-  Records, nur DO ist es); und ein `dig +dnssec` bekam null Signaturen, weil ein
-  `dig` ohne davor da war — gestrippt wurde unter dem Cache, der eine Antwort
-  für alle hält. Ausführlich in [ADR-0016](adr/0016-dnssec-validierung-im-forwarder.md).
-  Gegen den laufenden Server nachgeprüft:
+* **`time` is now a production dependency.** `hickory-proto/dnssec-ring` pulls it
+  in, and with that the old justification of the advisory exception
+  RUSTSEC-2026-0009 ("is not in the binary at all") no longer holds. The exception
+  stays, with a narrower justification — the vulnerable path (RFC 2822 date
+  parsing) is not entered; hickory uses only `OffsetDateTime` from `time` for
+  RRSIG timestamps, which come as numbers off the wire. Fully in `deny.toml`. It
+  falls away as soon as the MSRV rises to 1.88; against that stands the Debian
+  packaging from phase 9 (Debian 13 ships `rustc 1.85`).
+* **The ODoH key fetch goes directly to the target**, not via the proxy — the
+  target sees the address once per process start, but no query. Via the proxy it
+  would not work: it only accepts ODoH messages.
+* **Three bugs only came out when running against real upstreams** and are fixed:
+  a discarded `dnssec-failed.org` was not counted and was charged to the upstream
+  as a failed attempt (hickory delivers this case as an error, not as a stamped
+  message); `dig` got the signature chain without having asked for it (AD in the
+  query is, per RFC 6840 §5.7, not a request for records, only DO is); and a
+  `dig +dnssec` got zero signatures because a `dig` without had been there before —
+  stripping happened below the cache, which holds one answer for everyone. In
+  detail in [ADR-0016](adr/0016-dnssec-validierung-im-forwarder.md). Re-checked
+  against the running server:
 
   ```
-  dnssec-failed.org            → SERVFAIL, quad9 ohne Fehlversuch
-  cloudflare.com               → NOERROR, ad-Flag, keine RRSIG in der Antwort
-  cloudflare.com +dnssec       → dieselbe Cache-Zeile, RRSIG dabei
-  gnu.org                      → NOERROR, kein ad-Flag (unsignierte Zone)
+  dnssec-failed.org            → SERVFAIL, quad9 without a failed attempt
+  cloudflare.com               → NOERROR, ad flag, no RRSIG in the answer
+  cloudflare.com +dnssec       → the same cache line, RRSIG included
+  gnu.org                      → NOERROR, no ad flag (unsigned zone)
   ```
 
-  **Nachtrag aus Phase 8:** ein vierter Fehler kam erst im Dauerbetrieb heraus.
-  Antwortet der Upstream selbst mit einem leeren SERVFAIL, meldet hickory
-  mangels NSEC-Records ebenfalls `Bogus` — und weil `Bogus` terminal ist, wurde
-  ein einzelner Wackler beim Upstream zu einem harten SERVFAIL für den Client,
-  ohne Ausweichversuch. `wikipedia.org` kam so einmal als SERVFAIL zurück und
-  beim nächsten Versuch als NOERROR. Unterschieden wird jetzt an dem, was die
-  Antwort enthält; Einzelheiten im Nachtrag zu
-  [ADR-0016](adr/0016-dnssec-validierung-im-forwarder.md). Die Zahl `bogus=1`
-  oben ist dadurch auf 0 gefallen: Quad9 validiert selbst, wir sehen nie eine
-  faule Signatur — die alte 1 war der Mislabel.
-* **Die DNSSEC-Vektoren pinnen den Schlüssel der Testzone als Trust Anchor,**
-  statt eine Kette bis zur echten Root zu bauen. An der Rechnerei ist dabei
-  nichts abgekürzt; dass der validierende Griff im Transport auch wirklich
-  vorgeschaltet ist, hält ein eigener Test in `encrypted.rs` fest.
-* **Die Transport-Fakes in `encrypted.rs` laufen jetzt ohne Validierung.** Sie
-  beantworten jede Frage mit demselben A-Record, auch eine nach DNSKEY — für
-  einen validierenden Griff ist das keine unsignierte Zone, sondern eine kaputte
-  Kette. Was dort geprüft wird, sind die Transporte.
-* **Erledigt:** der CI-Lauf läuft inzwischen dauerhaft grün in GitHub Actions
-  (fmt, clippy, test, cargo-deny). Damit ist das Abnahmekriterium dieser Phase,
-  Punkt 6 *dauerhaft in CI*, erfüllt; der Test läuft ohnehin bei jedem
-  `cargo test` lokal.
-* **Erledigt am 2026-08-31:** der Blick eines Menschen auf die gerenderte UI
-  (Phase 6, Schritt 8). Dazugekommen sind dort ein Eintrag im Privacy-Streifen
-  ("DNSSEC selbst geprüft" bzw. "dem Upstream geglaubt") und zwei Zähler in der
-  Privacy-Kachel, darunter die verworfenen Antworten — die einzige Zahl der
-  Reihe, die im Betrieb eine Frage aufwirft.
+  **Postscript from phase 8:** a fourth bug only came out in continuous operation.
+  If the upstream itself answers with an empty SERVFAIL, hickory likewise reports
+  `Bogus` for lack of NSEC records — and because `Bogus` is terminal, a single
+  wobble at the upstream became a hard SERVFAIL for the client, with no fallback
+  attempt. `wikipedia.org` came back once as SERVFAIL this way and as NOERROR on
+  the next attempt. The distinction is now made on what the answer contains;
+  details in the postscript to
+  [ADR-0016](adr/0016-dnssec-validierung-im-forwarder.md). The number `bogus=1`
+  above has thereby dropped to 0: Quad9 validates itself, we never see a lazy
+  signature — the old 1 was the mislabel.
+* **The DNSSEC vectors pin the test zone's key as a trust anchor,** instead of
+  building a chain up to the real root. Nothing is shortcut in the arithmetic;
+  that the validating handle really is interposed in the transport is pinned by
+  its own test in `encrypted.rs`.
+* **The transport fakes in `encrypted.rs` now run without validation.** They
+  answer every question with the same A record, including one for DNSKEY — for a
+  validating handle that is not an unsigned zone but a broken chain. What is
+  checked there are the transports.
+* **Done:** the CI run now runs permanently green in GitHub Actions (fmt, clippy,
+  test, cargo-deny). That fulfills this phase's acceptance criterion, point 6
+  *permanently in CI*; the test runs with every `cargo test` locally anyway.
+* **Done on 2026-08-31:** a human's look at the rendered UI (phase 6, step 8).
+  Added there were an entry in the privacy strip ("DNSSEC checked locally" or
+  "trusted the upstream") and two counters in the privacy tile, among them the
+  discarded answers — the only number in the series that raises a question in
+  operation.
 
 ---
 
-## Phase 8 — Heuristik ohne Cloud · ~4–5 Abende
+## Phase 8 — Heuristics without a cloud · ~4–5 evenings
 
-**Ziel:** Erkennung von Mustern, die keine Liste kennt. Alles lokal, alles erklärbar,
-alles per Default nur `flag`.
+**Goal:** Detection of patterns that no list knows. Everything local, everything
+explainable, everything by default only `flag`.
 
-**Vorarbeit ist da:** `logging::BlockReason` und das UI-Panel "Block-Gründe"
-existieren seit Phase 7. Ein neuer Detektor braucht dort je eine Variante plus
-ihren Schritt im Trace — Zähler, Metrik-Label und Diagramm ziehen automatisch mit.
+**Groundwork is in place:** `logging::BlockReason` and the UI panel "Block reasons"
+have existed since phase 7. A new detector needs one variant there plus its step
+in the trace — counters, metric label and diagram come along automatically.
 
 ```
-1. Framework: Detektor-Trait, Score 0.0–1.0 + Begründung, Aktion aus der Config → verify: Dummy-Detektor läuft durch die Pipeline und landet im Trace
-2. Rebinding-Schutz (private IPs für öffentliche Namen) → verify: Test, Ausnahmeliste funktioniert
-3. Tunneling-Erkennung (Entropie, Labellänge, Rate, TXT/NULL-Anteil pro Zone) → verify: iodine-/dnscat-Beispielkorpus wird erkannt, Top-100k-Korpus erzeugt unter 0.1 % Falsch-Positive
-4. DGA-Erkennung über Zeichen-N-Gramme, Modell im Binary → verify: Trefferquote pro DGA-Familie dokumentiert, Falsch-Positiv-Rate auf Top-100k unter 0.1 %
-5. Typosquat-Erkennung gegen protect-Liste (Damerau-Levenshtein + Unicode-Confusables) → verify: konstruierte Varianten von zwei Schutz-Domains werden erkannt, die Originale nie
-6. NRD-Awareness aus lokaler Datei → verify: Testdatei mit Datumsangaben, Domain unter max_age wird geflaggt
-7. UI: geflaggte Anfragen mit Score und Begründung, ein Klick zum Blocken oder Freigeben → verify: manuell
+1. Framework: detector trait, score 0.0–1.0 + reason, action from the config → verify: a dummy detector runs through the pipeline and lands in the trace
+2. Rebinding protection (private IPs for public names) → verify: test, the exception list works
+3. Tunneling detection (entropy, label length, rate, TXT/NULL share per zone) → verify: the iodine/dnscat sample corpus is detected, top-100k corpus produces under 0.1% false positives
+4. DGA detection via character n-grams, model in the binary → verify: detection rate per DGA family documented, false positive rate on the top 100k under 0.1%
+5. Typosquat detection against the protect list (Damerau-Levenshtein + Unicode confusables) → verify: constructed variants of two protected domains are detected, the originals never
+6. NRD awareness from a local file → verify: test file with dates, a domain under max_age is flagged
+7. UI: flagged queries with score and reason, one click to block or allow → verify: manual
 ```
 
-**Abnahme:** Eine Woche Betrieb im echten Netz mit allen Detektoren auf `flag`. Die
-Falsch-Positiv-Liste wird durchgesehen; erst danach darf ein Detektor auf `block`.
+**Acceptance:** One week of operation on the real network with all detectors on
+`flag`. The false-positive list is reviewed; only after that may a detector go to
+`block`.
 
-**Hinweis:** Das ist die inhaltliche Brücke zu deinem AlpenShield-Projekt — die dort
-gebaute Pipeline (CT-Logs, Zonendaten, Klassifikator) kann die NRD- und
-Reputationsdateien liefern, die AlpenDNS hier lokal einliest. Die Schnittstelle dazwischen
-ist bewusst eine simple Datei, kein API-Aufruf: der Resolver darf nicht davon abhängen,
-dass ein zweiter Dienst läuft.
+**Note:** This is the substantive bridge to your AlpenShield project — the pipeline
+built there (CT logs, zone data, classifier) can supply the NRD and reputation
+files that AlpenDNS reads in locally here. The interface between them is
+deliberately a simple file, not an API call: the resolver must not depend on a
+second service running.
 
-**Umgesetzt am 2026-08-30 — alle sieben Punkte.** Die vier Kommandos der
-Definition of Done laufen durch. Was **nicht** erledigt ist, ist die Abnahme:
-sie verlangt eine Woche Betrieb im echten Netz, und die kann kein Test ersetzen
-(siehe unten).
+**Implemented on 2026-08-30 — all seven points.** The four commands of the
+Definition of Done run through. What is **not** done is acceptance: it requires a
+week of operation on the real network, and no test can replace that (see below).
 
-**Schritt 1 — Framework** ([ADR-0019](adr/0019-heuristiken-melden-statt-blocken.md)).
-`crate::detect` mit zwei Traits: `NameDetector` sieht die Frage, `AnswerDetector`
-die Antwort. Zwei und nicht einer, weil es zwei Stellen in der Pipeline sind —
-der Rebinding-Schutz braucht die Antwort (ARCHITECTURE.md §1, Schicht 5). Vier
-Stufen `off`/`log`/`flag`/`block`; der Unterschied zwischen `log` und `flag` ist,
-wem sie auffallen. Das Abnahmekriterium steht als Test da:
+**Step 1 — framework** ([ADR-0019](adr/0019-heuristiken-melden-statt-blocken.md)).
+`crate::detect` with two traits: `NameDetector` sees the question, `AnswerDetector`
+the answer. Two and not one, because there are two places in the pipeline —
+rebinding protection needs the answer (ARCHITECTURE.md §1, layer 5). Four levels
+`off`/`log`/`flag`/`block`; the difference between `log` and `flag` is who notices
+them. The acceptance criterion stands as a test:
 `a_detector_runs_through_the_pipeline_and_lands_in_the_trace`.
 
-**Schritt 2 — Rebinding.** Private Adressen für öffentliche Namen, inklusive der
-Falle `::ffff:192.168.1.1` und der Glue-Records im Additional-Abschnitt. Die
-`forward_zone`-Einträge kommen automatisch in die Ausnahmeliste: wer eine Zone
-ins eigene Netz leitet, hat schon gesagt, dass private Adressen von dort in
-Ordnung sind — ohne das wäre der Schutz beim ersten Start eine Falle.
+**Step 2 — rebinding.** Private addresses for public names, including the trap
+`::ffff:192.168.1.1` and the glue records in the additional section. The
+`forward_zone` entries automatically go into the exception list: whoever routes a
+zone into their own network has already said that private addresses from there are
+fine — without that, the protection would be a trap on first start.
 
-**Schritt 3 — Tunneling.** Bewertet wird die *Zone* über ein Zeitfenster, nicht
-die einzelne Anfrage: fünf Signale, gewichtet, mit den einmaligen Subdomains als
-schwerstem. Gemessen: gewöhnlicher Verkehr unter einer Zone bleibt bei 0,17, ein
-`dnscat2`-artiger Strom liegt bei 0,81, ein `iodine`-artiger bei 1,0. Auf der
-Top-100k **0,0000 % Falsch-Positive**.
+**Step 3 — tunneling.** What is scored is the *zone* over a time window, not the
+individual query: five signals, weighted, with one-off subdomains as the heaviest.
+Measured: ordinary traffic under one zone stays at 0.17, a `dnscat2`-like stream
+sits at 0.81, an `iodine`-like one at 1.0. On the top 100k, **0.0000% false
+positives**.
 
-**Schritt 4 — DGA.** 3-Gramm-Modell im Binary, 107 KiB. Auf der Top-100k
-**0,077 % Falsch-Positive** gegen eine Zusage von 0,1 %. Trefferquoten je
-Familie: alphanumerisch 92,8 %, necurs-artig 40,6 %, conficker-artig 28,6 %,
-aussprechbar 0,5 %, wörterbuchbasiert 0,0 %. Die letzten beiden sind die
-dokumentierte Grenze des Verfahrens und keine Überraschung (FEATURES.md D3).
+**Step 4 — DGA.** 3-gram model in the binary, 107 KiB. On the top 100k, **0.077%
+false positives** against a promise of 0.1%. Detection rates per family:
+alphanumeric 92.8%, necurs-like 40.6%, conficker-like 28.6%, pronounceable 0.5%,
+dictionary-based 0.0%. The last two are the documented limit of the method and no
+surprise (FEATURES.md D3).
 
-**Schritt 5 — Typosquat.** Damerau-Levenshtein plus Unicode-Confusables plus
-Punycode-Auflösung. Vier Trefferarten mit eigenem Score; die Originale werden nie
-gemeldet, und das ist der wichtigere Teil des Kriteriums.
+**Step 5 — typosquat.** Damerau-Levenshtein plus Unicode confusables plus Punycode
+resolution. Four kinds of match with their own score; the originals are never
+reported, and that is the more important part of the criterion.
 
-**Schritt 6 — NRD.** Lokale Datei, Score fällt linear mit dem Alter. Eine
-fehlende Datei ist **kein** Startfehler: der Resolver hängt nicht davon ab, dass
-AlpenShield gelaufen ist.
+**Step 6 — NRD.** Local file, score falls linearly with age. A missing file is
+**not** a startup error: the resolver does not depend on AlpenShield having run.
 
-**Schritt 7 — UI.** Neues Panel "Auffällig" mit Detektor, Score und Begründung,
-dazu je ein Knopf zum Freigeben und zum Sperren. Die Sperre ist der Gegenpart zur
-befristeten Freigabe aus Phase 5 und benutzt dieselbe Struktur.
+**Step 7 — UI.** New panel "Flagged" with detector, score and reason, plus one
+button each to allow and to block. The block is the counterpart to the temporary
+exemption from phase 5 and uses the same structure.
 
-**Abweichungen und Preise:**
+**Deviations and prices:**
 
-* **Der Messkorpus liegt nicht im Repo.** Zwei Dateien unter `corpus/`
-  (gitignoriert): trainiert wird auf den Rängen 100 001–600 000 der Majestic
-  Million, gemessen auf der Top-100k. Die Trennung ist nicht Kosmetik — beim
-  ersten Anlauf lief beides auf derselben Liste, und die Falsch-Positiv-Rate war
-  um den **Faktor 500** zu gut (0,001 % gegen 0,54 %). Herkunft, Lizenz und
-  Erzeugung stehen in `src/detect/dga/model.bin.md`.
-* **Die DGA-Familien sind nachgebaut, nicht mitgeschnitten**, ebenso der
-  iodine-/dnscat-Korpus. Was zählt, sind Alphabet und Längenbereich; die echte
-  Saat erzeugte dieselbe Verteilung. Steht so in `tests/detect_corpus.rs`.
-* **Punycode und private Suffixe werden von der DGA-Erkennung ausgenommen.**
-  Beim ersten Messlauf waren vier der zwanzig auffälligsten Namen IDNs, und
-  `d1a2b3.cloudfront.net` galt als erzeugter Name — er ist es, aber der Anbieter
-  vergibt ihn so. Beides sind jetzt benannte blinde Flecken statt systematischer
-  Fehlalarme für ganze Sprachräume.
-* **Pinyin-Kürzel bleiben ein Fehlalarm.** `hnqxdzkj.com` ist ein gewachsener
-  Name aus Anfangsbuchstaben chinesischer Silben und für ein Modell über
-  lateinischem Text nicht von Zufall zu unterscheiden. Sie machen den größten
-  Teil der verbleibenden 0,077 % aus.
-* **Ein DNSSEC-Fehler aus Phase 7 kam hier heraus** und ist behoben — siehe den
-  Nachtrag oben.
-* **Erledigt:** der CI-Lauf läuft dauerhaft grün in GitHub Actions (Phase 0).
-* **Erledigt am 2026-08-31:** der Blick eines Menschen auf die gerenderte UI
-  (Phase 6, Schritt 8). Dazugekommen ist das Panel "Auffällig".
+* **The measurement corpus is not in the repo.** Two files under `corpus/`
+  (gitignored): training is on ranks 100,001–600,000 of the Majestic Million,
+  measurement on the top 100k. The separation is not cosmetic — on the first
+  attempt both ran on the same list, and the false positive rate was better by a
+  **factor of 500** (0.001% against 0.54%). Origin, license and generation are in
+  `src/detect/dga/model.bin.md`.
+* **The DGA families are rebuilt, not recorded**, as is the iodine/dnscat corpus.
+  What counts is the alphabet and the length range; the real seed produced the
+  same distribution. That is how it stands in `tests/detect_corpus.rs`.
+* **Punycode and private suffixes are exempted from DGA detection.** On the first
+  measurement run, four of the twenty most notable names were IDNs, and
+  `d1a2b3.cloudfront.net` counted as a generated name — it is one, but the
+  provider hands it out that way. Both are now named blind spots instead of
+  systematic false alarms for entire language areas.
+* **Pinyin abbreviations remain a false alarm.** `hnqxdzkj.com` is a grown name
+  made of the initial letters of Chinese syllables and, for a model over Latin
+  text, indistinguishable from chance. They make up the largest part of the
+  remaining 0.077%.
+* **A DNSSEC bug from phase 7 came out here** and is fixed — see the postscript
+  above.
+* **Done:** the CI run runs permanently green in GitHub Actions (phase 0).
+* **Done on 2026-08-31:** a human's look at the rendered UI (phase 6, step 8).
+  Added was the "Flagged" panel.
 
-**Die Abnahme läuft:** "eine Woche Betrieb im echten Netz mit allen Detektoren
-auf `flag`" braucht eine Woche und ein echtes Netz. Der Praxistest hat am
-2026-08-30 begonnen — seitdem ist der Server der einzige Resolver im Homelab.
-Es ist derselbe Lauf wie der Praxistest aus Phase 9 (OPERATIONS.md §6). Erst
-nach Durchsicht der Falsch-Positiv-Liste darf ein Detektor auf `block`.
+**Acceptance is running:** "one week of operation on the real network with all
+detectors on `flag`" needs a week and a real network. The practical test began on
+2026-08-30 — since then the server has been the only resolver in the homelab. It
+is the same run as the practical test from phase 9 (OPERATIONS.md §6). Only after
+reviewing the false-positive list may a detector go to `block`.
 
-**Erste Periode ausgewertet am 2026-09-16** (30.08. bis 15.09., 220 659 Anfragen,
-4 025 verschiedene Namen). Dass diese Zahlen überhaupt existieren, ist
-`mode = "full"` zu verdanken: OPERATIONS §6 empfahl für die Beobachtung `ring`,
-und der Ringpuffer hätte die Woche nicht überlebt — `/api/flagged` liest ihn,
-nicht das Log. §6 ist entsprechend nachgezogen.
+**First period evaluated on 2026-09-16** (30.08. to 15.09., 220,659 queries, 4,025
+distinct names). That these numbers exist at all is thanks to `mode = "full"`:
+OPERATIONS §6 recommended `ring` for the observation, and the ring buffer would
+not have survived the week — `/api/flagged` reads it, not the log. §6 has been
+updated accordingly.
 
-* **Rebinding — 2 595 Meldungen, alle Fehlalarme.** Ausnahmslos Sinkholes und
-  Telemetrie: 661× eine Amazon-Gerätekennung, `a.gslb.aaplimg.com`,
-  `settings-win.data.microsoft.com`, `unagi-eu.amazon.com` — 194 verschiedene
-  Namen, kein echter Angriff in 16 Tagen. Behoben in
-  [ADR-0021](adr/0021-rebinding-nur-erreichbare-adressen.md); danach meldete der
-  Detektor nichts mehr.
-* **DGA — 7 Funde, kein Fehlalarm.** Alle vier Namen tragen ein
-  Generierungsmuster; der auffälligste ist
-  `cdn.deepseek.com.436b7a4e.cdnhwcqwg14.com` — ein echter Name als Label vor
-  einer generierten Domain. Bei der Laborrate von 0,077 % wären auf 4 025 Namen
-  rund drei Funde zu erwarten gewesen.
-* **Tunneling — nie ausgelöst.** Kein Fehlalarm, aber auch kein Beleg: der
-  Detektor hat im Betrieb nie gezeigt, dass er richtig auslöst. Seine Wirkung ist
-  nur über den Korpus belegt (BENCHMARKS.md).
-* **Typosquat und NRD — liefen leer.** `protect = []` bzw. keine `nrd.txt`.
-  Beide haben in dieser Periode nichts bewertet; „keine Fehlalarme" ist bei ihnen
-  keine Aussage, sondern eine Null ohne Grundlage.
+* **Rebinding — 2,595 reports, all false alarms.** Without exception sinkholes and
+  telemetry: 661× an Amazon device identifier, `a.gslb.aaplimg.com`,
+  `settings-win.data.microsoft.com`, `unagi-eu.amazon.com` — 194 distinct names,
+  no real attack in 16 days. Fixed in
+  [ADR-0021](adr/0021-rebinding-nur-erreichbare-adressen.md); after that the
+  detector reported nothing more.
+* **DGA — 7 findings, no false alarm.** All four names carry a generation pattern;
+  the most notable is `cdn.deepseek.com.436b7a4e.cdnhwcqwg14.com` — a real name as
+  a label in front of a generated domain. At the lab rate of 0.077%, around three
+  findings would have been expected across 4,025 names.
+* **Tunneling — never triggered.** No false alarm, but also no proof: in operation
+  the detector never showed that it triggers correctly. Its effect is only
+  evidenced by the corpus (BENCHMARKS.md).
+* **Typosquat and NRD — ran empty.** `protect = []` and no `nrd.txt` respectively.
+  Both evaluated nothing in this period; for them, "no false alarms" is not a
+  statement but a zero without a basis.
 
-**Zweite Periode seit 2026-09-16 16:24.** Sie läuft mit gefüllter
-`protect`-Liste und entscheidet über Typosquat, bestätigt Rebinding und DGA.
-Tunneling braucht dafür einen kontrollierten Test statt eines weiteren passiven
-Laufs; NRD bleibt ohne Daten aus AlpenShield `off` und damit unbewertet.
+**Second period since 2026-09-16 16:24.** It runs with a filled `protect` list and
+decides on typosquat, confirms rebinding and DGA. Tunneling needs a controlled
+test for that instead of another passive run; NRD stays `off` without data from
+AlpenShield and therefore unevaluated.
 
 ---
 
-## Phase 9 — Betrieb und Paketierung · ~3 Abende
+## Phase 9 — Operation and packaging · ~3 evenings
 
-**Ziel:** Auf einer frischen Debian-VM in fünf Minuten installiert und gehärtet.
+**Goal:** Installed and hardened on a fresh Debian VM in five minutes.
 
 ```
-1. systemd-Unit mit CAP_NET_BIND_SERVICE, ohne root → verify: ps zeigt unprivilegierten User, Port 53 lauscht
-2. Hardening-Direktiven → verify: systemd-analyze security alpendns zeigt einen Score unter 3.0
-3. alpendns check als ExecStartPre → verify: kaputte Config verhindert den Start, alte Instanz läuft weiter
-4. .deb-Paket mit cargo-deb, Config unter /etc/alpendns → verify: Installation auf frischer Debian-VM, Dienst startet
-5. Rate-Limiting pro Client-IP → verify: Lasttest mit einer IP über dem Limit wird gedrosselt, andere IPs unbeeinflusst
-6. Erst-Installation setzt sichere Defaults (Listener nur auf privaten Adressen) → verify: nach der Installation ist der Server von außen nicht erreichbar
-7. Lasttest und Zahlen dokumentieren → verify: docs/BENCHMARKS.md enthält Queries/s, p99, RSS
-8. Betriebsdoku: Installation, Upgrade, Backup, Fehlersuche → verify: jemand anderes installiert danach ohne Rückfragen
+1. systemd unit with CAP_NET_BIND_SERVICE, without root → verify: ps shows an unprivileged user, port 53 is listening
+2. Hardening directives → verify: systemd-analyze security alpendns shows a score under 3.0
+3. alpendns check as ExecStartPre → verify: a broken config prevents startup, the old instance keeps running
+4. .deb package with cargo-deb, config under /etc/alpendns → verify: installation on a fresh Debian VM, the service starts
+5. Rate limiting per client IP → verify: load test with one IP above the limit is throttled, other IPs unaffected
+6. A first installation sets safe defaults (listeners only on private addresses) → verify: after installation the server is not reachable from outside
+7. Document the load test and the numbers → verify: docs/BENCHMARKS.md contains queries/s, p99, RSS
+8. Operations doc: installation, upgrade, backup, troubleshooting → verify: someone else installs it afterwards without asking questions
 ```
 
-**Abnahme:** Frische VM, `apt install ./alpendns.deb`, funktionierender gehärteter
-Resolver ohne manuelles Nacharbeiten.
+**Acceptance:** Fresh VM, `apt install ./alpendns.deb`, a working hardened resolver
+with no manual follow-up work.
 
-**Dazu der Praxistest, der aus Phase 4 hierher verschoben wurde:** der Server läuft
-eine Woche als einziger Resolver im LAN, ohne dass jemand meckert. Erst hier ist er
-dafür überhaupt eingerichtet — auf Port 53, als Dienst, über Neustarts hinweg. Was
-dabei auffällt, gehört als Fehlalarm-Liste oder Konfigurationsänderung
-dokumentiert; "lief bei mir" ist kein Abnahmekriterium.
+**Plus the practical test that was moved here from phase 4:** the server runs a
+week as the only resolver in the LAN, without anyone complaining. Only here is it
+set up for that in the first place — on port 53, as a service, across restarts.
+Whatever stands out in the process belongs documented as a false-alarm list or a
+configuration change; "worked on my machine" is not an acceptance criterion.
 
-**Umgesetzt am 2026-08-30 — alle acht Punkte.** Die vier Kommandos der
-Definition of Done laufen durch, das Paket baut und ist auspackbar geprüft.
-Was **aussteht**, ist der Teil der Abnahme, der einen zweiten Rechner und
-mehrere Tage braucht (siehe unten). Anleitung dafür:
+**Implemented on 2026-08-30 — all eight points.** The four commands of the
+Definition of Done run through, the package builds and has been checked as
+unpackable. What is **outstanding** is the part of acceptance that needs a second
+machine and several days (see below). Guide for that:
 [OPERATIONS.md](OPERATIONS.md).
 
-**Schritt 1 und 2 — Unit und Hardening.** `packaging/systemd/alpendns.service`.
-Port 53 kommt über `AmbientCapabilities=CAP_NET_BIND_SERVICE`; der Prozess
-startet direkt als `alpendns` und war nie root. `systemd-analyze security`
-sagt **1,5** — gefordert waren unter 3,0. Was übrig bleibt, ist das, was ein
-Resolver naturgemäß braucht: Netzzugang und Port 53.
+**Step 1 and 2 — unit and hardening.** `packaging/systemd/alpendns.service`.
+Port 53 comes via `AmbientCapabilities=CAP_NET_BIND_SERVICE`; the process starts
+directly as `alpendns` and was never root. `systemd-analyze security` says **1.5** —
+under 3.0 was required. What remains is what a resolver naturally needs: network
+access and port 53.
 
-Eine Abweichung von CLAUDE.md B.5, die eine sein muss: `RestrictAddressFamilies`
-führt zusätzlich `AF_NETLINK`. glibc fragt beim Auflösen eines Hostnamens über
-Netlink ab, welche Adressfamilien die Maschine hat; ohne die Zeile scheitert der
-Blocklisten-Download auf manchen Systemen, und zwar still. Ebenfalls geprüft und
-wieder entfernt: `PrivateUsers=yes` — in einem eigenen User-Namespace trägt
-`CAP_NET_BIND_SERVICE` nicht mehr bis Port 53.
+One deviation from CLAUDE.md B.5, and it has to be one: `RestrictAddressFamilies`
+additionally carries `AF_NETLINK`. When resolving a hostname, glibc asks via
+Netlink which address families the machine has; without that line the blocklist
+download fails on some systems, and silently at that. Also checked and removed
+again: `PrivateUsers=yes` — in its own user namespace, `CAP_NET_BIND_SERVICE` no
+longer carries through to port 53.
 
-**Schritt 3 — `alpendns check`.** Läuft als `ExecStartPre`. Prüft Konfiguration,
-Blueprint (Verweise zwischen Clients, Policies und Listen) und die drei
-Verzeichnisse, in die geschrieben werden muss — letztere durch Hinschreiben,
-nicht durch Rechte-Rechnen. Ausdrücklich **nichts, was Netz braucht**: ein
-Startskript, das auf das Internet wartet, ist ein Startskript, das irgendwann
-hängt.
+**Step 3 — `alpendns check`.** Runs as `ExecStartPre`. Checks the configuration,
+the blueprint (references between clients, policies and lists) and the three
+directories that must be written to — the latter by writing to them, not by
+computing permissions. Explicitly **nothing that needs network**: a startup script
+that waits on the internet is a startup script that will hang at some point.
 
-**Schritt 4 — .deb.** `cargo deb -p alpendns`, Metadaten in
-`crates/alpendns/Cargo.toml`, Maintainer-Skripte in `packaging/debian/`. Das
-Paket legt den Systemuser an; die Verzeichnisse unter `/var` legt **systemd**
-über `StateDirectory=` und Geschwister an — damit gibt es genau eine Stelle,
-die Rechte setzt, und ein Upgrade kann sie nicht kaputtmachen.
-`/etc/alpendns/alpendns.toml` ist ein conffile.
+**Step 4 — .deb.** `cargo deb -p alpendns`, metadata in
+`crates/alpendns/Cargo.toml`, maintainer scripts in `packaging/debian/`. The
+package creates the system user; **systemd** creates the directories under `/var`
+via `StateDirectory=` and its siblings — that way there is exactly one place that
+sets permissions, and an upgrade cannot break it. `/etc/alpendns/alpendns.toml` is
+a conffile.
 
-**Schritt 5 — Drosselung.** Token Bucket je Client, 16 Schubladen mit je einem
-Mutex (kein globales Schloss im Anfragepfad, B.3 Regel 5), LRU-gedeckelt.
-Über dem Limit wird **verworfen, nicht abgelehnt** —
-[ADR-0020](adr/0020-rate-limiting-verwirft.md). IPv6 wird auf /64
-zusammengefasst, sonst hätte ein Laptop mit Privacy Extensions stündlich ein
-neues Guthaben. Per Default an.
+**Step 5 — throttling.** Token bucket per client, 16 slots with one mutex each (no
+global lock in the request path, B.3 rule 5), LRU-capped. Above the limit it is
+**dropped, not rejected** — [ADR-0020](adr/0020-rate-limiting-verwirft.md). IPv6 is
+grouped by /64, otherwise a laptop with privacy extensions would have a fresh
+allowance every hour. On by default.
 
-**Schritt 6 — sichere Defaults.** Die ausgelieferte
-`packaging/alpendns.toml` lauscht auf Loopback; frisch installiert ist der
-Server von außen nicht erreichbar. Das steht als Test da
-(`the_packaged_configuration_listens_nowhere_public`), und `0.0.0.0` zählt
-dabei als öffentlich — die Wildcard bindet auch an eine Schnittstelle, die
-morgen am Internet hängt. `alpendns check` sagt am Ende, ob ein Listener über
-das eigene Netz hinausreicht.
+**Step 6 — safe defaults.** The shipped `packaging/alpendns.toml` listens on
+loopback; freshly installed, the server is not reachable from outside. That stands
+as a test (`the_packaged_configuration_listens_nowhere_public`), and `0.0.0.0`
+counts as public in it — the wildcard also binds to an interface that will be on
+the internet tomorrow. At the end, `alpendns check` says whether a listener
+reaches beyond your own network.
 
-**Schritt 7 — Zahlen.** 84 078 Anfragen/s, p99 674 µs, RSS 39 732 KiB; die
-Drosselung kostet **2 % Durchsatz**. Unter einer Flut von 274 000 Paketen/s aus
-einer Quelle bleibt die p99 der übrigen Clients bei 765 µs.
-[BENCHMARKS.md](BENCHMARKS.md), Abschnitt Phase 9.
+**Step 7 — numbers.** 84,078 queries/s, p99 674 µs, RSS 39,732 KiB; throttling
+costs **2% throughput**. Under a flood of 274,000 packets/s from one source, the
+p99 of the other clients stays at 765 µs. [BENCHMARKS.md](BENCHMARKS.md), phase 9
+section.
 
-**Schritt 8 — Betriebsdoku.** [OPERATIONS.md](OPERATIONS.md): Installation,
-Freigabe für das LAN, Upgrade, Backup, Fehlersuche, was die
-Hardening-Direktiven bedeuten, Beobachtungswoche, Deinstallation. Liegt im
-Paket unter `/usr/share/doc/alpendns/`.
+**Step 8 — operations doc.** [OPERATIONS.md](OPERATIONS.md): installation, release
+for the LAN, upgrade, backup, troubleshooting, what the hardening directives mean,
+observation week, uninstall. Ships in the package under `/usr/share/doc/alpendns/`.
 
-**Was aussteht — und was inzwischen belegt ist:**
+**What is outstanding — and what is meanwhile evidenced:**
 
-* **Installation auf einem echten System — verifiziert, mit Abweichung.** Am
-  2026-08-30 wurde das `.deb` auf einem **Ubuntu-Container** installiert: Dienst
-  läuft, `check` grün, seitdem geht der gesamte Homelab-DNS-Verkehr über den
-  Server. Das belegt die Reihenfolge `adduser` → `deb-systemd-helper` → erster
-  Start auf einem fremden System, die der Lauf des ausgepackten Binaries vorher
-  offen ließ — und es widerlegt die Sorge, `SystemCallFilter` behindere den
-  Prozess im Betrieb.
+* **Installation on a real system — verified, with a deviation.** On 2026-08-30 the
+  `.deb` was installed on an **Ubuntu container**: the service runs, `check` is
+  green, since then all homelab DNS traffic goes through the server. That proves
+  the sequence `adduser` → `deb-systemd-helper` → first start on a foreign system,
+  which the run of the unpacked binary had left open before — and it refutes the
+  worry that `SystemCallFilter` hampers the process in operation.
 
-  Es bleibt eine **Abweichung zum Kriterium**: verlangt ist eine *frische
-  Debian-VM*, geliefert wurde ein Ubuntu-Container. Ubuntu ist Debian-verwandt
-  (das `.deb` zielt ohnehin auf Debian/Ubuntu, `rustc 1.85` = Debian 13), und
-  ein Container unterscheidet sich von einer nackten VM im systemd- und
-  Capabilities-Verhalten. Fürs Erste akzeptiert; eine frische Debian-VM wird
-  bei Gelegenheit nachgeholt.
-* **Der Praxistest läuft.** Begonnen am 2026-08-30: der Server ist einziger
-  Resolver im Homelab, alle Detektoren auf `flag`. Anleitung in OPERATIONS.md
-  §6; der Lauf umfasst zugleich die Abnahme von Phase 8 (Beobachtungswoche mit
-  allen Detektoren auf `flag`), weil beides derselbe Lauf ist. Am Ende steht die
-  Durchsicht der Falsch-Positiv-Liste — erst danach darf ein Detektor auf
-  `block`.
-* **Erledigt:** der CI-Lauf läuft dauerhaft grün in GitHub Actions (Phase 0).
-* **Erledigt am 2026-08-31:** der Blick eines Menschen auf die gerenderte UI
-  (Phase 6, Schritt 8).
+  A **deviation from the criterion** remains: what is required is a *fresh Debian
+  VM*, what was delivered is an Ubuntu container. Ubuntu is Debian-related (the
+  `.deb` targets Debian/Ubuntu anyway, `rustc 1.85` = Debian 13), and a container
+  differs from a bare VM in systemd and capabilities behavior. Accepted for now; a
+  fresh Debian VM will be caught up with at some point.
+* **The practical test is running.** Begun on 2026-08-30: the server is the only
+  resolver in the homelab, all detectors on `flag`. Guide in OPERATIONS.md §6; the
+  run also covers the acceptance of phase 8 (observation week with all detectors
+  on `flag`), because both are the same run. At the end stands the review of the
+  false-positive list — only after that may a detector go to `block`.
+* **Done:** the CI run runs permanently green in GitHub Actions (phase 0).
+* **Done on 2026-08-31:** a human's look at the rendered UI (phase 6, step 8).
 
 ---
 
-## Phase 10 — Optional, jederzeit verwerfbar
+## Phase 10 — Optional, discardable at any time
 
-Keine Reihenfolge, keine Verpflichtung. Nach Lust und Bedarf:
+No order, no obligation. As the mood and the need take you:
 
-* **Rekursion** über `hickory-recursor` hinter dem bestehenden `ResolveBackend`-Trait
-  ([ADR-0003](adr/0003-forwarder-first.md)), inkl. QNAME-Minimisation.
-* **DDR/DNR** (RFC 9462/9463): LAN-Clients finden deinen verschlüsselten Endpunkt
-  automatisch und wechseln von Klartext auf DoH/DoT ([FEATURES.md](FEATURES.md), P5).
-* **Blocklist-Diff-Review** vor dem Anwenden eines Listen-Updates (O3).
-* **Zwei Instanzen** mit abgeglichenem Policy-Stand für Ausfallsicherheit.
-* **Eigener DNS-Parser** als reines Lernprojekt, per Differential Testing gegen
-  `hickory-proto` geprüft — bewusst außerhalb des Produktionspfads.
+* **Recursion** via `hickory-recursor` behind the existing `ResolveBackend` trait
+  ([ADR-0003](adr/0003-forwarder-first.md)), incl. QNAME minimisation.
+* **DDR/DNR** (RFC 9462/9463): LAN clients find your encrypted endpoint
+  automatically and switch from cleartext to DoH/DoT ([FEATURES.md](FEATURES.md), P5).
+* **Blocklist diff review** before applying a list update (O3).
+* **Two instances** with a synchronized policy state for fault tolerance.
+* **Own DNS parser** as a pure learning project, checked via differential testing
+  against `hickory-proto` — deliberately outside the production path.
 
 ---
 
-## Wie du mit dem Agenten arbeitest
+## How to work with the agent
 
-* **Eine Phase = eine Arbeitssitzung**, nicht mehr. "Bau mir Phase 4 bis 8" führt
-  zuverlässig zu 3000 Zeilen, die niemand mehr prüft.
-* **Jeder Schritt zuerst als Test.** Die Verify-Spalten oben sind bereits die
-  Testbeschreibungen; gib sie wörtlich weiter.
-* **Nach jedem Schritt die vier Kommandos** aus der Definition of Done.
-* **Bei Unklarheit stoppen lassen.** CLAUDE.md B.8 listet auf, wann das gilt — verweise
-  im Zweifel ausdrücklich darauf.
-* **Nach jeder Phase:** Roadmap aktualisieren (aktuelle Phase), offene Punkte und
-  Abweichungen notieren, ADR schreiben, wenn eine Entscheidung gefallen ist.
+* **One phase = one work session**, no more. "Build me phases 4 through 8" reliably
+  leads to 3000 lines that nobody reviews anymore.
+* **Every step first as a test.** The verify columns above are already the test
+  descriptions; pass them on verbatim.
+* **After every step, the four commands** from the Definition of Done.
+* **Let it stop on ambiguity.** CLAUDE.md B.8 lists when that applies — when in
+  doubt, refer to it explicitly.
+* **After every phase:** update the roadmap (current phase), note open points and
+  deviations, write an ADR when a decision has been made.

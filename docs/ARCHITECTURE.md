@@ -1,62 +1,63 @@
-# Architektur
+# Architecture
 
-Dieses Dokument beschreibt das Zielbild. Was davon schon existiert, steht in
+This document describes the target picture. What of it already exists is in
 [ROADMAP.md](ROADMAP.md).
 
-## 1. Grundform
+## 1. Basic shape
 
-AlpenDNS ist ein einzelner Prozess, ein einzelnes Binary, eine Konfigurationsdatei.
-Kein Datenbankserver, kein Redis, kein Sidecar. Das ist Absicht: die Zielgruppe ist
-jemand, der eine Kiste im Keller hat und will, dass sie läuft.
+AlpenDNS is a single process, a single binary, one configuration file. No
+database server, no Redis, no sidecar. That is deliberate: the audience is
+someone with a box in the basement who wants it to run.
 
-Innerhalb des Prozesses gibt es fünf Schichten, die eine Anfrage nacheinander durchläuft:
+Inside the process there are five layers that a request passes through in
+order:
 
 ```
                  ┌──────────────────────────────────────────────┐
   UDP/53 ──┐     │ 1  Listener                                  │
-  TCP/53 ──┼────▶│    Transport terminieren, Nachricht parsen,   │
-  DoT/853  │     │    Rate-Limit, Client-Adresse feststellen     │
+  TCP/53 ──┼────▶│    Terminate transport, parse message,        │
+  DoT/853  │     │    rate limit, determine client address       │
   DoH/443 ─┤     └───────────────────┬──────────────────────────┘
   DoQ/853 ─┘                         │  Request { msg, client_id }
                                      ▼
                  ┌──────────────────────────────────────────────┐
                  │ 2  Policy                                     │
-                 │    Client → Policy auflösen                   │
-                 │    Allowlist → Blocklisten → Regex → Zeitplan │
-                 │    Heuristiken (DGA/Tunnel/Typosquat)         │
+                 │    Resolve client → policy                    │
+                 │    Allowlist → blocklists → regex → schedule  │
+                 │    Heuristics (DGA/tunnel/typosquat)          │
                  └───────────┬──────────────────────┬───────────┘
                              │ Verdict::Block       │ Verdict::Allow
                              ▼                      ▼
                  ┌────────────────────┐  ┌──────────────────────┐
-                 │ synthetische        │  │ 3  Cache             │
-                 │ Antwort             │  │    Hit → zurück      │
-                 │ (NXDOMAIN/0.0.0.0/  │  │    Miss → weiter     │
-                 │  REFUSED/Sinkhole)  │  │    Stale → parallel  │
+                 │ synthetic answer   │  │ 3  Cache             │
+                 │ (NXDOMAIN/0.0.0.0/ │  │    Hit → return      │
+                 │  REFUSED/sinkhole) │  │    Miss → continue   │
+                 │                    │  │    Stale → parallel  │
                  └─────────┬──────────┘  └──────────┬───────────┘
                            │                        │ Miss
                            │                        ▼
                            │             ┌──────────────────────┐
-                           │             │ 4  Resolve-Backend   │
-                           │             │    (Trait)           │
+                           │             │ 4  Resolve backend   │
+                           │             │    (trait)           │
                            │             │  ├ Forwarder (v1)    │
-                           │             │  └ Recursor (offen)  │
+                           │             │  └ Recursor (open)   │
                            │             └──────────┬───────────┘
-                           │                        │ Antwort
+                           │                        │ answer
                            │                        ▼
                            │             ┌──────────────────────┐
-                           │             │ 5  Post-Processing   │
-                           │             │  Rebinding-Check,    │
-                           │             │  Antwort validieren, │
-                           │             │  TTL klemmen, cachen │
+                           │             │ 5  Post-processing   │
+                           │             │    Rebinding check,  │
+                           │             │    validate answer,  │
+                           │             │    clamp TTL, cache  │
                            │             └──────────┬───────────┘
                            └────────────┬───────────┘
                                         ▼
-                             Decision-Trace → Logging/Metrik/API
+                             Decision-Trace → logging/metric/API
 ```
 
-### Die Stelle, an der Rekursion später einhängen würde
+### The slot where recursion would later hook in
 
-Schicht 4 ist ein Trait:
+Layer 4 is a trait:
 
 ```rust
 trait ResolveBackend: Send + Sync {
@@ -64,21 +65,21 @@ trait ResolveBackend: Send + Sync {
 }
 ```
 
-v1 implementiert genau eine Variante: `ForwardBackend`. Wenn eines Tages ein
-`RecursiveBackend` dazukommt, ändert sich an den Schichten 1, 2, 3 und 5 nichts.
-Das ist der komplette Vorbau für Rekursion — mehr wird bewusst nicht gemacht
+v1 implements exactly one variant: `ForwardBackend`. If a `RecursiveBackend`
+joins it one day, nothing changes in layers 1, 2, 3 and 5. That is the entire
+preparation for recursion — deliberately, nothing more is built in advance
 ([ADR-0003](adr/0003-forwarder-first.md)).
 
-## 2. Der Decision-Trace
+## 2. The decision trace
 
-Das ist das architektonisch wichtigste Detail und der Grund, warum "warum wurde das
-geblockt?" in AlpenDNS beantwortbar ist.
+This is the architecturally most important detail, and the reason "why was this
+blocked?" is answerable in AlpenDNS.
 
-Jede Anfrage erzeugt einen `Trace` — eine kleine, allokationsarme Liste von Schritten:
+Every request produces a `Trace` — a small, allocation-light list of steps:
 
 ```rust
 struct Trace {
-    id: u64,                 // monoton, Prozess-lokal
+    id: u64,                 // monotonic, process-local
     steps: SmallVec<[Step; 8]>,
     verdict: Verdict,
     elapsed: Duration,
@@ -97,160 +98,168 @@ enum Step {
 }
 ```
 
-Der Trace ist **immer** da, unabhängig vom Log-Modus. Was mit ihm passiert, entscheidet
-die Logging-Schicht:
+The trace is **always** there, regardless of the log mode. What happens to it
+is decided by the logging layer:
 
-| `privacy.logging.mode` | Was mit dem Trace passiert |
+| `privacy.logging.mode` | What happens to the trace |
 |---|---|
-| `none` | Zähler hochzählen, Trace verwerfen |
-| `aggregate` | Zähler + Häufigkeit unter einem gesalzenen Hash, exakt gezählt; erst ab `aggregate_k` Treffern taucht der Name in Statistiken auf ([ADR-0015](adr/0015-exakte-zaehlung-statt-sketch.md)) |
-| `ring` | zusätzlich für `ring_seconds` in einem RAM-Ringpuffer, nie auf Platte |
-| `full` | zusätzlich als strukturierte Zeile auf Platte |
+| `none` | increment counters, discard the trace |
+| `aggregate` | counters + frequency under a salted hash, counted exactly; the name appears in statistics only from `aggregate_k` hits onwards ([ADR-0015](adr/0015-exakte-zaehlung-statt-sketch.md)) |
+| `ring` | additionally in a RAM ring buffer for `ring_seconds`, never on disk |
+| `full` | additionally as a structured line on disk |
 
-Die UI zeigt "warum" aus dem Ringpuffer. Deshalb funktioniert die Erklärung auch bei
-Log-Modus `ring`, ohne dass irgendwo ein Query-Log liegt.
+The UI shows "why" from the ring buffer. That is why the explanation works even
+under log mode `ring`, without a query log existing anywhere.
 
-Wie die Oberfläche aussieht, ist keine Architekturfrage: die Designsprache steht in
-CLAUDE.md B.6, das Material in [ADR-0022](adr/0022-glas-als-flaeche.md). Architektonisch
-ist die UI eine Handvoll statischer Dateien, die im Binary liegen und über drei Routen
-ausgeliefert werden — sie kennt die Pipeline nicht und fragt sie über dieselbe API, die
-auch jeder andere Client benutzt ([ADR-0010](adr/0010-api-ui-und-metriken.md)).
+What the interface looks like is not an architecture question: the design
+language is in CLAUDE.md B.6, the material in
+[ADR-0022](adr/0022-glas-als-flaeche.md). Architecturally the UI is a handful of
+static files that live inside the binary and are served over three routes — it
+does not know the pipeline, and queries it through the same API every other
+client uses ([ADR-0010](adr/0010-api-ui-und-metriken.md)).
 
-**Eine Abweichung in der Umsetzung** (Phase 5): die Schritte tragen Namen als
-`Arc<str>` statt IDs, damit ein Trace ohne die Konfiguration daneben lesbar ist.
-Begründung: [ADR-0009](adr/0009-decision-trace-mit-mutex.md).
+**One deviation in the implementation** (phase 5): steps carry names as
+`Arc<str>` rather than IDs, so that a trace is readable without the
+configuration next to it. Rationale:
+[ADR-0009](adr/0009-decision-trace-mit-mutex.md).
 
-Die zweite Abweichung — der Trace hinter einem `Mutex` statt exklusiv durchgereicht
-— ist wieder weg. Sie hatte genau einen Grund, `fanout > 1`, und der ist mit
-`fanout` entfallen ([ADR-0012](adr/0012-fanout-entfaellt.md)). `resolve` bekommt
-den Kontext als `&mut Ctx`.
+The second deviation — the trace behind a `Mutex` instead of passed through
+exclusively — is gone again. It had exactly one reason, `fanout > 1`, and that
+went away with `fanout` ([ADR-0012](adr/0012-fanout-entfaellt.md)). `resolve`
+receives the context as `&mut Ctx`.
 
-## 3. Blocklisten: Datenstruktur
+## 3. Blocklists: data structure
 
-Das Naive wäre ein `HashSet<String>` mit den Domains. Bei 1–2 Millionen Einträgen sind das
-je nach Länge 100–200 MB und pro Anfrage mehrere Lookups (für jede Suffix-Ebene einen).
+The naive approach would be a `HashSet<String>` of the domains. At 1–2 million
+entries that is 100–200 MB depending on length, and several lookups per request
+(one for each suffix level).
 
-Das Zielmodell:
+The target model:
 
-1. **Labels umdrehen und internieren.** `ads.example.com` → `com.example.ads`. Damit wird
-   Wildcard-Matching ein Präfix-Problem statt eines Suffix-Problems.
-2. **Ein Bloom-Filter davor.** Die überwältigende Mehrheit der Anfragen ist nicht auf einer
-   Liste. Ein Bloom-Filter mit 1 % Fehlerrate beantwortet die in ~50 ns ohne Cache-Miss.
-3. **Dahinter die exakte Struktur**, nur bei Bloom-Treffer befragt.
-4. **Ein Match liefert eine `RuleRef`** (Listen-ID + Zeilennummer), nicht nur `true` —
-   sonst gibt es keinen Trace.
+1. **Reverse and intern the labels.** `ads.example.com` → `com.example.ads`.
+   That turns wildcard matching from a suffix problem into a prefix problem.
+2. **A Bloom filter in front.** The overwhelming majority of queries are not on
+   a list. A Bloom filter with a 1 % false positive rate answers those in ~50 ns
+   without a cache miss.
+3. **Behind it the exact structure**, consulted only on a Bloom hit.
+4. **A match returns a `RuleRef`** (list ID + line number), not just `true` —
+   otherwise there is no trace.
 
-**Gemessen, und vorerst nicht gebaut:** Phase 4 hat die einfache Variante umgesetzt und
-vermessen — zwei Millionen Einträge, Nachschlagen p99 unter einer Mikrosekunde, 135 MB.
-Damit rechtfertigt keine Zahl den Bloom-Filter. Das Zielmodell oben bleibt als Plan
-stehen; die Entscheidung und die Zahlen stehen in
+**Measured, and for now not built:** phase 4 implemented and measured the simple
+variant — two million entries, p99 lookup under one microsecond, 135 MB. No
+number justifies the Bloom filter at that point. The target model above stands
+as a plan; the decision and the numbers are in
 [ADR-0008](adr/0008-hashmap-statt-bloom-und-trie.md).
 
-**Updates ohne Ausfall:** Listen werden in eine neue Struktur geladen und per
-`arc_swap::ArcSwap` atomar getauscht. Laufende Anfragen sehen die alte, neue die neue.
-Kein Lock im heißen Pfad.
+**Updates without downtime:** lists are loaded into a new structure and swapped
+atomically via `arc_swap::ArcSwap`. Requests in flight see the old one, new ones
+the new one. No lock in the hot path.
 
 ## 4. Cache
 
-* Key: `(Name (lowercase), QType, QClass)`. Der Name wird für den Key normalisiert, für
-  0x20 zum Upstream aber in Originalschreibweise gehalten.
-* Wert: die vollständige Antwort plus Ablaufzeitpunkt, nicht die Rest-TTL — sonst muss man
-  bei jedem Hit rechnen, statt zu vergleichen.
-* TTL wird auf `[min_ttl, max_ttl]` geklemmt, negative Antworten separat.
-* **Serve-stale (RFC 8767):** Bei Ablauf wird die alte Antwort ausgeliefert *und* parallel
-  eine Auffrischung angestoßen. Der Client wartet nicht.
-* **Prefetch:** Einträge, die in ihrem Leben mehr als N-mal getroffen wurden, werden bei
-  85 % der TTL im Hintergrund erneuert. Praktischer Nebeneffekt: gleichmäßigerer
-  Upstream-Verkehr, weniger Korrelierbarkeit von "Nutzer war gerade aktiv".
-* **Cache-Isolation zwischen Policies:** Der Cache speichert die *unfilterte* Antwort.
-  Filterung passiert vor dem Cache. Damit teilen sich alle Clients einen Cache, ohne dass
-  die Policy des einen die Antwort des anderen beeinflusst.
+* Key: `(name (lowercase), QType, QClass)`. The name is normalized for the key,
+  but kept in its original spelling for 0x20 towards the upstream.
+* Value: the complete answer plus an expiry instant, not the remaining TTL —
+  otherwise every hit needs arithmetic instead of a comparison.
+* TTL is clamped to `[min_ttl, max_ttl]`, negative answers separately.
+* **Serve-stale (RFC 8767):** on expiry the old answer is served *and* a refresh
+  is triggered in parallel. The client does not wait.
+* **Prefetch:** entries hit more than N times over their lifetime are renewed in
+  the background at 85 % of their TTL. A practical side effect: more even
+  upstream traffic, less correlation with "the user was just active".
+* **Cache isolation between policies:** the cache stores the *unfiltered*
+  answer. Filtering happens before the cache. That way all clients share one
+  cache without one client's policy affecting another's answer.
 
-## 5. Upstream-Auswahl
+## 5. Upstream selection
 
-Ein Pool ist eine Liste von Resolvern plus eine Strategie — und es gibt nur noch eine:
+A pool is a list of resolvers plus a strategy — and there is only one left:
 
-* `split_by_zone` — Der Upstream wird über `hash(registrable_domain) % n` bestimmt,
-  mit einem beim Start zufällig gezogenen Seed. Folgen: derselbe Name geht immer zum
-  selben Resolver (Cache bleibt wirksam), aber jeder Resolver sieht nur ~1/n deiner
-  Domains, und welches Drittel er sieht, ist bei jedem Neustart anders. Details und
-  Grenzen: [FEATURES.md](FEATURES.md), P2.
+* `split_by_zone` — the upstream is determined by
+  `hash(registrable_domain) % n`, with a seed drawn randomly at startup.
+  Consequences: the same name always goes to the same resolver (the cache stays
+  effective), but each resolver sees only ~1/n of your domains, and which third
+  it sees differs on every restart. Details and limits:
+  [FEATURES.md](FEATURES.md), P2.
 
-**Entfernt:** `fastest` (EWMA der RTT) und `round_robin`. Beide sind klassisch und
-beide laufen darauf hinaus, dass am Ende jeder Upstream alles gesehen hat — genau das,
-wogegen dieses Projekt antritt. Sie standen zwei Absätze über ihrer eigenen Widerlegung.
-Begründung: [ADR-0011](adr/0011-eine-upstream-strategie.md).
+**Removed:** `fastest` (EWMA of the RTT) and `round_robin`. Both are classic,
+and both amount to every upstream having seen everything in the end — exactly
+what this project exists to oppose. They stood two paragraphs above their own
+refutation. Rationale: [ADR-0011](adr/0011-eine-upstream-strategie.md).
 
-Health-Checking: passiv über Fehlerraten und Timeouts, nicht über aktive Probes — aktive
-Probes sind selbst wieder ein Signal.
+Health checking: passively, via error rates and timeouts, not via active probes
+— active probes are themselves a signal.
 
-## 6. Client-Identität
+## 6. Client identity
 
-In dieser Reihenfolge ausgewertet, erste Übereinstimmung gewinnt:
+Evaluated in this order, first match wins:
 
-1. **mTLS-Client-Zertifikat** (DoT/DoQ) — stärkste Bindung, überlebt Netzwechsel.
-2. **DoH-Pfad-Token** — `https://dns.miloo.at/dns-query/<32 zufällige Bytes>`.
-   Funktioniert mit jedem Standard-DoH-Client, ohne Zertifikate zu verteilen.
-3. **Quell-IP / Subnetz** — der LAN-Normalfall.
-4. **Default-Policy** — alles, was nicht zugeordnet werden konnte.
+1. **mTLS client certificate** (DoT/DoQ) — the strongest binding, survives
+   network changes.
+2. **DoH path token** — `https://dns.miloo.at/dns-query/<32 random bytes>`.
+   Works with any standard DoH client, without distributing certificates.
+3. **Source IP / subnet** — the normal LAN case.
+4. **Default policy** — everything that could not be assigned.
 
-Ein Token gehört in die Konfiguration, nicht in ein Log, und wird in der API nur mit den
-letzten vier Zeichen angezeigt.
+A token belongs in the configuration, not in a log, and is shown in the API
+only by its last four characters.
 
-## 7. Konfiguration und Reload
+## 7. Configuration and reload
 
-Eine TOML-Datei, `serde` mit `deny_unknown_fields`. Zwei Wege, sie neu zu laden:
+One TOML file, `serde` with `deny_unknown_fields`. Two ways to reload it:
 
-* `SIGHUP` → Konfiguration neu parsen. **Schlägt das Parsen fehl, bleibt die alte
-  Konfiguration aktiv** und der Fehler geht ins Log. Ein Reload darf nie zu einem Zustand
-  führen, in dem gefiltert werden sollte, aber nicht gefiltert wird.
-* `alpendns check -c /etc/alpendns/alpendns.toml` → validiert ohne Neustart, nutzbar als
-  `ExecStartPre` in der systemd-Unit.
+* `SIGHUP` → reparse the configuration. **If parsing fails, the old
+  configuration stays active** and the error goes to the log. A reload must
+  never lead to a state in which filtering should happen but does not.
+* `alpendns check -c /etc/alpendns/alpendns.toml` → validates without a restart,
+  usable as `ExecStartPre` in the systemd unit.
 
-Hot-reloadbar ist die **Policy-Schicht**: Clients, Policies, Regex, Zeitpläne und die
-Listenquellen (URLs/Formate) werden beim Reload neu gebaut und atomar eingetauscht. Das ist
-genau der Zustand, den `run_updater` ohnehin periodisch aus `Blueprint` + `Lists` aufbaut —
-der Reload weckt ihn nur, statt auf den nächsten Refresh-Tick zu warten.
+The **policy layer** is what is hot-reloadable: clients, policies, regexes,
+schedules and the list sources (URLs/formats) are rebuilt and swapped in
+atomically on reload. That is exactly the state `run_updater` builds
+periodically from `Blueprint` + `Lists` anyway — the reload only wakes it
+instead of waiting for the next refresh tick.
 
-Alles andere erfordert einen Neustart: Listener-Adressen, Upstreams/TLS, `forward_zone`,
-Cache-Konfiguration, Drosselung, `blocking.mode`/Sinkholes, Detektoren und
-`privacy.logging.mode`. Der Reload nennt diese Grenze im Log ausdrücklich, statt eine
-Änderung stillschweigend zu ignorieren.
+Everything else requires a restart: listener addresses, upstreams/TLS,
+`forward_zone`, cache configuration, rate limiting, `blocking.mode`/sinkholes,
+detectors and `privacy.logging.mode`. The reload names that boundary explicitly
+in the log, rather than silently ignoring a change.
 
-## 8. Nebenläufigkeit
+## 8. Concurrency
 
-* Tokio multithreaded, ein Task pro Anfrage.
-* Der UDP-Socket wird mit `SO_REUSEPORT` mehrfach geöffnet (ein Socket pro Worker), damit
-  der Kernel die Verteilung übernimmt — das ist der Unterschied zwischen 30k und 200k
-  Anfragen/s auf derselben Hardware.
-* Geteilter Zustand: `ArcSwap` für alles, was selten wechselt (Listen, Config, Policies),
-  eine sharded Map für den Cache. Kein globaler `Mutex` im Anfragepfad.
-* **Query-Deduplizierung:** 500 Clients, die gleichzeitig denselben ungecachten Namen
-  fragen, erzeugen genau eine Upstream-Anfrage. Ohne das ist ein Cache-Ablauf ein
-  selbstgebauter Lastspitzen-Generator.
+* Tokio multithreaded, one task per request.
+* The UDP socket is opened several times with `SO_REUSEPORT` (one socket per
+  worker) so the kernel does the distribution — that is the difference between
+  30k and 200k requests/s on the same hardware.
+* Shared state: `ArcSwap` for everything that rarely changes (lists,
+  configuration, policies), a sharded map for the cache. No global `Mutex` in
+  the request path.
+* **Query deduplication:** 500 clients asking the same uncached name at the
+  same time produce exactly one upstream query. Without it, a cache expiry is a
+  home-made load spike generator.
 
-## 9. Persistenz
+## 9. Persistence
 
-Default: **keine**. Der Prozess hält alles im RAM.
+Default: **none**. The process keeps everything in RAM.
 
-Optional auf Platte, jeweils abschaltbar:
+Optional on disk, each separately switchable:
 
-* Blocklisten-Cache (`/var/cache/alpendns/lists/`) — damit ein Neustart ohne Internet
-  gefiltert startet.
-* Aggregierte Statistiken (`/var/lib/alpendns/stats.redb`) — Zähler pro Tag, keine
-  Query-Namen unterhalb der k-Schwelle.
-* Cache-Snapshot beim Shutdown — optional, spart den kalten Start.
+* Blocklist cache (`/var/cache/alpendns/lists/`) — so a restart filters even
+  without internet.
+* Aggregated statistics (`/var/lib/alpendns/stats.redb`) — counters per day, no
+  query names below the k threshold.
+* Cache snapshot on shutdown — optional, saves the cold start.
 
-Kein Query-Log, außer der Betreiber schaltet `full` ausdrücklich ein.
+No query log, unless the operator explicitly turns on `full`.
 
-## 10. Fehlerbehandlung
+## 10. Error handling
 
-| Situation | Verhalten |
+| Situation | Behaviour |
 |---|---|
-| Upstream-Timeout | nächster Resolver im Pool; alle tot → `serve_stale`, sonst SERVFAIL |
-| Blockliste nicht ladbar | zuletzt gecachte Version, Log-Fehler, Metrik hoch, Start nicht verhindern |
-| Blockliste beim Erststart nicht ladbar | Start abbrechen — lieber kein DNS als ungefiltertes DNS |
-| Kaputte Anfrage vom Client | FORMERR, Zähler hoch, kein Log-Spam pro Paket |
-| Antwort passt nicht zur Frage | verwerfen, nicht cachen, als möglichen Spoofing-Versuch zählen |
-| Config-Reload schlägt fehl | alte Config bleibt, Fehler ins Log |
-| Panic in einem Task | darf nicht vorkommen (siehe CLAUDE.md B.1); wenn doch, `panic = "abort"` — ein halb kaputter Resolver ist schlimmer als ein neustartender |
+| Upstream timeout | next resolver in the pool; all dead → `serve_stale`, otherwise SERVFAIL |
+| Blocklist not loadable | last cached version, log the error, raise the metric, do not prevent startup |
+| Blocklist not loadable on first start | abort startup — better no DNS than unfiltered DNS |
+| Broken request from a client | FORMERR, raise the counter, no log spam per packet |
+| Answer does not match the question | discard, do not cache, count as a possible spoofing attempt |
+| Config reload fails | old config stays, error to the log |
+| Panic in a task | must not happen (see CLAUDE.md B.1); if it does, `panic = "abort"` — a half-broken resolver is worse than a restarting one |

@@ -1,91 +1,96 @@
-# Betrieb
+# Operations
 
-Installation, Upgrade, Backup, Fehlersuche. Diese Datei ist so geschrieben, dass
-jemand anderes danach installieren kann, ohne zu fragen — das ist das
-Abnahmekriterium von Phase 9, Schritt 8.
+Installation, upgrade, backup, troubleshooting. This file is written so that
+someone else can install from it without asking — that is the acceptance
+criterion of phase 9, step 8.
 
-Alles hier gilt für Debian 12/13 und Ubuntu 24.04 aufwärts. AlpenDNS ist ein
-Linux-Programm; andere Systeme sind kein Ziel.
+Everything here applies to Debian 12/13 and Ubuntu 24.04 and up. AlpenDNS is a
+Linux program; other systems are not a target.
+
+> **A note on languages.** The prose is English, but the program's own output is
+> not: log messages and `alpendns check` output are German. Wherever this
+> document quotes such output or greps for it, the string is reproduced
+> verbatim and must stay German to match.
 
 ---
 
 ## 1. Installation
 
-### Paket bauen
+### Building the package
 
-Auf einem Rechner mit Rust-Toolchain, einmalig:
+On a machine with a Rust toolchain, once:
 
 ```bash
 cargo install cargo-deb --locked
 ```
 
-Dann im Repository:
+Then in the repository:
 
 ```bash
 cargo deb -p alpendns
-# → target/debian/alpendns_0.0.1-1_amd64.deb
+# → target/debian/alpendns_<version>_amd64.deb
 ```
 
-`cargo deb` baut selbst mit `--release`. Das Paket enthält ein statisch gegen
-`ring`/`rustls` gelinktes Binary; eine OpenSSL-Version auf dem Zielsystem spielt
-keine Rolle.
+`cargo deb` builds with `--release` itself. The package contains a binary
+statically linked against `ring`/`rustls`; an OpenSSL version on the target
+system does not matter.
 
-### Releases und Versionen
+### Releases and versions
 
-Der `push` nach `main` baut das Paket in GitHub Actions und veröffentlicht es
-als GitHub Release — für `amd64` und `arm64`. Die Versionsnummer wird **vor dem
-Commit** erhöht, nicht von der CI: `scripts/bump-version.sh major|minor` vor dem
-Commit (`major` bei einem Breaking Change, sonst `minor`; es gibt kein Patch —
-jeder Commit ist eine neue Version). Der Coding-Agent macht das bei jedem Commit
-automatisch; wer von Hand committet, ruft das Skript selbst auf. Wird die Regel
-verletzt und die Version steht bereits als Tag im Repo, bricht die CI mit einer
-deutlichen Meldung ab, statt dieselbe Nummer ein zweites Mal zu veröffentlichen.
+The `push` to `main` builds the package in GitHub Actions and publishes it as a
+GitHub release — for `amd64` and `arm64`. The version number is bumped **before
+the commit**, not by CI: `scripts/bump-version.sh major|minor` before committing
+(`major` for a breaking change, otherwise `minor`; there is no patch — every
+commit is a new version). The coding agent does this automatically on every
+commit; anyone committing by hand calls the script themselves. If the rule is
+broken and the version already exists as a tag in the repo, CI aborts with a
+clear message rather than publishing the same number a second time.
 
-Das Paket lässt sich weiterhin lokal bauen, wie oben beschrieben.
+The package can still be built locally, as described above.
 
-### Paket installieren
+### Installing the package
 
 ```bash
-sudo apt install ./alpendns_0.0.1-1_amd64.deb
+sudo apt install ./alpendns_<version>_amd64.deb
 ```
 
-Das Paket legt an:
+The package creates:
 
-| Pfad | Was | Wem gehört es |
+| Path | What | Owned by |
 |---|---|---|
-| `/usr/bin/alpendns` | Das Programm | root |
-| `/etc/alpendns/alpendns.toml` | Konfiguration (conffile) | root |
-| `/lib/systemd/system/alpendns.service` | Die Unit | root |
-| `/var/lib/alpendns/` | API-Token, NRD-Datei | `alpendns` |
-| `/var/cache/alpendns/` | Heruntergeladene Blocklisten | `alpendns` |
-| `/var/log/alpendns/` | Query-Log, nur im Modus `full` | `alpendns` |
-| `/usr/share/doc/alpendns/` | Dieses Handbuch, Beispielkonfiguration | root |
+| `/usr/bin/alpendns` | The program | root |
+| `/etc/alpendns/alpendns.toml` | Configuration (conffile) | root |
+| `/lib/systemd/system/alpendns.service` | The unit | root |
+| `/var/lib/alpendns/` | API token, NRD file | `alpendns` |
+| `/var/cache/alpendns/` | Downloaded blocklists | `alpendns` |
+| `/var/log/alpendns/` | Query log, only in `full` mode | `alpendns` |
+| `/usr/share/doc/alpendns/` | This manual, example configuration | root |
 
-Die drei Verzeichnisse unter `/var` legt **systemd** beim Start an
-(`StateDirectory=`, `CacheDirectory=`, `LogsDirectory=`), nicht das Paket. Damit
-gibt es genau eine Stelle, die Rechte setzt, und ein Upgrade kann sie nicht
-kaputtmachen.
+The three directories under `/var` are created by **systemd** at start
+(`StateDirectory=`, `CacheDirectory=`, `LogsDirectory=`), not by the package.
+That way there is exactly one place that sets permissions, and an upgrade cannot
+break them.
 
-Der Dienstuser `alpendns` ist ein Systemuser ohne Login-Shell und ohne
-Home-Verzeichnis.
+The service user `alpendns` is a system user without a login shell and without a
+home directory.
 
-### Nach der Installation
+### After installation
 
-Frisch installiert lauscht der Server **nur auf Loopback** — von außen ist er
-nicht erreichbar. Das ist Absicht: ein Resolver, der ungefragt am Internet
-lauscht, ist ein Amplification-Reflektor.
+Freshly installed, the server listens **on loopback only** — it is not
+reachable from outside. That is deliberate: a resolver listening to the internet
+unasked is an amplification reflector.
 
-Prüfen, dass er antwortet:
+Checking that it answers:
 
 ```bash
-dig @127.0.0.1 example.com          # sollte eine Adresse liefern
-dig @127.0.0.1 doubleclick.net      # sollte NXDOMAIN liefern
+dig @127.0.0.1 example.com          # should return an address
+dig @127.0.0.1 doubleclick.net      # should return NXDOMAIN
 systemctl status alpendns
 ```
 
-### Für das eigene Netz freigeben
+### Opening it up to your own network
 
-Eine Änderung, im ersten Block von `/etc/alpendns/alpendns.toml`:
+One change, in the first block of `/etc/alpendns/alpendns.toml`:
 
 ```toml
 [server]
@@ -93,98 +98,98 @@ listen_udp = ["127.0.0.1:53", "192.168.1.10:53"]
 listen_tcp = ["127.0.0.1:53", "192.168.1.10:53"]
 ```
 
-Die konkrete LAN-Adresse dieses Rechners eintragen, **nicht** `0.0.0.0`: die
-Wildcard bindet auch an eine Schnittstelle, die morgen am Internet hängt.
+Enter this machine's actual LAN address, **not** `0.0.0.0`: the wildcard also
+binds to an interface that may be facing the internet tomorrow.
 
-Dann:
+Then:
 
 ```bash
 sudo alpendns -c /etc/alpendns/alpendns.toml check
 sudo systemctl restart alpendns
 ```
 
-`check` prüft die Konfiguration und die Verzeichnisse, ohne den Server zu
-starten, und sagt am Ende, ob ein Listener über das eigene Netz hinausreicht.
-Dieselbe Prüfung läuft als `ExecStartPre` vor jedem Start: ist die Datei kaputt,
-startet der neue Prozess gar nicht erst, und bei einem `restart` bleibt der
-Dienst unten und sagt warum — statt in einer Neustartschleife zu landen.
+`check` validates the configuration and the directories without starting the
+server, and says at the end whether a listener reaches beyond your own network.
+The same check runs as `ExecStartPre` before every start: if the file is broken,
+the new process does not start at all, and on a `restart` the service stays down
+and says why — instead of ending up in a restart loop.
 
-Zuletzt die Clients umstellen: im Router den DHCP-DNS-Server auf die Adresse
-dieses Rechners setzen.
+Finally, switch the clients over: point the DHCP DNS server in your router at
+this machine's address.
 
-### Oberfläche
+### The interface
 
-Die Web-UI zeigt Namen und lauscht deshalb nur auf Loopback. Von einem anderen
-Rechner aus über einen SSH-Tunnel:
+The web UI shows names and therefore listens on loopback only. From another
+machine, via an SSH tunnel:
 
 ```bash
 ssh -L 8053:127.0.0.1:8053 <server>
-# dann http://127.0.0.1:8053 im Browser
+# then http://127.0.0.1:8053 in the browser
 ```
 
-Den Token fragt die Seite beim ersten Aufruf ab:
+The page asks for the token on first load:
 
 ```bash
 sudo cat /var/lib/alpendns/api.token
 ```
 
-Wer die UI ohne Tunnel erreichbar macht, veröffentlicht sein Query-Log, sobald
-der Token bekannt wird. Der vorgesehene Weg ist der Tunnel oder ein Reverse
-Proxy mit eigener Authentifizierung.
+Anyone who makes the UI reachable without a tunnel publishes their query log as
+soon as the token becomes known. The intended route is the tunnel, or a reverse
+proxy with authentication of its own.
 
-Die Oberfläche folgt dem Farbschema des Systems. Der Knopf rechts oben in der
-Kopfzeile (Sonne im hellen, Mond im dunklen Modus) überstimmt es; die Wahl bleibt
-im Browser gespeichert. Ohne JavaScript bleibt es beim hellen Modus. Ein
-`prefers-reduced-transparency` im System schaltet den Blur ab — die Seite bleibt
-lesbar, nur ohne das Material.
+The interface follows the system colour scheme. The button at the top right of
+the header (sun in light mode, moon in dark) overrides it; the choice is stored
+in the browser. Without JavaScript it stays in light mode. A
+`prefers-reduced-transparency` in the system turns the blur off — the page stays
+readable, just without the material.
 
 ---
 
 ## 2. Upgrade
 
 ```bash
-cargo deb -p alpendns                            # neues Paket bauen
-sudo apt install ./alpendns_<version>_amd64.deb  # einspielen
+cargo deb -p alpendns                            # build the new package
+sudo apt install ./alpendns_<version>_amd64.deb  # install it
 ```
 
-Was dabei passiert:
+What happens:
 
-* `/etc/alpendns/alpendns.toml` ist ein **conffile**. Eine bearbeitete Datei
-  wird nicht überschrieben; `dpkg` fragt, wenn sich beide Seiten geändert haben.
-* Der Dienst wird nach dem Upgrade neu gestartet (`restart-after-upgrade`).
-  Vorher läuft `alpendns check` — eine Konfiguration, die die neue Version nicht
-  versteht, verhindert den Start, und die alte Instanz läuft weiter, bis sie
-  planmäßig beendet wird.
-* Blocklisten-Cache und API-Token bleiben liegen.
+* `/etc/alpendns/alpendns.toml` is a **conffile**. An edited file is not
+  overwritten; `dpkg` asks if both sides have changed.
+* The service is restarted after the upgrade (`restart-after-upgrade`).
+  `alpendns check` runs beforehand — a configuration the new version does not
+  understand prevents the start, and the old instance keeps running until it is
+  shut down as planned.
+* Blocklist cache and API token are left in place.
 
-**Vor einem Upgrade lohnt ein Blick in `docs/ROADMAP.md`:** wenn eine Phase
-Konfigurationsschlüssel entfernt hat, sagt der Start das mit Begründung — aber
-er sagt es eben erst beim Start. `alpendns -c /etc/alpendns/alpendns.toml check`
-mit dem **neuen** Binary vor dem Neustart ist die schnellere Antwort.
+**Before an upgrade, a look into `docs/ROADMAP.md` pays off:** if a phase
+removed configuration keys, the start says so with a reason — but it says it
+only at start. `alpendns -c /etc/alpendns/alpendns.toml check` with the **new**
+binary before the restart is the faster answer.
 
-### Zurückrollen
+### Rolling back
 
 ```bash
-sudo apt install ./alpendns_<alte-version>_amd64.deb --allow-downgrades
+sudo apt install ./alpendns_<old-version>_amd64.deb --allow-downgrades
 ```
 
-Der Zustand unter `/var` ist zwischen Versionen kompatibel: Blocklisten-Cache
-und Token sind Dateien ohne Schema.
+The state under `/var` is compatible across versions: blocklist cache and token
+are files without a schema.
 
 ---
 
 ## 3. Backup
 
-Zu sichern ist genau eine Datei:
+Exactly one file needs backing up:
 
 ```
 /etc/alpendns/alpendns.toml
 ```
 
-Alles andere ist wiederherstellbar: Blocklisten werden neu geladen, der
-API-Token wird neu erzeugt, der Cache ist ohnehin flüchtig. Wer den Token
-behalten will (damit die UI im Browser nicht neu fragt), nimmt
-`/var/lib/alpendns/api.token` dazu.
+Everything else is recoverable: blocklists are reloaded, the API token is
+regenerated, the cache is ephemeral anyway. If you want to keep the token (so
+the UI in the browser does not ask again), include
+`/var/lib/alpendns/api.token`.
 
 ```bash
 sudo tar czf alpendns-backup-$(date +%F).tar.gz \
@@ -192,51 +197,52 @@ sudo tar czf alpendns-backup-$(date +%F).tar.gz \
     /var/lib/alpendns/api.token
 ```
 
-Wiederherstellen: Datei zurückkopieren, `alpendns check`, `systemctl restart`.
+Restoring: copy the file back, `alpendns check`, `systemctl restart`.
 
-Es gibt bewusst **keine Datenbank**: das Query-Log lebt im Modus `aggregate` nur
-als Zähler, im Modus `ring` nur im Arbeitsspeicher. Ein Backup davon zu machen
-wäre der Widerspruch zum Zweck des Projekts.
+There is deliberately **no database**: in `aggregate` mode the query log exists
+only as counters, in `ring` mode only in RAM. Backing that up would contradict
+the project's purpose.
 
 ---
 
-## 4. Fehlersuche
+## 4. Troubleshooting
 
-Zuerst immer:
+Always start with:
 
 ```bash
 systemctl status alpendns
 journalctl -u alpendns -n 100 --no-pager
 ```
 
-### Der Dienst startet nicht
+### The service does not start
 
-`alpendns check` sagt in fast allen Fällen warum:
+`alpendns check` says why in almost every case:
 
 ```bash
 sudo -u alpendns alpendns -c /etc/alpendns/alpendns.toml check
 ```
 
-Das `sudo -u alpendns` ist wichtig: als root sieht man Verzeichnisse
-schreibbar, die es für den Dienst nicht sind.
+The `sudo -u alpendns` matters: as root you see directories as writable that are
+not writable for the service.
 
-| Meldung | Bedeutung |
+| Message | Meaning |
 |---|---|
-| `unknown field ...` | Tippfehler in einem Schlüssel. Unbekannte Schlüssel sind ein Startfehler, kein Warning — sonst hinge jemand ungefiltert im Internet und merkte es nicht. |
-| `Blocklisten konnten beim Start nicht geladen werden` | Kein Netz beim allerersten Start, und noch nichts im Cache. Später ist ein Ausfall unkritisch: dann gilt die zwischengespeicherte Fassung weiter. |
-| `Listener konnten nicht geöffnet werden` | Port 53 ist belegt — siehe unten. |
-| `... kann nicht geschrieben werden` | Rechte unter `/var` verstellt. `systemctl restart alpendns` setzt sie neu, weil systemd die Verzeichnisse verwaltet. |
+| `unknown field ...` | Typo in a key. Unknown keys are a startup error, not a warning — otherwise someone would sit unfiltered on the internet and not notice. |
+| `Blocklisten konnten beim Start nicht geladen werden` | No network on the very first start, and nothing in the cache yet. Later, an outage is not critical: the cached version stays in force. |
+| `Listener konnten nicht geöffnet werden` | Port 53 is taken — see below. |
+| `... kann nicht geschrieben werden` | Permissions under `/var` are off. `systemctl restart alpendns` resets them, because systemd manages the directories. |
 
-### Port 53 ist belegt
+### Port 53 is taken
 
-Meist `systemd-resolved` (Ubuntu, manche Debian-Installationen). Wer hört:
+Usually `systemd-resolved` (Ubuntu, some Debian installations). To see who is
+listening:
 
 ```bash
 sudo ss -lunp sport = :53
 ```
 
-`systemd-resolved` belegt normalerweise `127.0.0.53:53` und stört nicht. Belegt
-es `0.0.0.0:53`, muss sein Stub-Listener weichen:
+`systemd-resolved` normally takes `127.0.0.53:53` and does not get in the way.
+If it takes `0.0.0.0:53`, its stub listener has to go:
 
 ```bash
 sudo mkdir -p /etc/systemd/resolved.conf.d
@@ -246,46 +252,46 @@ sudo systemctl restart systemd-resolved
 sudo systemctl restart alpendns
 ```
 
-Soll der Rechner selbst über AlpenDNS auflösen, danach noch
-`/etc/resolv.conf` bzw. den `DNS=`-Eintrag in `resolved.conf` auf `127.0.0.1`
-zeigen lassen.
+If the machine itself should resolve through AlpenDNS, afterwards point
+`/etc/resolv.conf` or the `DNS=` entry in `resolved.conf` at `127.0.0.1`.
 
-### Namen lösen nicht auf, obwohl der Dienst läuft
+### Names do not resolve although the service is running
 
-Die Reihenfolge, in der man sucht:
+The order to look in:
 
 ```bash
-# 1. Antwortet der Server überhaupt?
+# 1. Does the server answer at all?
 dig @127.0.0.1 example.com
 
-# 2. Wird der Name geblockt — und von welcher Regel?
+# 2. Is the name blocked — and by which rule?
 sudo alpendns -c /etc/alpendns/alpendns.toml policy test example.com
 
-# 3. Kommen die Upstreams durch?
+# 3. Are the upstreams getting through?
 journalctl -u alpendns | grep -i upstream
 ```
 
-`policy test` beantwortet die Frage "warum wurde das geblockt?" ohne Blick ins
-Log und ohne dass der Server laufen muss. Es zeigt dieselbe Begründung, die die
-UI unter "Warum?" anzeigt.
+`policy test` answers "why was this blocked?" without looking into the log and
+without the server having to run. It shows the same reasoning the UI shows under
+"Why?".
 
-Ein Name, der zu Unrecht geblockt wird, gehört auf eine Allowlist oder als
-befristete Freigabe in die UI (Knopf "Freigeben").
+A name that is blocked wrongly belongs on an allowlist, or as a temporary grant
+in the UI (the "Allow" button).
 
-### Ein Gerät bekommt keine Antworten mehr
+### A device stops getting answers
 
-Möglicherweise die Drosselung. Der Zähler steht im Log und in der Metrik:
+Possibly the rate limiter. The counter is in the log and in the metrics:
 
 ```bash
-journalctl -u alpendns | grep -i drossel
-curl -s localhost:9153/metrics | grep rate_limit   # nur wenn [metrics] an ist
+# The message is at debug level — see "More in the log" below.
+journalctl -u alpendns | grep -i "Überschreitung des Limits"
+curl -s localhost:9153/metrics | grep rate_limit   # only if [metrics] is on
 ```
 
-Wenn `alpendns_rate_limited_total` steigt, während ein Gerät klagt: das Limit
-liegt bei 100 Anfragen je Sekunde und Client mit einer Spitze von 200. Das ist
-für ein einzelnes Gerät sehr viel — wer es trotzdem erreicht, hat entweder eine
-Schleife im Netz oder ein Gerät, das mehrere Hosts vertritt (ein weiterer
-Resolver, ein NAT davor). Im zweiten Fall gehören die Werte hoch:
+If `alpendns_rate_limited_total` rises while a device complains: the limit is
+100 queries per second per client with a burst of 200. That is a great deal for
+a single device — anyone who reaches it anyway either has a loop in the network
+or a device standing in for several hosts (another resolver, a NAT in front). In
+the second case the values belong higher:
 
 ```toml
 [server.rate_limit]
@@ -293,44 +299,44 @@ per_client_qps = 500
 burst = 1000
 ```
 
-Abschalten (`enabled = false`) ist nur richtig, solange der Server ausschließlich
-auf Loopback lauscht.
+Turning it off (`enabled = false`) is only correct as long as the server listens
+on loopback exclusively.
 
-### Ein Gerät bekommt über TCP keine Verbindung mehr
+### A device stops getting connections over TCP
 
-Über TCP gibt es zusätzlich zwei Obergrenzen: **8 gleichzeitige Verbindungen je
-Quell-IP** und **64 insgesamt** (gleichzeitig bedient werden 63, eine ist für die
-nächste Annahme reserviert). Beide sind Konstanten im Code
-(`crates/alpendns/src/server/tcp.rs`) und nicht konfigurierbar.
+Over TCP there are two additional ceilings: **8 concurrent connections per
+source IP** and **64 in total** (63 served concurrently, one reserved for the
+next accept). Both are constants in the code
+(`crates/alpendns/src/server/tcp.rs`) and not configurable.
 
-Zu erkennen sind sie nur an den Zählern — eine abgewiesene Verbindung bekommt
-keine Antwort, und im Log steht dazu nichts:
+They are visible only in the counters — a rejected connection gets no answer,
+and nothing about it is written to the log:
 
 ```bash
-curl -s localhost:9153/metrics | grep alpendns_tcp   # nur wenn [metrics] an ist
+curl -s localhost:9153/metrics | grep alpendns_tcp   # only if [metrics] is on
 ```
 
-| Metrik | Bedeutung | Was zu tun ist |
+| Metric | Meaning | What to do |
 |---|---|---|
-| `alpendns_tcp_connections_rejected_total` | Eine Quell-IP wollte mehr als 8 Verbindungen gleichzeitig. | Nicht der Server ist das Problem, sondern das Gerät dahinter: entweder ein Client mit Verbindungsleck oder ein NAT, hinter dem mehrere Geräte stecken. Das Gerät suchen, nicht die Grenze hochsetzen — 8 gleichzeitige TCP-Verbindungen für DNS hat kein gesundes Gerät. |
-| `alpendns_tcp_connections_at_capacity_total` | Alle 64 Plätze waren belegt, die Annahme musste warten. | Ein Zeichen, dass die Grenze trägt, kein Fehler. Steigt der Zähler dauerhaft, ist das LAN größer als ein Haushalt — dann gehört die Zahl im Code hoch. |
-| `alpendns_tcp_body_timeouts_total` | Eine Verbindung hat ihr Längenpräfix geschickt und dann geschwiegen. | Nach fünf Sekunden wird sie geschlossen. Einzelne Treffer sind harmlos (ein abgebrochener Client); wächst der Zähler, hält ein Gerät absichtlich Verbindungen offen. |
+| `alpendns_tcp_connections_rejected_total` | A source IP wanted more than 8 concurrent connections. | The server is not the problem, the device behind it is: either a client with a connection leak or a NAT with several devices behind it. Find the device, do not raise the ceiling — no healthy device needs 8 concurrent TCP connections for DNS. |
+| `alpendns_tcp_connections_at_capacity_total` | All 64 slots were taken, the accept had to wait. | A sign that the ceiling holds, not an error. If the counter rises permanently, the LAN is larger than a household — then the number in the code belongs higher. |
+| `alpendns_tcp_body_timeouts_total` | A connection sent its length prefix and then went silent. | It is closed after five seconds. Individual hits are harmless (an aborted client); if the counter grows, a device is deliberately holding connections open. |
 
-Ein Client, der über TCP keine Antwort mehr bekommt, aber über UDP weiter
-auflöst, ist genau dieser Fall: `dig +notcp` geht, `dig +tcp` nicht.
+A client that no longer gets an answer over TCP but still resolves over UDP is
+exactly this case: `dig +notcp` works, `dig +tcp` does not.
 
-### Alles auf einmal sehen
+### Seeing everything at once
 
 ```bash
-sudo systemctl show alpendns -p MainPID -p User   # läuft er unprivilegiert?
-systemd-analyze security alpendns                 # sind die Schranken aktiv?
+sudo systemctl show alpendns -p MainPID -p User   # is it running unprivileged?
+systemd-analyze security alpendns                 # are the barriers active?
 curl -s -H "Authorization: Bearer $(sudo cat /var/lib/alpendns/api.token)" \
      localhost:8053/api/status | head -40
 ```
 
-### Mehr im Log
+### More in the log
 
-Der Log-Level kommt aus `RUST_LOG`:
+The log level comes from `RUST_LOG`:
 
 ```bash
 sudo systemctl edit alpendns
@@ -339,135 +345,133 @@ sudo systemctl edit alpendns
 sudo systemctl restart alpendns
 ```
 
-`debug` zeigt unter anderem, welche Client-Adresse gedrosselt wurde. **Query-Namen
-stehen auch dort nicht** — die gehen ausschließlich über die Log-Schicht, und
-die richtet sich nach `privacy.logging.mode`. Nach der Fehlersuche wieder
-entfernen: `sudo systemctl revert alpendns`.
+`debug` shows, among other things, which client address was throttled. **Query
+names are not there either** — those go exclusively through the logging layer,
+and that follows `privacy.logging.mode`. Remove it again after troubleshooting:
+`sudo systemctl revert alpendns`.
 
 ---
 
-## 5. Was die Hardening-Direktiven bedeuten
+## 5. What the hardening directives mean
 
-`systemd-analyze security alpendns` rechnet die Unit nach; der Wert liegt bei
-**1,5** (kleiner ist besser, gefordert waren unter 3,0). Was übrig bleibt, ist
-das, was ein Resolver naturgemäß braucht: Netzzugang und Port 53.
+`systemd-analyze security alpendns` computes the unit; the score is **1.5**
+(lower is better, under 3.0 was required). What remains is what a resolver
+inherently needs: network access and port 53.
 
-| Direktive | Wogegen |
+| Directive | Against what |
 |---|---|
-| `User=alpendns` + `AmbientCapabilities=CAP_NET_BIND_SERVICE` | Der Prozess war nie root. Port 53 kommt über eine einzelne Fähigkeit, nicht über Allmacht. |
-| `NoNewPrivileges=yes` | Kein Weg zurück nach oben, auch nicht über ein SUID-Programm. |
-| `ProtectSystem=strict` + `ProtectHome=yes` | Das ganze Dateisystem ist schreibgeschützt, außer den drei Verzeichnissen unter `/var`, die systemd selbst freigibt. |
-| `PrivateTmp` / `PrivateDevices` | Kein gemeinsames `/tmp`, keine Geräte außer den harmlosen. |
-| `MemoryDenyWriteExecute=yes` | Kein Speicher, der beschreibbar *und* ausführbar ist — die übliche Landebahn für Shellcode. |
-| `SystemCallFilter=@system-service` + `~@privileged @resources` | Systemaufrufe, die ein Dienst nicht braucht, gibt es für ihn nicht. |
-| `RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK` | Keine Raw-Sockets, kein Paket-Sniffing. `AF_NETLINK` steht dabei, weil glibc es beim Auflösen eines Hostnamens braucht — ohne die Zeile scheitert der Blocklisten-Download, und zwar still. |
-| `ProtectKernelTunables/Modules/Logs`, `ProtectClock`, `LockPersonality` | Der Dienst kann am System nichts verstellen. |
+| `User=alpendns` + `AmbientCapabilities=CAP_NET_BIND_SERVICE` | The process was never root. Port 53 comes from a single capability, not from omnipotence. |
+| `NoNewPrivileges=yes` | No way back up, not even through an SUID program. |
+| `ProtectSystem=strict` + `ProtectHome=yes` | The entire filesystem is read-only, except the three directories under `/var` that systemd itself releases. |
+| `PrivateTmp` / `PrivateDevices` | No shared `/tmp`, no devices beyond the harmless ones. |
+| `MemoryDenyWriteExecute=yes` | No memory that is writable *and* executable — the usual runway for shellcode. |
+| `SystemCallFilter=@system-service` + `~@privileged @resources` | System calls a service does not need do not exist for it. |
+| `RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK` | No raw sockets, no packet sniffing. `AF_NETLINK` is in there because glibc needs it when resolving a hostname — without the line the blocklist download fails, and it fails silently. |
+| `ProtectKernelTunables/Modules/Logs`, `ProtectClock`, `LockPersonality` | The service cannot change anything about the system. |
 
-Die Unit steht im Repository unter `packaging/systemd/alpendns.service` und ist
-kommentiert.
+The unit lives in the repository at `packaging/systemd/alpendns.service` and is
+commented.
 
 ---
 
-## 6. Beobachtungswoche
+## 6. Observation week
 
-Die Abnahme von Phase 8 und Phase 9 ist ein mehrtägiger Lauf im echten Netz.
-Sie ist nicht durch einen Test ersetzbar, und sie hat eine Reihenfolge.
+The acceptance of phase 8 and phase 9 is a multi-day run in the real network. It
+cannot be replaced by a test, and it has an order.
 
-**Vorbereitung.** Für die Beobachtung braucht es Namen, und die überleben die
-Woche nur, wenn sie auf Platte gehen. Der Modus `ring` reicht dafür **nicht**:
-Er hält die letzten `ring_seconds` im Arbeitsspeicher, mehr nicht. Das Panel
-"Auffällig" in der UI liest genau diesen Puffer — ein Fehlalarm, den niemand am
-selben Tag notiert, ist danach weg. Für einen Lauf, der eine Woche dauert, ist
-das die falsche Grundlage.
+**Preparation.** Observation needs names, and those only survive the week if
+they go to disk. The `ring` mode is **not** enough for that: it holds the last
+`ring_seconds` in RAM, nothing more. The "Auffällig" panel in the UI reads
+exactly that buffer — a false positive nobody notes down the same day is gone
+afterwards. For a run lasting a week, that is the wrong basis.
 
 ```toml
 [privacy.logging]
-# Nötig, damit die Woche am Ende auswertbar ist. Der Preis steht in ADR-0004:
-# jeder aufgelöste Name liegt für die Dauer der Beobachtung auf Platte.
+# Necessary so the week can be evaluated at the end. The price is in ADR-0004:
+# every resolved name lies on disk for the duration of the observation.
 mode = "full"
 ```
 
-Nach der Auswertung wieder zurückstellen.
+Set it back after the evaluation.
 
-Dazu die eigenen Domains in den Typosquat-Wächter eintragen (Bank, Behörde,
-Arbeitgeber), sonst tut er nichts:
+Also enter your own domains into the typosquat guard (bank, government agency,
+employer), otherwise it does nothing:
 
 ```toml
 [detection]
 typosquat = { action = "flag", threshold = 0.85, protect = ["meine-bank.at"] }
 ```
 
-Ob ein Detektor überhaupt etwas finden *kann*, sagt vorher ein Blick in
-`alpendns check`: dort steht hinter einem eingeschalteten Detektor, dem die
-Grundlage fehlt, der Grund in Klammern — `typosquat flag (ohne protect: findet
-nichts)`, `nrd flag (/var/lib/alpendns/nrd.txt fehlt: läuft leer)`.
+Whether a detector can find anything *at all* is answered beforehand by a look
+into `alpendns check`: behind an enabled detector that lacks its basis, the
+reason appears in parentheses — `typosquat flag (ohne protect: findet nichts)`,
+`nrd flag (/var/lib/alpendns/nrd.txt fehlt: läuft leer)`.
 
-Alle fünf Detektoren stehen auf `flag`. **Sie bleiben die ganze Woche auf
-`flag`.** Sie melden, sie blocken nicht.
+All five detectors are on `flag`. **They stay on `flag` the whole week.** They
+report, they do not block.
 
-**Während der Woche.** Einmal am Tag in die UI schauen, Panel "Auffällig":
+**During the week.** Look into the UI once a day, "Auffällig" panel:
 
-* Was steht drin, das offensichtlich harmlos ist? Das ist ein Fehlalarm.
-  Notieren — Domain, Detektor, Score, was das Gerät gerade tat.
-* Reputationsdienste und Antivirus-Produkte sehen per Konstruktion wie ein
-  DNS-Tunnel aus. Ihre Zonen gehören nach `detection.tunneling.allow_zones`.
-* Split-Horizon-DNS und Geräte-Weboberflächen unter einem echten Namen lösen
-  den Rebinding-Schutz aus. Ihre Zonen gehören nach
-  `detection.rebinding.allow_zones`.
-* Meckert jemand im Haushalt, dass etwas nicht geht: `alpendns policy test
-  <domain>` sagt, ob es an AlpenDNS lag. In aller Regel war es die Blockliste
-  und nicht ein Detektor — die Detektoren blocken ja nicht.
+* What is in there that is obviously harmless? That is a false positive. Note it
+  down — domain, detector, score, what the device was doing at the time.
+* Reputation services and antivirus products look like a DNS tunnel by
+  construction. Their zones belong in `detection.tunneling.allow_zones`.
+* Split-horizon DNS and device web interfaces under a real name trigger the
+  rebinding protection. Their zones belong in `detection.rebinding.allow_zones`.
+* If someone in the household complains that something does not work:
+  `alpendns policy test <domain>` says whether AlpenDNS was the cause. As a rule
+  it was the blocklist and not a detector — the detectors do not block.
 
-Nebenbei mitlaufen lassen, was ohne Aufwand zu haben ist:
+Let run alongside, whatever comes for free:
 
 ```bash
-# Läuft er durchgehend? Ein Neustart taucht als neue Startzeit auf.
+# Does it stay up? A restart shows up as a new start time.
 systemctl show alpendns -p ActiveEnterTimestamp -p NRestarts
 
-# Zähler über die Woche, wenn [metrics] an ist
+# Counters over the week, if [metrics] is on
 curl -s localhost:9153/metrics | grep -E 'queries_total|cache_hit_ratio|rate_limited|detections'
 ```
 
-**Am Ende der Woche.** Erst die Zahlen, dann die Entscheidung.
-`packaging/abnahme.py` liest das Query-Log und zählt je Detektor:
+**At the end of the week.** Numbers first, then the decision. `packaging/abnahme.py`
+reads the query log and counts per detector:
 
 ```bash
-# Zweites Argument optional — damit lässt sich auch eine gesicherte Kopie auswerten
+# Second argument optional — this also evaluates a saved copy
 python3 abnahme.py 2026-09-16T16:24 | tee abnahme-periode.txt
 ```
 
-Es gibt Anfragen und **verschiedene Namen** aus, dann je Detektor die Funde und
-die häufigsten Namen mit Score. Beides gehört zur Beurteilung: 7 Funde auf 4 025
-Namen sind etwas anderes als 7 auf 40 000.
+It prints queries and **distinct names**, then per detector the findings and the
+most frequent names with score. Both belong to the assessment: 7 findings across
+4,025 names is something different from 7 across 40,000.
 
-Dann die Fehlalarm-Liste durchsehen und entscheiden, je Detektor einzeln:
+Then go through the false positive list and decide, per detector individually:
 
-* Keine Fehlalarme über eine Woche echten Verkehrs → dieser Detektor darf auf
-  `action = "block"`. Einer nach dem anderen, nicht alle zusammen.
-* **Ein Detektor, der nie ausgelöst hat, ist damit nicht bewertet.** „Keine
-  Fehlalarme" heißt bei ihm nur, dass nichts passiert ist — für `block` fehlt der
-  Beleg, dass er überhaupt richtig auslöst. Entweder einen kontrollierten Test
-  fahren oder ihn auf `flag` lassen.
-* **Ein Detektor, der leer lief, ist ebenfalls nicht bewertet.** Eine leere
-  `protect`-Liste oder eine fehlende `nrd.txt` erzeugt dieselbe Null wie ein
-  sauberer Lauf — nur ohne Grundlage.
-* Fehlalarme, die sich über `allow_zones` erledigen lassen → eintragen, weitere
-  Woche beobachten.
-* Fehlalarme, die sich nicht erledigen lassen → der Detektor bleibt auf `flag`.
-  Das ist ein gültiges Ergebnis und kein Scheitern; die bekannten Grenzen der
-  Verfahren stehen in `docs/FEATURES.md` und `docs/BENCHMARKS.md`.
+* No false positives over a week of real traffic → this detector may go to
+  `action = "block"`. One at a time, not all together.
+* **A detector that never fired is not thereby assessed.** "No false positives"
+  means only that nothing happened — for `block` there is no evidence that it
+  fires correctly at all. Either run a controlled test or leave it on `flag`.
+* **A detector that ran empty is likewise not assessed.** An empty `protect`
+  list or a missing `nrd.txt` produces the same zero as a clean run — just
+  without a basis.
+* False positives that can be settled via `allow_zones` → enter them, observe
+  another week.
+* False positives that cannot be settled → the detector stays on `flag`. That is
+  a valid outcome and not a failure; the known limits of the methods are in
+  `docs/FEATURES.md` and `docs/BENCHMARKS.md`.
 
-Das Ergebnis gehört als Notiz in `docs/ROADMAP.md` unter die Abnahme der Phase —
-mit Zahlen. „Lief bei mir" ist kein Abnahmekriterium.
+The result belongs as a note in `docs/ROADMAP.md` under the phase's acceptance —
+with numbers. "Worked for me" is not an acceptance criterion.
 
 ---
 
-## 7. Deinstallation
+## 7. Uninstalling
 
 ```bash
-sudo apt remove alpendns    # Dienst weg, /etc und /var bleiben
-sudo apt purge alpendns     # zusätzlich: Konfiguration, User, /var/lib, /var/cache
+sudo apt remove alpendns    # service gone, /etc and /var remain
+sudo apt purge alpendns     # additionally: configuration, user, /var/lib, /var/cache
 ```
 
-Nach `purge` bleibt nichts zurück. Vorher nicht vergessen, den DHCP-Server im
-Router wieder auf einen anderen Resolver zu zeigen — sonst steht das Netz.
+After `purge` nothing is left behind. Before that, do not forget to point the
+DHCP server in your router back at another resolver — otherwise the network
+stands still.

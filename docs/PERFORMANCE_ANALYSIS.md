@@ -1,263 +1,257 @@
-# Performance- und Leichtgewichtigkeits-Analyse
+# Performance and Lightweightness Analysis
 
-Zahlen, keine Behauptungen — derselbe Grundsatz wie in [BENCHMARKS.md](BENCHMARKS.md).
-Dieses Dokument sammelt, was beim Durchgehen des **heißen Pfads** aufgefallen ist:
-Query-Pipeline, Cache, Matcher, Upstream-Pool, die Detektoren aus Phase 8.
+Numbers, not claims — the same principle as in [BENCHMARKS.md](BENCHMARKS.md). This
+document collects what stood out while walking the **hot path**: query pipeline,
+cache, matcher, upstream pool, the detectors from phase 8.
 
-## Methodik und Messstatus
+## Method and measurement status
 
-Diese Analyse ist ein **Lese-Ergebnis**, kein Messlauf. Zwei Dinge gehören deshalb
-vorweg, sonst liest sich die Spalte „Messergebnis" falsch:
+This analysis is a **reading result**, not a measurement run. Two things therefore
+belong up front, otherwise the "measurement result" column reads wrong:
 
-1. **Was gemessen ist**, steht in [BENCHMARKS.md](BENCHMARKS.md) und wird hier
-   nur zitiert. Die Messmaschine ist Linux (`load.rs` mit SO_REUSEPORT und
-   Fake-Upstream im Prozess, `--test-threads=1`).
-2. **Was hier neu vorgeschlagen wird, ist noch nicht gemessen.** Der Lastgenerator
-   läuft nur unter Linux, das Korpus liegt nicht im Repo, und auf der Maschine,
-   auf der diese Analyse entstand, gibt es keine Rust-Toolchain. Ein Kandidat
-   steht deshalb nicht als „schneller" da, nur als „lohnt zu messen" — mit dem
-   Befehl, der ihn bestätigt oder verwirft.
+1. **What is measured** is in [BENCHMARKS.md](BENCHMARKS.md) and is only quoted
+   here. The measurement machine is Linux (`load.rs` with SO_REUSEPORT and a fake
+   upstream in-process, `--test-threads=1`).
+2. **What is newly proposed here is not measured yet.** The load generator runs
+   only under Linux, the corpus is not in the repo, and the machine on which this
+   analysis was written has no Rust toolchain. A candidate therefore does not stand
+   there as "faster", only as "worth measuring" — with the command that confirms or
+   rejects it.
 
-Genau deshalb unterscheidet die Tabelle unten zwei Sorten von Einträgen:
+That is exactly why the table below distinguishes two kinds of entries:
 
-* **gemessen** — die Zahl kommt aus BENCHMARKS.md und ist nachgewiesen.
-* **ausstehend** — der Lösungsansatz ist isoliert umzusetzen und gegen die
-  Baseline zu messen, bevor er in den `main`-Zweig dürfte. Vorher wäre es
-  Optimierung ohne Messung, und genau die verbietet das Projekt ausdrücklich.
+* **measured** — the number comes from BENCHMARKS.md and is proven.
+* **pending** — the approach is to be implemented in isolation and measured against
+  the baseline before it may go into the `main` branch. Before that it would be
+  optimisation without measurement, and that is exactly what the project explicitly
+  forbids.
 
-Der Weg vom Kandidaten zur Entscheidung ist für alle ausstehenden derselbe:
+The path from candidate to decision is the same for all pending ones:
 
 ```bash
-# 1. Baseline (Auslieferungszustand, teurer Fall: lauter neue Namen)
+# 1. Baseline (as shipped, expensive case: nothing but new names)
 cargo test --release --test load -- --ignored --nocapture --test-threads=1
 
-# 2. Isoliert auf einem perf/<thema>-Branch umsetzen, dann Gegenlauf.
-#    Bewertet wird der Vergleich beider Zeilen, nicht der Absolutwert.
+# 2. Implement in isolation on a perf/<topic> branch, then run the counter-run.
+#    What is judged is the comparison of the two rows, not the absolute value.
 ```
 
-## Ergebnis auf einen Blick
+## Result at a glance
 
-| # | Fundstelle | Problem | Lösung | Messergebnis | Aufwand |
+| # | Location | Problem | Solution | Measurement result | Effort |
 |---|---|---|---|---|---|
-| 1 | `server/mod.rs` `build_event` | baut `query_type`, `why` (Vec<String>), `findings` bei **jeder** Anfrage, obwohl `aggregate`/`none` sie verwerfen | Felder nur materialisieren, wenn der Log-Modus sie braucht | ausstehend | M |
-| 2 | `upstream/pool.rs` `is_down` | `Mutex`-Lock je Upstream je Cache-Miss, obwohl der Wert nur bei Ausfall geschrieben wird | `Mutex<Option<Instant>>` → `AtomicU64` (monotone Mikrosekunden) | ausstehend | S |
-| 3 | `policy/mod.rs` `resolve` | `asked`-String (to_ascii + lowercase) bei jeder Anfrage, gebraucht nur für den Rebinding-Check | nur bauen, wenn ein Antwort-Detektor eingehängt ist | ausstehend | S |
-| 4 | `detect/dga/mod.rs` | `symbols`/`mean_surprise` allozieren Vec je Label; Labels sind ≤ 63 Zeichen | Stack-Puffer fester Größe statt Heap-Vec | ausstehend | S |
-| 5 | `upstream/strategy.rs` `registrable_domain` | PSL-Lookup + bis zu drei String-Allokationen je Cache-Miss | Hashen der registrierbaren Domain ohne die letzte `to_owned()` | ausstehend | S |
-| 6 | `detect/typosquat.rs` `embeds` | `format!(".{protected}")` drei Mal je Eintrag je Anfrage | einmal beim Aufbau des Detektors vorberechnen | ausstehend | S |
-| — | Detektoren gesamt | laufen bei jeder Allow-Anfrage | **keiner** — akzeptierter Preis, siehe unten | **gemessen: ~10 %** | — |
-| — | Tunneling-Mutex | globaler Mutex je Anfrage | **keiner jetzt** — Umkehrbedingung dokumentiert | **gemessen: Teil der 10 %** | — |
-| — | Cache-Treffer `with_ttl` | Deep-Clone der Antwort je Treffer | **keiner** — Preis des Treffers | **gemessen: p50 18,8 µs** | — |
+| 1 | `server/mod.rs` `build_event` | builds `query_type`, `why` (Vec<String>), `findings` on **every** request, although `aggregate`/`none` discard them | materialise fields only when the log mode needs them | pending | M |
+| 2 | `upstream/pool.rs` `is_down` | a `Mutex` lock per upstream per cache miss, although the value is written only on failure | `Mutex<Option<Instant>>` → `AtomicU64` (monotonic microseconds) | pending | S |
+| 3 | `policy/mod.rs` `resolve` | `asked` string (to_ascii + lowercase) on every request, needed only for the rebinding check | build it only when an answer detector is attached | pending | S |
+| 4 | `detect/dga/mod.rs` | `symbols`/`mean_surprise` allocate a Vec per label; labels are ≤ 63 characters | fixed-size stack buffer instead of a heap Vec | pending | S |
+| 5 | `upstream/strategy.rs` `registrable_domain` | PSL lookup + up to three string allocations per cache miss | hash the registrable domain without the last `to_owned()` | pending | S |
+| 6 | `detect/typosquat.rs` `embeds` | `format!(".{protected}")` three times per entry per request | compute it once when the detector is built | pending | S |
+| — | detectors, total | run on every allow request | **none** — an accepted price, see below | **measured: ~10 %** | — |
+| — | tunneling mutex | a global mutex per request | **none for now** — reversal condition documented | **measured: part of the 10 %** | — |
+| — | cache hit `with_ttl` | deep clone of the answer per hit | **none** — the price of the hit | **measured: p50 18.8 µs** | — |
 
-Die drei letzten Zeilen sind **keine Kandidaten** — sie stehen in der Tabelle, weil
-sie im heißen Pfad am lautesten sind und die Entscheidung, sie so zu lassen, Teil
-dieser Analyse ist (siehe „Verworfene Ansätze").
+The last three rows are **not candidates** — they are in the table because they are
+the loudest things in the hot path, and the decision to leave them as they are is
+part of this analysis (see "Rejected approaches").
 
 ---
 
-## Die Kandidaten im Detail
+## The candidates in detail
 
-### 1. `build_event` materialisiert Namen und Begründung in jedem Log-Modus
+### 1. `build_event` materialises name and reason in every log mode
 
-**Ist-Zustand.** [server/mod.rs:206–239](crates/alpendns/src/server/mod.rs#L206-L239)
-baut bei jeder beantworteten Anfrage ein `QueryEvent`, und darin stehen — immer —
-`name`, `query_type`, `why` (ein `Vec<String>`, für jeden `Step` ein
-`format!`-Aufruf, siehe [trace.rs:108–170](crates/alpendns/src/trace.rs#L108-L170))
-und `findings`. Die Logging-Schicht wirft davon in den leisen Modi das meiste weg:
+**Current state.** [server/mod.rs:206–239](crates/alpendns/src/server/mod.rs#L206-L239)
+builds a `QueryEvent` for every answered request, and in it stand — always — `name`,
+`query_type`, `why` (a `Vec<String>`, one `format!` call per `Step`, see
+[trace.rs:108–170](crates/alpendns/src/trace.rs#L108-L170)) and `findings`. In the
+quiet modes the logging layer throws most of that away:
 
-| Feld | gebraucht in `none` | in `aggregate` (Default) | in `ring`/`full` |
+| Field | needed in `none` | in `aggregate` (default) | in `ring`/`full` |
 |---|---|---|---|
-| `name` | nein | ja (gesalzener Zähler) | ja |
-| `query_type` | nein | **nein** | ja |
-| `why` | nein | **nein** | ja |
-| `findings` | nein | **nein** | ja |
+| `name` | no | yes (salted counter) | yes |
+| `query_type` | no | **no** | yes |
+| `why` | no | **no** | yes |
+| `findings` | no | **no** | yes |
 
-Im Default `aggregate` werden also `query_type`, `why` und `findings` bei *jeder*
-Anfrage formatiert und dann verworfen. `why` ist dabei der teure Teil: je Schritt
-ein `write!` mit Namen, Dauer oder Score — bei einem normalen Allow-Treffer zwei
-bis vier Schritte, alle als eigene String-Allokation.
+So in the default `aggregate` mode `query_type`, `why` and `findings` are formatted
+on *every* request and then discarded. `why` is the expensive part: a `write!` per
+step with name, duration or score — two to four steps for a normal allow hit, all as
+their own string allocation.
 
-**Lösungsansatz.** Die Felder erst bauen, wenn der Modus sie braucht. Konkret:
-`build_event` (oder `QueryLog::record`) prüft `mode.keeps_names()` und lässt die
-teuren Felder sonst leer bzw. baut sie gar nicht. Der Trace selbst (`ctx.steps()`)
-bleibt unangetastet — die Regel „der Trace entsteht immer, der Modus entscheidet
-nur, was mit ihm passiert" (ARCHITECTURE.md §2, B.1 Regel 3) gilt weiterhin für
-*Schritte*, nicht für die *Formatierung* daraus.
+**Approach.** Build the fields only when the mode needs them. Concretely: `build_event`
+(or `QueryLog::record`) checks `mode.keeps_names()` and otherwise leaves the expensive
+fields empty or does not build them at all. The trace itself (`ctx.steps()`) stays
+untouched — the rule "the trace is always there, the mode only decides what happens
+to it" (ARCHITECTURE.md §2, B.1 rule 3) still applies to *steps*, not to the
+*formatting* derived from them.
 
-**Trade-off-Check.** Es entfällt keine Funktionalität: in `ring`/`full` wird
-weiter alles gebaut, in `aggregate`/`none` wird nichts gebaut, was dort ohnehin
-niemals gelesen wird. Der einzige Risikopunkt ist, dass `QueryEvent` heute ein
-einziges Struct ist, das `record` komplett konsumiert — der Umbau macht einzelne
-Felder optional oder verschiebt ihre Erzeugung. Deshalb M, nicht S. Die
-Privacy-Zusicherung (`no_query_name_leaves_the_process_in_the_quiet_modes`) muss
-nach dem Umbau grün bleiben; sie ändert sich nicht, weil am *Inhalt* nichts ändert.
+**Trade-off check.** No functionality is lost: in `ring`/`full` everything is still
+built, in `aggregate`/`none` nothing is built that would never be read there anyway.
+The only risk point is that `QueryEvent` is today a single struct that `record`
+consumes completely — the rework makes individual fields optional or moves their
+creation. Hence M, not S. The privacy assurance
+(`no_query_name_leaves_the_process_in_the_quiet_modes`) has to stay green after the
+rework; it does not change, because nothing changes about the *content*.
 
-### 2. `pool::order` nimmt einen Mutex je Upstream je Anfrage
+### 2. `pool::order` takes a mutex per upstream per request
 
-**Ist-Zustand.** [pool.rs:361–367](crates/alpendns/src/upstream/pool.rs#L361-L367)
-liest `is_down` für **jeden** Upstream bei **jedem** Cache-Miss aus
+**Current state.** [pool.rs:361–367](crates/alpendns/src/upstream/pool.rs#L361-L367)
+reads `is_down` for **every** upstream on **every** cache miss from
 `down_until: Mutex<Option<Instant>>` ([pool.rs:47](crates/alpendns/src/upstream/pool.rs#L47)).
-Der Wert wird nur geschrieben, wenn ein Upstream zum dritten Mal in Folge ausfällt
-oder sich erholt ([pool.rs:216–279](crates/alpendns/src/upstream/pool.rs#L216-L279))
-— also praktisch nie, gelesen wird er dauernd. Das ist genau das Muster, für das
-B.3 Regel 5 (`ArcSwap`/Atomic statt Mutex im Anfragepfad) gemacht ist.
+The value is written only when an upstream fails for the third time in a row or
+recovers ([pool.rs:216–279](crates/alpendns/src/upstream/pool.rs#L216-L279)) — so
+practically never, while it is read constantly. That is exactly the pattern B.3
+rule 5 (`ArcSwap`/atomic instead of a mutex in the request path) was made for.
 
-**Lösungsansatz.** `down_until` als `AtomicU64`, kodiert als „monotone Mikrosekunden
-seit einem Prozess-Startzeitpunkt", `0` heißt „nicht down". Schreiben und Lesen
-werden `Ordering::Relaxed`-Zugriffe. Der Vergleich `now < until` bleibt derselbe,
-nur eben ohne Lock.
+**Approach.** `down_until` as an `AtomicU64`, encoded as "monotonic microseconds
+since a process start time", `0` meaning "not down". Writes and reads become
+`Ordering::Relaxed` accesses. The comparison `now < until` stays the same, just
+without a lock.
 
-**Trade-off-Check.** Kein Verhalten ändert sich: dieselbe Schwelle, dieselbe
-Cooldown-Dauer. Der einzige Preis ist eine kleine Kodierfunktion für die
-Uhrzeit. Ein `Instant` hat keine portable Epoche, deshalb der Umweg über
-`Instant::now().elapsed()` — der Startzeitpunkt wird einmal in der `Health`
-festgehalten. Geringes Risiko, klarer Gewinn: ein Relaxed-Load ersetzt einen
-Mutex-Lock (der bei Konkurrenz bis zum Syscall reichen kann).
+**Trade-off check.** No behaviour changes: the same threshold, the same cooldown
+duration. The only price is a small encoding function for the time. An `Instant` has
+no portable epoch, hence the detour via `Instant::now().elapsed()` — the start time
+is recorded once in the `Health`. Low risk, clear gain: a relaxed load replaces a
+mutex lock (which under contention can reach all the way to a syscall).
 
-### 3. `asked` wird bei jeder Anfrage gebaut, gebraucht nur der Rebinding-Check
+### 3. `asked` is built on every request, but only the rebinding check needs it
 
-**Ist-Zustand.** [policy/mod.rs:620–621](crates/alpendns/src/policy/mod.rs#L620-L621)
-baut `asked` — `query.name().to_ascii().trim_end_matches('.').to_lowercase()` — bei
-jeder Anfrage. Gebraucht wird es nur unten im Rebinding-Post-Check
-([policy/mod.rs:636](crates/alpendns/src/policy/mod.rs#L636)). Auf dem typischen
-Cache-Treffer-Pfad wird dieser String erzeugt und nie benutzt.
+**Current state.** [policy/mod.rs:620–621](crates/alpendns/src/policy/mod.rs#L620-L621)
+builds `asked` — `query.name().to_ascii().trim_end_matches('.').to_lowercase()` — on
+every request. It is needed only further down in the rebinding post-check
+([policy/mod.rs:636](crates/alpendns/src/policy/mod.rs#L636)). On the typical
+cache-hit path this string is created and never used.
 
-**Lösungsansatz.** `asked` nur bauen, wenn `self.engine` überhaupt einen
-Antwort-Detektor hält (also der Rebinding-Schutz nicht `off` ist). Das ist beim
-Aufbau bekannt und als `bool`/Methodenaufruf abfragbar, ohne den Anfragepfad zu
-ändern.
+**Approach.** Build `asked` only when `self.engine` holds an answer detector at all
+(that is, the rebinding protection is not `off`). That is known at construction and
+can be queried as a `bool`/method call without touching the request path.
 
-**Trade-off-Check.** Trivial und ohne Verhaltensänderung; die eine zusätzliche
-String-Allokation je Anfrage entfällt auf dem Trefferpfad. Aufwand S.
+**Trade-off check.** Trivial and without a behaviour change; the one extra string
+allocation per request goes away on the hit path. Effort S.
 
-### 4. DGA-Erkennung alloziiert je Label auf dem Heap
+### 4. DGA detection allocates on the heap per label
 
-**Ist-Zustand.** [dga/mod.rs:144–175](crates/alpendns/src/detect/dga/mod.rs#L144-L175):
-`symbols()` legt einen `Vec<usize>` an, `mean_surprise()` ruft das auf und
-iteriert. Ein DNS-Label ist laut RFC höchstens 63 Zeichen, mit den drei
-Randmarken also höchstens 66 Symbole — eine Obergrenze, die in den Prozess
-eingebaut ist, nicht erst zur Laufzeit entsteht.
+**Current state.** [dga/mod.rs:144–175](crates/alpendns/src/detect/dga/mod.rs#L144-L175):
+`symbols()` creates a `Vec<usize>`, `mean_surprise()` calls that and iterates. Per RFC
+a DNS label is at most 63 characters, so with the three boundary markers at most 66
+symbols — a ceiling that is built into the process rather than arising at runtime.
 
-**Lösungsansatz.** Feste Stack-Puffer (`[usize; 66]` o. Ä.) statt `Vec`, analog
-zur `SmallVec`-Idee aus dem Trace. Zwei Heap-Allokationen je Label entfallen; die
-DGA-Erkennung läuft bei jeder Allow-Anfrage, also auf dem heißen Pfad.
+**Approach.** Fixed stack buffers (`[usize; 66]` or similar) instead of `Vec`,
+analogous to the `SmallVec` idea from the trace. Two heap allocations per label go
+away; DGA detection runs on every allow request, that is, on the hot path.
 
-**Trade-off-Check.** Kein Verhaltensunterschied, nur Allokationsersatz. Die
-Grenze `MIN_LENGTH` und die Schwellen bleiben unberührt — es ändert sich nur, wo
-die Symbolliste liegt. Aufwand S. Einzige Sorgfalt: die Puffergröße als Konstante
-neben `ALPHABET` dokumentieren, damit niemand die 66 „optimiert", ohne die
-Randmarken mitzuzählen.
+**Trade-off check.** No behavioural difference, just an allocation replacement. The
+`MIN_LENGTH` bound and the thresholds stay untouched — all that changes is where the
+symbol list lives. Effort S. The only care needed: document the buffer size as a
+constant next to `ALPHABET`, so that nobody "optimises" the 66 without counting the
+boundary markers.
 
-### 5. `registrable_domain` baut Strings, die nur gehasht werden
+### 5. `registrable_domain` builds strings that are only hashed
 
-**Ist-Zustand.** [strategy.rs:23–30](crates/alpendns/src/upstream/strategy.rs#L23-L30):
-`to_ascii()` (Allokation), `trim_end_matches('.').to_ascii_lowercase()` (zweite
-Allokation), `psl::domain_str(...)`, und am Ende `.map_or(text.clone(), ToOwned::to_owned)` —
-eine dritte Allokation, die bei `zone_index` nur dazu da ist, den `&str` zu
-besitzen, damit er gehasht werden kann. Es reicht, den `&str` direkt zu hashen,
-solange `text` lebt.
+**Current state.** [strategy.rs:23–30](crates/alpendns/src/upstream/strategy.rs#L23-L30):
+`to_ascii()` (allocation), `trim_end_matches('.').to_ascii_lowercase()` (second
+allocation), `psl::domain_str(...)`, and at the end
+`.map_or(text.clone(), ToOwned::to_owned)` — a third allocation that in `zone_index`
+exists only to own the `&str` so that it can be hashed. Hashing the `&str` directly
+is enough, as long as `text` lives.
 
-**Lösungsansatz.** Die letzte `to_owned()` weglassen und den von `psl::domain_str`
-geborgten `&str` hashen. `text` bleibt bis zum Ende der Funktion am Leben; der
-Hash-Besuch braucht keinen eigenen Besitzer.
+**Approach.** Drop the last `to_owned()` and hash the `&str` borrowed from
+`psl::domain_str`. `text` stays alive until the end of the function; the hash lookup
+needs no owner of its own.
 
-**Trade-off-Check.** Reine Allokationsvermeidung auf dem Miss-Pfad, kein
-Verhaltensunterschied — der Hash desselben `&str` ist identisch. Aufwand S.
-Hinweis zur Ehrlichkeit: der Gewinn trifft nur Cache-Misses; im Haushaltsbetrieb
-mit hoher Trefferquote ist er klein.
+**Trade-off check.** Pure allocation avoidance on the miss path, no behavioural
+difference — the hash of the same `&str` is identical. Effort S. A note in the
+interest of honesty: the gain only hits cache misses; in household operation with a
+high hit rate it is small.
 
-### 6. Typosquat baut den Embed-String je Eintrag je Anfrage neu
+### 6. Typosquat rebuilds the embed string per entry per request
 
-**Ist-Zustand.** [typosquat.rs:179–184](crates/alpendns/src/detect/typosquat.rs#L179-L184)
-setzt in `embeds` drei Mal `format!(".{protected}")` zusammen — je geschützter
-Domain, je Anfrage. Die geschützten Domains sind beim Aufbau des Detektors
-bekannt und ändern sich nie.
+**Current state.** [typosquat.rs:179–184](crates/alpendns/src/detect/typosquat.rs#L179-L184)
+assembles `format!(".{protected}")` three times in `embeds` — per protected domain,
+per request. The protected domains are known when the detector is built and never
+change.
 
-**Lösungsansatz.** Den vorangestellten Punkt-String einmal beim Aufbau
-([typosquat.rs:67–83](crates/alpendns/src/detect/typosquat.rs#L67-L83)) an das
-`Protected` hängen und in `embeds` nur noch vergleichen.
+**Approach.** Attach the leading dot string to the `Protected` once at construction
+([typosquat.rs:67–83](crates/alpendns/src/detect/typosquat.rs#L67-L83)) and only
+compare in `embeds`.
 
-**Trade-off-Check.** Nur relevant, wenn `detection.typosquat.protect` nicht leer
-ist; dann entfallen drei kleine Allokationen je geschützter Domain je Anfrage.
-Aufwand S, kein Verhalten geändert.
+**Trade-off check.** Only relevant when `detection.typosquat.protect` is not empty;
+then three small allocations per protected domain per request go away. Effort S, no
+behaviour changed.
 
 ---
 
-## Verworfene Ansätze
+## Rejected approaches
 
-Diese wurden beim Durchgehen notiert und **bewusst nicht** als Kandidat
-aufgenommen. Jeder kurz mit dem Grund, damit die Entscheidung nachvollziehbar
-bleibt und nicht „wir haben es übersehen" heißt.
+These were noted while walking the code and **deliberately not** taken up as
+candidates. Each with its reason, briefly, so that the decision stays traceable and
+does not come to mean "we overlooked it".
 
-### Detektoren sind ~10 % Durchsatz — wird so gelassen
+### Detectors cost ~10 % throughput — left as they are
 
-**Gemessen** (BENCHMARKS.md „Phase 8"): vier Detektoren kosten rund 10 %,
-schlechtester Lauf 15 %. Das ist ein Preis, aber bezahlbar: 87 000 Anfragen/s
-sind für einen Haushalts-Resolver drei Größenordnungen über dem Bedarf. Die
-Entscheidung, den Preis zu tragen, steht schon in
-[ADR-0019](adr/0019-heuristiken-melden-statt-blocken.md) und in der
-BENCHMARKS-Begründung — hier wird sie nur noch einmal sichtbar gemacht, nicht
-neu verhandelt.
+**Measured** (BENCHMARKS.md "Phase 8"): four detectors cost around 10 %, worst run
+15 %. That is a price, but an affordable one: 87,000 requests/s is three orders of
+magnitude above what a household resolver needs. The decision to bear the price is
+already in [ADR-0019](adr/0019-heuristiken-melden-statt-blocken.md) and in the
+BENCHMARKS rationale — here it is only made visible once more, not renegotiated.
 
-### Tunneling-Mutex: kein Umbau vor der Umkehrbedingung
+### Tunneling mutex: no rework before the reversal condition
 
-Der globale `Mutex<HashMap>` in [tunneling.rs](crates/alpendns/src/detect/tunneling.rs)
-ist der lauteste einzelne Detektor-Posten. Die Umkehrbedingung ist bereits
-dokumentiert (BENCHMARKS.md „Phase 8"): wenn der Durchsatz einmal unter zwei
-Drittel fällt — mehr Detektoren, schwächere Hardware —, wandert die Zonentabelle
-hinter ein `ArcSwap` oder eine Hash-Aufteilung. **Vorher wäre es Optimierung ohne
-Messung.** Der Kandidat 2 (Pool-Mutex) ist deshalb der ehrlichere erste Schritt:
-dort ist der Mutex ein *reiner Lese*-Mutex ohne Inhalt, hier schützt er echten
-Zustand.
+The global `Mutex<HashMap>` in
+[tunneling.rs](crates/alpendns/src/detect/tunneling.rs) is the loudest single
+detector item. The reversal condition is already documented (BENCHMARKS.md
+"Phase 8"): if throughput ever falls below two thirds — more detectors, weaker
+hardware — the zone table moves behind an `ArcSwap` or a split by hash. **Before
+that it would be optimisation without measurement.** Candidate 2 (the pool mutex) is
+therefore the more honest first step: there the mutex is a *pure read* mutex without
+content, here it protects real state.
 
-### Cache-Treffer klont die Antwort komplett — das ist der Preis des Treffers
+### A cache hit clones the answer completely — that is the price of the hit
 
-`with_ttl` ([cache.rs:291–305](crates/alpendns/src/cache.rs#L291-L305)) klont die
-gesamte Nachricht, um die Rest-TTL zu setzen. **Gemessen:** p50 18,8 µs, p99
-28,1 µs — bei geladenem Zwei-Millionen-Matcher. Die Antwort muss je Treffer mit
-der passenden Rest-TTL heraus, und die gecachte Kopie darf nicht mutiert werden;
-ein Clone ist der direkte Weg dahin. Die Alternative (Antworten in einer
-kompakteren Form halten und billig neu bauen) wäre ein Architektur-Umbau für eine
-Zahl, die gegen die DoT-Round-Trip-Zeit ins Internet ohnehin verschwindet.
-**Verworfen:** kein messbarer Nutzen erwartet, hoher Aufwand.
+`with_ttl` ([cache.rs:291–305](crates/alpendns/src/cache.rs#L291-L305)) clones the
+entire message in order to set the remaining TTL. **Measured:** p50 18.8 µs, p99
+28.1 µs — with a two-million-entry matcher loaded. The answer has to come out per hit
+with the matching remaining TTL, and the cached copy must not be mutated; a clone is
+the direct way there. The alternative (hold answers in a more compact form and
+rebuild them cheaply) would be an architectural rework for a number that vanishes
+against the DoT round-trip time to the internet anyway. **Rejected:** no measurable
+benefit expected, high effort.
 
-### `cache::shard` hascht mit SipHash — unter der Nachweisgrenze
+### `cache::shard` hashes with SipHash — below the noise floor
 
-[shard()](crates/alpendns/src/cache.rs#L150-L155) berechnet je Lookup einen
-SipHash über den ganzen Schlüssel, nur um 4 Bit abzuleiten. SipHash ist teurer
-als ein billiger Hash — aber gemessen an einem Cache-Treffer von 18,8 µs sind das
-Nanosekunden. Ein schnellerer Hash bräuchte außerdem eine neue Abhängigkeit
-(`ahash`/`fxhash`/…), die B.2 eine Begründung verlangt. **Verworfen:** unter der
-Nachweisgrenze, und eine Abhängigkeit für unter 1 % eines Treffers ist der falsche
-Handel. Erst wieder erwägen, wenn ein Profiler die Shard-Auswahl sichtbar macht.
+[shard()](crates/alpendns/src/cache.rs#L150-L155) computes a SipHash over the whole
+key per lookup, only to derive 4 bits. SipHash is more expensive than a cheap hash —
+but measured against a cache hit of 18.8 µs that is nanoseconds. A faster hash would
+also need a new dependency (`ahash`/`fxhash`/…), which B.2 demands a rationale for.
+**Rejected:** below the noise floor, and a dependency for under 1 % of a hit is the
+wrong trade. Reconsider only once a profiler makes the shard selection visible.
 
-### UDP-Puffer-Pooling — Komplexität ohne Nutzen
+### UDP buffer pooling — complexity without benefit
 
-Der `to_vec()` je Paket in [udp.rs](crates/alpendns/src/server/udp.rs) alloziiert
-je eingehendem Paket einen frischen Puffer. Das ist, wie tokio UDP funktioniert:
-jeder `recv` braucht einen Puffer, und die Antwort braucht ihre Bytes. Ein Pool
-darüber spart eine Allokation und erkauft sie mit Lebensdauer-Buchführung und dem
-Risiko, dass ein gepoolter Puffer irgendwo weiterlebt. **Verworfen:** Aufwand
-steht in keinem Verhältnis zum Gewinn, solange kein Profil die UDP-Allokation als
-heiß zeigt.
+The `to_vec()` per packet in [udp.rs](crates/alpendns/src/server/udp.rs) allocates a
+fresh buffer per incoming packet. That is how tokio UDP works: every `recv` needs a
+buffer, and the answer needs its bytes. A pool on top of it saves one allocation and
+buys it with lifetime bookkeeping and the risk that a pooled buffer lives on
+somewhere. **Rejected:** the effort is out of all proportion to the gain, as long as
+no profile shows the UDP allocation as hot.
 
-### Doppelte `Message`-Klone in Cache- und Transportschicht
+### Duplicate `Message` clones in the cache and transport layer
 
-`request.clone()` in [caching.rs:61](crates/alpendns/src/caching.rs#L61) und die
-Klone in [transport.rs](crates/alpendns/src/upstream/transport.rs) sind billig:
-eine Anfrage trägt nur ihre Frage, keine Antworten. **Verworfen:** nicht der Ort,
-an dem Zeit verloren geht; ein Umbau hier riskierte Lebensdauer-Fehler für nichts.
+`request.clone()` in [caching.rs:61](crates/alpendns/src/caching.rs#L61) and the
+clones in [transport.rs](crates/alpendns/src/upstream/transport.rs) are cheap: a
+request carries only its question, no answers. **Rejected:** not the place where time
+is lost; a rework here would risk lifetime errors for nothing.
 
 ---
 
-## Was als Nächstes passieren muss
+## What has to happen next
 
-Die ausstehenden Kandidaten sind isoliert — je ein `perf/<thema>`-Branch, nie auf
-`main` — umzusetzen und gegen die Baseline zu messen. Erst ein Ansatz mit
-nachgewiesenem Nutzen kommt zurück. Die Reihenfolge der Messung sollte der Spalte
-„Aufwand" folgen, nicht dem vermuteten Gewinn: die drei S-Kandidaten (2, 3, 4)
-sind je ein Nachmittag und liefern schnell eine belastbare Entscheidung.
+The pending candidates are to be implemented in isolation — one `perf/<topic>` branch
+each, never on `main` — and measured against the baseline. Only an approach with a
+proven benefit comes back. The order of measurement should follow the "Effort"
+column, not the assumed gain: the three S candidates (2, 3, 4) are an afternoon each
+and quickly deliver a decision you can stand on.
 
-Diese Analyse ändert nichts am `main`-Zweig und nichts an der laufenden
-Praxistest-Woche — sie ist die Grundlage dafür, *nach* der Abnahme mit Messungen
-zu entscheiden, was davon sich lohnt.
+This analysis changes nothing on the `main` branch and nothing in the running
+field-test week — it is the basis for deciding *after* acceptance, with measurements,
+which of these is worth it.

@@ -1,491 +1,471 @@
 # Benchmarks
 
-Zahlen, keine Behauptungen. Jede Phase erhebt sie neu (docs/TESTING.md §5); alte
-Werte bleiben stehen, damit Veränderungen sichtbar sind.
+Numbers, not claims. Every phase collects them anew (docs/TESTING.md §5); old values stay
+in place so that changes remain visible.
 
-Alle Messungen laufen gegen einen **Fake-Upstream im selben Prozess**. Tests und
-Messungen kontaktieren nie echte Resolver. Das drückt die Zahlen in eine Richtung,
-die man beim Lesen mitdenken muss: der Fake antwortet ohne Netzwerklatenz, deshalb
-ist der Vorteil des Caches hier **unter**schätzt. Gegen einen echten Upstream über
-DoT liegt zwischen Cache-Treffer und Upstream-Anfrage nicht ein Faktor 3, sondern
-die Round-Trip-Zeit ins Internet.
+All measurements run against a **fake upstream in the same process**. Tests and
+measurements never contact real resolvers. That pushes the numbers in one direction that
+you have to keep in mind while reading: the fake answers without network latency, so the
+cache's advantage is **under**estimated here. Against a real upstream over DoT, the gap
+between a cache hit and an upstream request is not a factor of 3 but the round-trip time
+into the internet.
 
-## Messmaschine
+## Test machine
 
 | | |
 |---|---|
-| CPU | AMD Ryzen 5 5600X, 6 Kerne / 12 Threads |
+| CPU | AMD Ryzen 5 5600X, 6 cores / 12 threads |
 | RAM | 31 GiB |
 | Kernel | Linux 7.0.0-30-generic |
-| Rust | 1.98.0, Profil `release` (`lto = "thin"`, `codegen-units = 1`) |
+| Rust | 1.98.0, `release` profile (`lto = "thin"`, `codegen-units = 1`) |
 
-Die Zahlen sind maschinenabhängig. Aussagekräftig ist der Vergleich der Zeilen
-untereinander, nicht der Absolutwert.
+The numbers depend on the machine. What is meaningful is the comparison of the rows with
+each other, not the absolute value.
 
-## Reproduzieren
+## Reproducing
 
 ```bash
 cargo test --release --test load -- --ignored --nocapture --test-threads=1
 ```
 
-`--test-threads=1` ist Pflicht — sonst laufen die Messungen gleichzeitig und
-konkurrieren um dieselben Kerne, was den Durchsatz um rund ein Drittel drückt.
+`--test-threads=1` is mandatory — otherwise the measurements run at the same time and
+compete for the same cores, which pushes throughput down by around a third.
 
-`dnsperf` (docs/TESTING.md §5) ist auf der Entwicklungsmaschine nicht installiert;
-der Lastgenerator in `crates/alpendns/tests/load.rs` ersetzt es vorerst. Er hat
-gegenüber `dnsperf` einen Vorteil und einen Nachteil: er läuft ohne
-Systempaket-Installation und misst reproduzierbar denselben Aufbau — dafür ist er
-kein etabliertes Werkzeug, dessen Zahlen mit anderen Projekten vergleichbar wären.
+`dnsperf` (docs/TESTING.md §5) is not installed on the development machine; for now the
+load generator in `crates/alpendns/tests/load.rs` replaces it. Compared with `dnsperf` it
+has one advantage and one disadvantage: it runs without installing a system package and
+measures the same setup reproducibly — but it is not an established tool whose numbers
+would be comparable with other projects.
 
 ---
 
-## Phase 2 — Cache · gemessen am 2026-08-29
+## Phase 2 — Cache · measured on 2026-08-29
 
-16 Clients × 2000 Anfragen = 32 000 Anfragen je Durchlauf.
+16 clients × 2,000 requests = 32,000 requests per run.
 
-| Korpus | Anfragen/s | Upstream-Anfragen |
+| Corpus | Requests/s | Upstream requests |
 |---|---:|---:|
-| jede Anfrage ein neuer Name | 103 317 | 32 000 |
-| immer derselbe Name | 341 761 | **1** |
+| every request a new name | 103,317 | 32,000 |
+| always the same name | 341,761 | **1** |
 
-Faktor 3,3 beim Durchsatz. Die wichtigere Spalte ist die rechte: bei wiederholtem
-Korpus erreicht genau **eine** Anfrage den Upstream. Das ist nicht nur eine
-Leistungs-, sondern eine Privacy-Aussage — der Upstream sieht 32 000 Anfragen
-weniger.
+Factor 3.3 in throughput. The more important column is the right one: with a repeated
+corpus exactly **one** request reaches the upstream. That is not only a performance
+statement but a privacy statement — the upstream sees 32,000 fewer requests.
 
-### Speicher bei Verdrängung
+### Memory under eviction
 
-`max_entries = 10 000`, fünf Runden mit je 32 000 **neuen** Namen (160 000 insgesamt,
-also das Sechzehnfache der Cache-Größe):
+`max_entries = 10,000`, five rounds of 32,000 **new** names each (160,000 in total, that
+is sixteen times the cache size):
 
 | | RSS |
 |---|---:|
-| nach 1 Runde | 13 420 KiB |
-| nach 5 Runden | 14 184 KiB |
-| Zuwachs | 764 KiB |
+| after 1 round | 13,420 KiB |
+| after 5 rounds | 14,184 KiB |
+| growth | 764 KiB |
 
-Ohne funktionierende LRU-Verdrängung müsste der Speicher hier linear mitwachsen.
-Er tut es nicht.
+Without working LRU eviction, memory would have to grow linearly here. It does not.
 
 ---
 
-## Phase 3 — nach 0x20, Cookies und ECS-Stripping · gemessen am 2026-08-29
+## Phase 3 — after 0x20, cookies and ECS stripping · measured on 2026-08-29
 
-Derselbe Aufbau. Interessant war, was die Privacy-Mechanismen auf dem Klartext-Weg
-kosten: 0x20 würfelt für jede Anfrage die Schreibweise des Namens neu, Cookies
-hängen eine EDNS-Option an.
+Same setup. What was interesting was what the privacy mechanisms cost on the plaintext
+path: 0x20 re-rolls the spelling of the name for every request, cookies attach an EDNS
+option.
 
-| Korpus | Anfragen/s | vorher | Upstream-Anfragen |
+| Corpus | Requests/s | before | Upstream requests |
 |---|---:|---:|---:|
-| jede Anfrage ein neuer Name | 110 106 | 103 317 | 32 000 |
-| immer derselbe Name | 347 726 | 341 761 | **1** |
+| every request a new name | 110,106 | 103,317 | 32,000 |
+| always the same name | 347,726 | 341,761 | **1** |
 
-Faktor 3,2. Die Unterschiede liegen im Rauschen der Messung — die Privacy-Schicht
-kostet nichts Messbares.
+Factor 3.2. The differences are within the noise of the measurement — the privacy layer
+costs nothing measurable.
 
 | | RSS |
 |---|---:|
-| nach 1 Runde | 13 860 KiB |
-| nach 5 Runden | 14 680 KiB |
-| Zuwachs | 820 KiB |
+| after 1 round | 13,860 KiB |
+| after 5 rounds | 14,680 KiB |
+| growth | 820 KiB |
 
-**Nicht gemessen:** der verschlüsselte Weg. Ein DoT- oder DoQ-Handshake gegen einen
-Fake im selben Prozess misst vor allem die Krypto-Bibliothek, nicht AlpenDNS. Die
-Zahl, die zählt, ist ohnehin die Latenz zum echten Upstream — im Smoke-Test lagen
-Quad9 (DoT) bei 34 ms und Mullvad (DoH) bei 113 ms.
+**Not measured:** the encrypted path. A DoT or DoQ handshake against a fake in the same
+process mainly measures the crypto library, not AlpenDNS. The number that counts is the
+latency to the real upstream anyway — in the smoke test Quad9 (DoT) was at 34 ms and
+Mullvad (DoH) at 113 ms.
 
 ---
 
-## Phase 4 — Blocklisten · gemessen am 2026-08-29
+## Phase 4 — Blocklists · measured on 2026-08-29
 
-Zwei Millionen Einträge, wie es das Abnahmekriterium verlangt.
+Two million entries, as the acceptance criterion demands.
 
 ### Matcher
 
 | | |
 |---|---:|
-| Liste parsen (hosts-Format) | 396 ms |
-| Matcher bauen | 795 ms |
-| Nachschlagen, Treffer | p50 230 ns · p99 620 ns |
-| Nachschlagen, kein Treffer | p50 390 ns · p99 880 ns |
+| Parsing the list (hosts format) | 396 ms |
+| Building the matcher | 795 ms |
+| Lookup, hit | p50 230 ns · p99 620 ns |
+| Lookup, no hit | p50 390 ns · p99 880 ns |
 
-Der teurere Fall ist der Nicht-Treffer: er läuft alle Suffix-Ebenen durch, während
-ein Treffer meist auf der ersten hängen bleibt. Genau deshalb wird er getrennt
-gemessen — im Betrieb ist er der Normalfall.
+The more expensive case is the miss: it walks all suffix levels, while a hit usually stops
+at the first one. That is exactly why it is measured separately — in operation it is the
+normal case.
 
-### Speicher
+### Memory
 
 | | RSS |
 |---|---:|
-| vorher | 3 588 KiB |
-| mit Matcher | 326 460 KiB |
-| nach dem Freigeben des Matchers | 191 292 KiB |
-| **Matcher selbst** | **135 168 KiB — rund 69 Byte je Eintrag** |
+| before | 3,588 KiB |
+| with matcher | 326,460 KiB |
+| after freeing the matcher | 191,292 KiB |
+| **matcher itself** | **135,168 KiB — around 69 bytes per entry** |
 
-Die naheliegende Zahl (322 MB Zuwachs) wäre falsch: darin stecken die Liste im
-Rohtext und die geparsten Einträge, die es beim Aufbau zusätzlich gab, plus das,
-was der Allokator nach dem Freigeben nicht ans System zurückgibt. Die dritte Zeile
-trennt beides.
+The obvious number (322 MB of growth) would be wrong: it contains the list in raw text and
+the parsed entries that existed additionally during construction, plus what the allocator
+does not return to the system after freeing. The third row separates the two.
 
-### Anfrage aus dem Cache bei geladenen zwei Millionen Einträgen
+### Request from the cache with two million entries loaded
 
 | | |
 |---|---:|
-| p50 | 18,8 µs |
-| **p99** | **28,1 µs** |
-| p999 | 37,6 µs |
+| p50 | 18.8 µs |
+| **p99** | **28.1 µs** |
+| p999 | 37.6 µs |
 
-Das Abnahmekriterium verlangt unter 1 ms. Konsequenz für die Datenstruktur:
+The acceptance criterion demands under 1 ms. Consequence for the data structure:
 [ADR-0008](adr/0008-hashmap-statt-bloom-und-trie.md).
 
-### Durchsatz unverändert
+### Throughput unchanged
 
-| Korpus | Anfragen/s | Phase 3 | Upstream-Anfragen |
+| Corpus | Requests/s | Phase 3 | Upstream requests |
 |---|---:|---:|---:|
-| jede Anfrage ein neuer Name | 104 838 | 110 106 | 32 000 |
-| immer derselbe Name | 323 740 | 347 726 | **1** |
+| every request a new name | 104,838 | 110,106 | 32,000 |
+| always the same name | 323,740 | 347,726 | **1** |
 
-Der Filter liegt vor dem Cache und wird damit bei *jeder* Anfrage befragt. Dass der
-Durchsatz trotzdem im Rauschen der Vormessung bleibt, passt zu den 880 ns pro
-Nachschlag.
-
----
-
-## Phase 7 — Zählstruktur hinter der k-Schwelle · gemessen am 2026-08-30
-
-Der Count-Min-Sketch gegen eine exakte Tabelle. Beide im selben Durchlauf
-gemessen, damit die Speicherzahlen vergleichbar sind. `k = 5`, jeder Name wird
-fünfmal gefragt — ein Name, der die Schwelle also **genau** erreicht.
-
-### 50 000 verschiedene Namen · 250 000 Anfragen
-
-| | Sketch | exakt |
-|---|---:|---:|
-| Speicher | 4 168 KiB | 2 180 KiB |
-| je Eintrag | 109 ns | 42 ns |
-| je Abfrage | 99 ns | 34 ns |
-| Fehlerschranke | 2 | 0 |
-| **Namen über der Schwelle** | **45** | **50 000** |
-
-### 200 000 verschiedene Namen · 1 000 000 Anfragen
-
-| | Sketch | exakt |
-|---|---:|---:|
-| Speicher | 4 096 KiB | 4 356 KiB |
-| je Eintrag | 78 ns | 54 ns |
-| je Abfrage | 74 ns | 40 ns |
-| Fehlerschranke | 11 | 0 |
-| **Namen über der Schwelle** | **0** | **200 000** |
-
-Die letzte Zeile ist die Zahl, um die es geht. Der Sketch überschätzt, deshalb
-prüft die Schwelle auf der unteren Schätzgrenze — und die ist
-`Schätzung − Fehlerschranke`. Bei 250 000 Anfragen liegt die Schranke bei 2, ein
-fünfmal gefragter Name kommt also mit 3 an und bleibt unter `k = 5`: von 50 000
-Namen schaffen es 45. Bei einer Million Anfragen liegt die Schranke bei 11, und
-die Statistik ist **leer**.
-
-Das ist kein Fehler in der Umsetzung — die untere Schranke ist genau richtig, und
-FEATURES.md P1 hatte diese Grenze vorhergesagt. Es ist die Struktur, die für
-diese Größenordnung nicht taugt: sie ist für Datenströme gebaut, deren
-Kardinalität nicht in den Speicher passt. Bei einem Haushalts-Resolver passt sie.
-
-Speicher und Zeit sind das Nebenergebnis: exakt gezählt ist es bei 50 000 Namen
-halb so viel Speicher und rund doppelt so schnell; bei 200 000 Namen — der
-Obergrenze der Tabelle — kostet es etwa gleich viel.
-
-Allein gemessen, ohne den Sketch davor im selben Prozess, liegt die exakte
-Tabelle bei **1 384 KiB** (50 000 Namen) und **6 532 KiB** (200 000 Namen). Die
-Differenz zur Tabelle oben ist Allokator-Verhalten, nicht Struktur: dort wurden
-gerade 4 MiB Sketch freigegeben. Die 6,5 MB im Vollausbau sind die ehrliche
-Obergrenze, und sie ist gedeckelt — mehr als `MAX_TRACKED` Namen nimmt die
-Tabelle nicht auf.
-
-Konsequenz: [ADR-0015](adr/0015-exakte-zaehlung-statt-sketch.md).
+The filter sits before the cache and is therefore consulted on *every* request. That
+throughput nevertheless stays within the noise of the previous measurement fits the 880 ns
+per lookup.
 
 ---
 
-## Phase 7 — Live-Strom unter Last · gemessen am 2026-08-30
+## Phase 7 — Counting structure behind the k threshold · measured on 2026-08-30
 
-**Anlass:** Die Web-UI hing bei einem Lasttest und zeigte nur noch alle paar
-Sekunden ein Update. Die Ursache lag nicht im Browser, sondern in der
-Schnittstelle: der Server schickte **eine SSE-Nachricht je Anfrage**.
+The count-min sketch against an exact table. Both measured in the same run so that the
+memory figures are comparable. `k = 5`, every name is asked five times — a name that
+therefore hits the threshold **exactly**.
 
-Gemessen gegen einen laufenden Server auf Port 15353 mit einer lokalen
-Blockliste (alle Anfragen werden lokal beantwortet, kein Upstream im Spiel).
-Der Lastgenerator ist ein UDP-Flooder ohne Antwort-Auswertung, `dnsperf` ist auf
-dieser Maschine nach wie vor nicht installiert. Das Binary lief im
-Profil `dev` — die absoluten Durchsatzzahlen sind deshalb *keine* Aussage über
-die Leistung des Resolvers, nur der Rahmen für den Vergleich darunter.
+### 50,000 distinct names · 250,000 requests
 
-| | vorher (rechnerisch) | nachher (gemessen) |
+| | Sketch | exact |
+|---|---:|---:|
+| Memory | 4,168 KiB | 2,180 KiB |
+| per entry | 109 ns | 42 ns |
+| per query | 99 ns | 34 ns |
+| error bound | 2 | 0 |
+| **names above the threshold** | **45** | **50,000** |
+
+### 200,000 distinct names · 1,000,000 requests
+
+| | Sketch | exact |
+|---|---:|---:|
+| Memory | 4,096 KiB | 4,356 KiB |
+| per entry | 78 ns | 54 ns |
+| per query | 74 ns | 40 ns |
+| error bound | 11 | 0 |
+| **names above the threshold** | **0** | **200,000** |
+
+The last row is the number this is about. The sketch overestimates, so the threshold
+checks against the lower estimate bound — and that is `estimate − error bound`. At 250,000
+requests the bound stands at 2, so a name asked five times arrives with 3 and stays below
+`k = 5`: of 50,000 names, 45 make it. At one million requests the bound stands at 11 and
+the statistics are **empty**.
+
+That is not a bug in the implementation — the lower bound is exactly right, and
+FEATURES.md P1 had predicted this limit. It is the structure that is unsuitable for this
+order of magnitude: it is built for data streams whose cardinality does not fit in memory.
+For a household resolver it does fit.
+
+Memory and time are the side result: with exact counting it is half the memory at 50,000
+names and roughly twice as fast; at 200,000 names — the table's upper bound — it costs
+about the same.
+
+Measured on its own, without the sketch before it in the same process, the exact table
+sits at **1,384 KiB** (50,000 names) and **6,532 KiB** (200,000 names). The difference from
+the table above is allocator behaviour, not structure: 4 MiB of sketch had just been freed
+there. The 6.5 MB at full size are the honest upper bound, and it is capped — the table
+does not take in more than `MAX_TRACKED` names.
+
+Consequence: [ADR-0015](adr/0015-exakte-zaehlung-statt-sketch.md).
+
+---
+
+## Phase 7 — Live stream under load · measured on 2026-08-30
+
+**Occasion:** the web UI hung during a load test and showed an update only every few
+seconds. The cause was not in the browser but in the interface: the server sent **one SSE
+message per request**.
+
+Measured against a running server on port 15353 with a local blocklist (all requests are
+answered locally, no upstream involved). The load generator is a UDP flooder without
+response evaluation, `dnsperf` is still not installed on this machine either. The binary
+ran in the `dev` profile — the absolute throughput figures are therefore *not* a statement
+about the resolver's performance, only the frame for the comparison below.
+
+| | before (calculated) | after (measured) |
 |---|---|---|
-| Anfragen in 5 s | 484 294 | 484 294 |
-| SSE-Nachrichten | 484 294 | **151** |
-| JSON-Frames je Sekunde | ~97 000 | 25 |
-| DOM-Zeilen je Sekunde im Browser | ~97 000 | 25 |
+| Requests in 5 s | 484,294 | 484,294 |
+| SSE messages | 484,294 | **151** |
+| JSON frames per second | ~97,000 | 25 |
+| DOM rows per second in the browser | ~97,000 | 25 |
 
-Von den 151 Nachrichten trugen 5 ein `skipped`-Feld, zusammen 428 471
-ausgelassene Anfragen — je eine zu Beginn jeder Sekunde. Der Puls bleibt damit
-vollständig, obwohl 99,97 % der Nachrichten entfallen.
+Of the 151 messages, 5 carried a `skipped` field, together 428,471 skipped requests — one
+at the start of each second. The pulse thus remains complete even though 99.97 % of the
+messages are omitted.
 
-**Kostet ein offenes GUI den Resolver etwas?** Zweimal 4 s Flut, einmal ohne und
-einmal mit offener SSE-Verbindung:
+**Does an open GUI cost the resolver anything?** Twice a 4 s flood, once without and once
+with an open SSE connection:
 
-| | beantwortete Anfragen in 4 s |
+| | Requests answered in 4 s |
 |---|---|
-| ohne offenes GUI | 354 497 |
-| mit offenem GUI | 387 734 |
+| without an open GUI | 354,497 |
+| with an open GUI | 387,734 |
 
-Der Unterschied liegt innerhalb der Streuung zwischen zwei Läufen; ein
-mitlesendes GUI ist im Rauschen nicht mehr zu finden. Vorher kostete es den
-Server je Anfrage einen formatierten Zeitstempel, mehrere Allokationen und eine
-JSON-Serialisierung.
+The difference lies within the spread between two runs; a GUI reading along can no longer
+be found in the noise. Before, it cost the server a formatted timestamp, several
+allocations and a JSON serialisation per request.
 
-**Im Normaltempo wird nichts ausgelassen:** 12 Anfragen im Abstand von 250 ms
-ergaben 12 Nachrichten, keine davon mit `skipped`. Die Grenze greift erst
-oberhalb von 25 Anfragen pro Sekunde — schneller kann ohnehin niemand mitlesen.
+**At normal pace nothing is omitted:** 12 requests at 250 ms intervals yielded 12 messages,
+none of them with `skipped`. The limit only takes effect above 25 requests per second —
+nobody can read along faster than that anyway.
 
-Die Browser-Seite ist nicht separat vermessen (dafür fehlt hier ein Browser).
-Geändert sind dort drei Dinge, deren Wirkung sich aus der Zahl oben ergibt:
-Ereignisse werden gesammelt und einmal je Bild gezeichnet statt einzeln, die
-Tabelle hat einen Zuhörer statt zwei je Zeile, und eine unsichtbare Seite
-zeichnet und pollt nicht mehr.
+The browser side is not measured separately (no browser is available here). Three things
+were changed there, whose effect follows from the number above: events are collected and
+drawn once per frame instead of individually, the table has one listener instead of two per
+row, and an invisible page no longer draws and polls.
 
 ---
 
-## Phase 8 — Heuristiken · gemessen am 2026-08-30
+## Phase 8 — Heuristics · measured on 2026-08-30
 
-**Messaufbau.** Zwei Korpora aus der Majestic Million (CC-BY 3.0), beide unter
-`corpus/` und beide nicht im Repo:
+**Measurement setup.** Two corpora from the Majestic Million (CC-BY 3.0), both under
+`corpus/` and both not in the repo:
 
-| Datei | Ränge | Zweck |
+| File | Ranks | Purpose |
 |---|---|---|
-| `train-500k.txt` | 100 001 – 600 000 | Training des DGA-Modells |
-| `top-100k.txt` | 1 – 100 000 | Messung |
+| `train-500k.txt` | 100,001 – 600,000 | training the DGA model |
+| `top-100k.txt` | 1 – 100,000 | measurement |
 
-Reproduzierbar mit `cargo test --release --test detect_corpus -- --ignored
-measure --nocapture`; die Anleitung zum Beschaffen steht im Kopf derselben Datei
-und in [TESTING.md](TESTING.md).
+Reproducible with `cargo test --release --test detect_corpus -- --ignored
+measure --nocapture`; instructions for obtaining them are in the header of the same file
+and in [TESTING.md](TESTING.md).
 
-### Warum zwei Korpora, und was der erste Anlauf gekostet hat
+### Why two corpora, and what the first attempt cost
 
-Der erste Messlauf trainierte und maß auf **derselben** Top-100k und meldete
-0,001 % Falsch-Positive. Auf ungesehenen Namen waren es **0,54 %** — Faktor 500.
-Ein Modell erkennt die Namen wieder, aus denen es gebaut wurde. Seither wird auf
-den Rängen dahinter trainiert und auf der Top-100k gemessen, die kein einziges
-Mal ins Modell eingegangen ist.
+The first measurement run trained and measured on the **same** top-100k and reported
+0.001 % false positives. On unseen names it was **0.54 %** — a factor of 500. A model
+recognises the names it was built from. Since then training happens on the ranks behind
+and measurement on the top-100k, which never entered the model a single time.
 
-Die Zahl darunter ist die zweite, nicht die erste.
+The number below is the second, not the first.
 
-### DGA-Erkennung
+### DGA detection
 
-Schwelle 0,75. **77 von 100 000 Namen gemeldet — 0,077 %**, gegen eine Zusage von
-0,1 %.
+Threshold 0.75. **77 of 100,000 names reported — 0.077 %**, against a promise of 0.1 %.
 
-| Schwelle | Falsch-Positive | alphanumerisch | necurs-artig | conficker-artig |
+| Threshold | False positives | alphanumeric | necurs-like | conficker-like |
 |---:|---:|---:|---:|---:|
-| 0,70 | 0,098 % | 93,8 % | 47,0 % | 33,2 % |
-| **0,75** | **0,077 %** | **92,8 %** | **40,6 %** | **28,6 %** |
-| 0,80 | 0,039 % | 38,8 % | 31,9 % | 18,7 % |
+| 0.70 | 0.098 % | 93.8 % | 47.0 % | 33.2 % |
+| **0.75** | **0.077 %** | **92.8 %** | **40.6 %** | **28.6 %** |
+| 0.80 | 0.039 % | 38.8 % | 31.9 % | 18.7 % |
 
-0,75 steht unmittelbar vor der Kante: bei 0,80 bricht die alphanumerische
-Familie von 92,8 % auf 38,8 % ein, während die Fehlalarme nur von 77 auf 39
-zurückgehen. Bei 0,70 bliebe keine Reserve unter der Zusage.
+0.75 sits immediately before the edge: at 0.80 the alphanumeric family collapses from
+92.8 % to 38.8 %, while the false alarms only fall from 77 to 39. At 0.70 no reserve would
+remain under the promise.
 
-**Trefferquote je Familie** (je 5000 nachgebaute Namen, Schwelle 0,75):
+**Hit rate per family** (5,000 rebuilt names each, threshold 0.75):
 
-| Familie | Ø Überraschung | Trefferquote |
+| Family | Avg. surprise | Hit rate |
 |---|---:|---:|
-| alphanumerisch | 7,92 Bit | 92,8 % |
-| necurs-artig | 6,17 Bit | 40,6 % |
-| conficker-artig | 6,01 Bit | 28,6 % |
-| kraken-artig (aussprechbar) | 4,79 Bit | 0,5 % |
-| suppobox-artig (Wörterbuch) | 3,45 Bit | 0,0 % |
+| alphanumeric | 7.92 bit | 92.8 % |
+| necurs-like | 6.17 bit | 40.6 % |
+| conficker-like | 6.01 bit | 28.6 % |
+| kraken-like (pronounceable) | 4.79 bit | 0.5 % |
+| suppobox-like (dictionary) | 3.45 bit | 0.0 % |
 
-Zum Vergleich gewachsene Namen: Median 3,69 Bit, 99 % bei 6,24, Maximum 10,73.
-**Die Verteilungen überlappen** — ein aussprechbar erzeugter Name *ist*
-statistisch ein gewachsener Name. Die letzten beiden Zeilen sind deshalb keine
-Lücke in der Umsetzung, sondern die Grenze des Verfahrens (FEATURES.md D3), und
-sie stehen als Test in `dga::tests::a_word_list_dga_is_honestly_not_detected`.
+For comparison, grown names: median 3.69 bit, 99 % at 6.24, maximum 10.73.
+**The distributions overlap** — a pronounceably generated name *is*, statistically, a
+grown name. The last two rows are therefore not a gap in the implementation but the limit
+of the method (FEATURES.md D3), and they stand as a test in
+`dga::tests::a_word_list_dga_is_honestly_not_detected`.
 
-**Zwei Klassen systematischer Fehlalarme sind dabei verschwunden:**
+**Two classes of systematic false alarm have disappeared in the process:**
 
-* *Punycode.* Vier der zwanzig auffälligsten Namen im ersten Lauf waren IDNs —
-  `xn--vhqrb498dfmcffp24qfocl09dqkh.cn` sieht für ein lateinisches Zeichenmodell
-  aus wie base32. Sie werden nicht mehr bewertet; ein benannter blinder Fleck ist
-  besser als ein Fehlalarm für ganze Sprachräume.
-* *Private Suffixe.* `d1a2b3c4e5.cloudfront.net` ist ein erzeugter Name — nur
-  vergibt ihn der Anbieter so, und `cloudfront.net` steht selbst in der Public
-  Suffix List. Unterhalb eines privaten Suffixes wird nicht mehr bewertet.
+* *Punycode.* Four of the twenty most conspicuous names in the first run were IDNs —
+  `xn--vhqrb498dfmcffp24qfocl09dqkh.cn` looks like base32 to a Latin character model.
+  They are no longer assessed; a named blind spot is better than a false alarm for entire
+  language areas.
+* *Private suffixes.* `d1a2b3c4e5.cloudfront.net` is a generated name — it is just that the
+  provider hands them out that way, and `cloudfront.net` is itself in the Public Suffix
+  List. Below a private suffix nothing is assessed any more.
 
-Was bleibt, sind zum größten Teil **Pinyin-Kürzel**: `hnqxdzkj.com`,
-`lzdsxxb.com`, `pzhsdqfybjfwzx.cn`. Gewachsene Namen aus Anfangsbuchstaben
-chinesischer Silben, für ein Modell über lateinischem Text nicht von Zufall zu
-unterscheiden.
+What remains is for the most part **Pinyin abbreviations**: `hnqxdzkj.com`, `lzdsxxb.com`,
+`pzhsdqfybjfwzx.cn`. Grown names from the initial letters of Chinese syllables,
+indistinguishable from randomness for a model over Latin text.
 
-### Tunneling-Erkennung
+### Tunnelling detection
 
-Schwelle 0,75. **0 von 100 000 Namen gemeldet — 0,0000 %.**
+Threshold 0.75. **0 of 100,000 names reported — 0.0000 %.**
 
-Der Korpus wird dabei so eingespielt, wie er im schlimmsten Fall aussähe: alle
-100 000 Namen innerhalb eines Fensters von fünf Minuten. Das ist weit mehr
-Verkehr, als ein Haushalt erzeugt.
+The corpus is fed in here the way it would look in the worst case: all 100,000 names
+within a window of five minutes. That is far more traffic than a household generates.
 
-| Verkehr | Score |
+| Traffic | Score |
 |---|---:|
-| 20 Hosts unter einer Zone, je fünfmal gefragt | 0,17 |
-| `dnscat2`-artig (hex, 36 Zeichen, TXT) | 0,81 |
-| `iodine`-artig (base32, 58 Zeichen, TXT) | 1,00 |
+| 20 hosts under one zone, each asked five times | 0.17 |
+| `dnscat2`-like (hex, 36 characters, TXT) | 0.81 |
+| `iodine`-like (base32, 58 characters, TXT) | 1.00 |
 
-Die Schwelle steht am **unteren** Rand der Treffer und nicht in der Mitte der
-Lücke: `dnscat2` kodiert hexadezimal und kommt über 4 Bit Entropie nicht hinaus,
-liegt also knapp über 0,8. Bei 0,8 als Schwelle entschiede die zweite
-Nachkommastelle darüber, ob der verbreitetste Tunnel auffällt.
+The threshold sits at the **lower** edge of the hits and not in the middle of the gap:
+`dnscat2` encodes in hexadecimal and gets no further than 4 bits of entropy, so it lies
+just above 0.8. With 0.8 as the threshold, the second decimal place would decide whether
+the most widespread tunnel stands out.
 
-### Typosquat-Wächter
+### Typosquat guard
 
-Schutzliste mit fünf Domains gegen dieselben 100 000 Namen: **18 Meldungen,
-0,018 %**. Keine davon ist eine der geschützten Domains selbst — das ist der Teil
-des Kriteriums, der zählt.
+Protection list with five domains against the same 100,000 names: **18 reports,
+0.018 %**. None of them is one of the protected domains itself — that is the part of the
+criterion that counts.
 
-### Was die Detektoren den Anfragepfad kosten
+### What the detectors cost the request path
 
-Die Frage ist nicht rhetorisch: die Tunneling-Erkennung nimmt bei **jeder**
-Anfrage einen `Mutex` über einer Tabelle, und CLAUDE.md B.3 Regel 5 sagt "kein
-globaler Mutex im Anfragepfad".
+The question is not rhetorical: tunnelling detection takes a `Mutex` over a table on
+**every** request, and CLAUDE.md B.3 rule 5 says "no global mutex in the request path".
 
-Gemessen mit dem Lastgenerator aus Phase 2, lauter neue Namen — nur dann laufen
-die Detektoren wirklich bei jeder Anfrage (`cargo test --release --test load --
---ignored throughput_with_and_without_detectors`). Drei Läufe:
+Measured with the load generator from phase 2, all new names — only then do the detectors
+really run on every request (`cargo test --release --test load -- --ignored
+throughput_with_and_without_detectors`). Three runs:
 
-| Lauf | ohne Detektoren | mit vier Detektoren | Anteil |
+| Run | without detectors | with four detectors | Share |
 |---|---:|---:|---:|
-| 1 | 96 191 /s | 87 065 /s | 90,5 % |
-| 2 | 100 707 /s | 85 689 /s | 85,1 % |
-| 3 | 97 127 /s | 88 064 /s | 90,7 % |
+| 1 | 96,191 /s | 87,065 /s | 90.5 % |
+| 2 | 100,707 /s | 85,689 /s | 85.1 % |
+| 3 | 97,127 /s | 88,064 /s | 90.7 % |
 
-**Rund 10 % Durchsatz**, im schlechtesten Lauf 15 %. Das ist kein Rauschen,
-sondern ein Preis — und er ist bezahlbar: 87 000 Anfragen pro Sekunde sind für
-einen Haushalts-Resolver drei Größenordnungen über dem, was je gebraucht wird.
+**Around 10 % throughput**, 15 % in the worst run. That is not noise but a price — and it
+is affordable: 87,000 requests per second is three orders of magnitude above what a
+household resolver will ever need.
 
-Der Mutex bleibt damit vorerst. Die Umkehrbedingung ist dieselbe wie bei
-[ADR-0008](adr/0008-hashmap-statt-bloom-und-trie.md): wenn diese Messung eines
-Tages unter zwei Drittel fällt — etwa weil mehr Detektoren dazukommen oder der
-Resolver auf schwächerer Hardware läuft —, gehört die Zonentabelle hinter ein
-`ArcSwap` oder eine Aufteilung nach Hash. Vorher wäre es Optimierung ohne
-Messung, und die verbietet Phase 4 ausdrücklich.
+The mutex therefore stays for now. The reversal condition is the same as with
+[ADR-0008](adr/0008-hashmap-statt-bloom-und-trie.md): if this measurement one day falls
+below two thirds — for instance because more detectors are added or the resolver runs on
+weaker hardware — the zone table belongs behind an `ArcSwap` or a split by hash. Before
+that it would be optimisation without measurement, and phase 4 explicitly forbids that.
 
-### Speicher
+### Memory
 
 | | |
 |---|---|
-| DGA-Modell im Binary | 109 744 Byte |
-| Tunneling-Zustand, Obergrenze | 4096 Zonen × höchstens 256 Hashes je Zone |
+| DGA model in the binary | 109,744 bytes |
+| Tunnelling state, upper bound | 4,096 zones × at most 256 hashes per zone |
 
-Beide Grenzen sind hart und stehen als Test da
-(`the_table_does_not_grow_with_traffic`, `the_unique_set_per_zone_is_bounded`):
-die Tabelle liegt im Anfragepfad und darf nicht mit dem Verkehr wachsen.
+Both bounds are hard and stand as a test (`the_table_does_not_grow_with_traffic`,
+`the_unique_set_per_zone_is_bounded`): the table lies in the request path and must not grow
+with traffic.
 
 ---
 
-## Phase 9 — Drosselung pro Client · gemessen am 2026-08-30
+## Phase 9 — Per-client rate limiting · measured on 2026-08-30
 
 ```bash
 cargo test --release --test load -- --ignored --nocapture --test-threads=1 \
     throughput_with_and_without_rate_limiting a_flooding_client
 ```
 
-Die Last kommt hier aus **16 verschiedenen Absenderadressen** (`127.0.0.1` bis
-`127.0.0.16`) und nicht wie in den früheren Läufen aus einer. Anders wäre die
-Messung sinnlos: aus einer Quelle wäre die einzige Frage, wie schnell ein Eimer
-leerläuft.
+The load here comes from **16 different sender addresses** (`127.0.0.1` to `127.0.0.16`)
+and not, as in the earlier runs, from one. Anything else would make the measurement
+pointless: from a single source the only question would be how fast a bucket empties.
 
-### Was die Drosselung den Anfragepfad kostet
+### What rate limiting costs the request path
 
-Das Limit steht dabei so hoch (1 000 000/s), dass nichts verworfen wird —
-gemessen wird der Weg durch den Token-Bucket, nicht seine Wirkung.
+The limit is set so high here (1,000,000/s) that nothing is discarded — what is measured is
+the way through the token bucket, not its effect.
 
-| Anfragepfad | Anfragen/s | p50 | p99 |
+| Request path | Requests/s | p50 | p99 |
 |---|---:|---:|---:|
-| ohne Drosselung | 85 788 /s | 145 µs | 663 µs |
-| mit Drosselung | 84 078 /s | 147 µs | 674 µs |
+| without rate limiting | 85,788 /s | 145 µs | 663 µs |
+| with rate limiting | 84,078 /s | 147 µs | 674 µs |
 
-**2 % Durchsatz**, p99 um 11 µs schlechter. Das ist der Preis für ein
-Pflichtstück (CLAUDE.md B.5), und er ist keiner: die Drosselung sitzt *vor* dem
-Parsen, ein verworfenes Paket kostet einen Hash und einen Vergleich.
+**2 % throughput**, p99 worse by 11 µs. That is the price for a mandatory piece
+(CLAUDE.md B.5), and it is not one: rate limiting sits *before* parsing, a discarded packet
+costs one hash and one comparison.
 
-RSS des Testprozesses über den ganzen Lauf: 31 272 KiB → 39 732 KiB, mit 16
-beobachteten Clients. Die Buchführung selbst ist gedeckelt (LRU, Default 8192
-Clients); der Zuwachs hier ist der Cache mit 32 000 neuen Namen, nicht der
-Limiter.
+RSS of the test process over the whole run: 31,272 KiB → 39,732 KiB, with 16 observed
+clients. The bookkeeping itself is capped (LRU, default 8,192 clients); the growth here is
+the cache with 32,000 new names, not the limiter.
 
-### Ein Störer neben normalen Clients
+### One troublemaker next to normal clients
 
-Ein Client feuert zehn Sekunden lang, so schnell er kann, gegen ein Limit von
-200/s (Spitze 400). Daneben laufen die 16 Messclients ihre übliche Last.
-
-| | |
-|---|---:|
-| Der Störer schickte | 2 746 620 Anfragen |
-| davon verworfen | 2 742 924 (99,87 %) |
-| Die übrigen Clients | 3 804 Anfragen/s, p50 157 µs, **p99 765 µs** |
-
-Der Befund, auf den es ankommt, ist die **p99 der übrigen Clients: 765 µs gegen
-674 µs im ungestörten Lauf**. Unter einer Flut von 274 000 Paketen je Sekunde
-bleibt die Antwortzeit für alle anderen praktisch unverändert — das ist es, was
-„andere IPs unbeeinflusst" heißen soll.
-
-Der Durchsatz der übrigen Clients fällt dabei von 84 000 auf 3 800 Anfragen/s,
-und das ist **kein** Ergebnis über die Drosselung: der Störer läuft als Task im
-selben Prozess auf denselben Kernen und verbrennt sie mit seiner eigenen
-Sendeschleife. Über echtes Netz wäre die Konkurrenz eine andere. Die Zahl steht
-hier, weil sie im Testausgang steht — nicht als Aussage über den Betrieb.
-
-### Anfragen/s, p99, RSS auf einen Blick
-
-Die drei Zahlen, die ROADMAP Phase 9 Schritt 7 verlangt, im Auslieferungszustand
-(Cache an, Drosselung an, keine Detektoren, lauter neue Namen — also der teure
-Fall, in dem der Cache nie hilft):
+One client fires for ten seconds as fast as it can against a limit of 200/s (burst 400).
+Alongside it the 16 measurement clients run their usual load.
 
 | | |
 |---|---:|
-| Durchsatz | **84 078 Anfragen/s** |
+| The troublemaker sent | 2,746,620 requests |
+| of which discarded | 2,742,924 (99.87 %) |
+| The other clients | 3,804 requests/s, p50 157 µs, **p99 765 µs** |
+
+The finding that matters is the **p99 of the other clients: 765 µs against 674 µs in the
+undisturbed run**. Under a flood of 274,000 packets per second, response time for everyone
+else stays practically unchanged — that is what "other IPs unaffected" is supposed to mean.
+
+The throughput of the other clients drops from 84,000 to 3,800 requests/s, and that is
+**not** a result about rate limiting: the troublemaker runs as a task in the same process
+on the same cores and burns them with its own send loop. Over a real network the
+competition would be different. The number stands here because it stands in the test output
+— not as a statement about operation.
+
+### Requests/s, p99, RSS at a glance
+
+The three numbers that ROADMAP phase 9 step 7 demands, in the delivery state (cache on,
+rate limiting on, no detectors, all new names — that is, the expensive case in which the
+cache never helps):
+
+| | |
+|---|---:|
+| Throughput | **84,078 requests/s** |
 | p99 | **674 µs** |
-| RSS am Ende des Laufs | **39 732 KiB** |
+| RSS at the end of the run | **39,732 KiB** |
 
 ---
 
-## TCP-Verbindungsaufbau unter den neuen Grenzen · gemessen am 2026-09-16
+## TCP connection setup under the new limits · measured on 2026-09-16
 
 ```bash
 cargo test --release --test load -- --ignored --nocapture --test-threads=1 \
     tcp_connection_setup_with_the_limits
 ```
 
-Der UDP-Durchsatz oben sagt über diese Änderung nichts: dort wird kein einziges
-Mal eine Verbindung aufgebaut. Die Grenzen aus TODOS Nr. 1 sitzen im
-Accept-Pfad, also misst dieser Lauf **Verbindungen je Sekunde mit je einer
-Anfrage**, von 16 Absenderadressen mit je 500 Verbindungen. Jeder Client kommt
-von einer eigenen Adresse — sonst greift vorher das Kontingent je Adresse und
-die Messung misst das Falsche.
+The UDP throughput above says nothing about this change: not a single connection is set up
+there. The limits from TODOS no. 1 sit in the accept path, so this run measures
+**connections per second with one request each**, from 16 sender addresses with 500
+connections each. Every client comes from its own address — otherwise the per-address
+allowance kicks in first and the measurement measures the wrong thing.
 
-Verglichen wird gegen den Stand vor der Änderung. Weil der alte Stand die
-Zähler nicht kennt, lief die Messung dort gegen eine Attrappe derselben
-Signatur (`with_tcp_stats` ohne Wirkung); der Accept-Pfad selbst blieb
-unangetastet.
+The comparison is against the state before the change. Because the old state does not know
+the counters, the measurement there ran against a stand-in with the same signature
+(`with_tcp_stats` without effect); the accept path itself was left untouched.
 
-| | Verbindungen/s |
+| | Connections/s |
 |---|---:|
-| vorher (Median aus 7 Läufen) | 31 068 |
-| nachher (Median aus 7 Läufen) | 29 030 |
-| Streuung je Seite | 27 300 – 33 900 |
+| before (median of 7 runs) | 31,068 |
+| after (median of 7 runs) | 29,030 |
+| Spread per side | 27,300 – 33,900 |
 
-**Der Unterschied liegt in der Streuung.** Ein Lauf allein sagt hier nichts:
-die Werte derselben Variante schwanken um bis zu 20 %, gegeneinander gemessen
-in wechselnder Reihenfolge. Was bleibt, ist die Aussage, die der Aufbau hergibt:
-ein Semaphor-Zugriff, ein Hash-Eintrag und ein `Arc` je Verbindung sind
-gegenüber einem TCP-Handshake nicht messbar. Die Grenzen kosten im
-Verbindungsaufbau nichts, was diese Maschine auflösen könnte.
+**The difference lies within the spread.** A single run says nothing here: the values of
+the same variant fluctuate by up to 20 %, measured against each other in alternating
+order. What remains is the statement the setup does support: one semaphore access, one hash
+entry and one `Arc` per connection are not measurable against a TCP handshake. The limits
+cost nothing in connection setup that this machine could resolve.
 
-Kein Wunder: sie greifen nur, wenn es schon zu spät ist. Im Normalbetrieb ist
-der Preis ein Zweig, der nie genommen wird.
+No wonder: they only take effect once it is already too late. In normal operation the price
+is a branch that is never taken.
