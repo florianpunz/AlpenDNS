@@ -164,4 +164,19 @@ why it needs none. "Compiles" is not done.
 This is the canonical definition; other documents point here rather than
 repeating the commands.
 
+While developing, there is no need to run the whole suite every time:
+
+```bash
+cargo test -p alpendns name_of_the_test  # a single test
+cargo test -p alpendns --lib parser::    # everything under a module path
+cargo test -p alpendns -- --nocapture    # see the test's output
+```
+
+And the fuzz target invoked by hand — nightly, and the only nightly exception
+in the project:
+
+```bash
+cargo +nightly fuzz run parse_message -- -max_total_time=120
+```
+
 The load measurement is explicitly **not** part of it (see §5).
