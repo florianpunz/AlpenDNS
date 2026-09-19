@@ -1,12 +1,12 @@
 # CLAUDE.md — AlpenDNS
 
-Diese Datei gilt für jeden Coding-Agenten, der in diesem Repository arbeitet.
-Sie besteht aus zwei Teilen: den allgemeinen Verhaltensregeln (Teil A, unverändert)
-und den projektspezifischen Regeln (Teil B).
+This file applies to every coding agent working in this repository. It has two
+parts: the general behavioral guidelines (part A, unchanged) and the
+project-specific rules (part B).
 
 ---
 
-## Teil A — Behavioral Guidelines
+## Part A — Behavioral Guidelines
 
 Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
 Tradeoff: These guidelines bias toward caution over speed. For trivial tasks, use judgment.
@@ -60,374 +60,334 @@ For multi-step tasks, state a brief plan:
 3. [Step] → verify: [check]
 
 ```
-
 Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
 
 ---
 
-## Teil B — Projektspezifisch: AlpenDNS
+## Part B — Project-specific: AlpenDNS
 
-### B.0 Was das hier ist
+### B.0 What this is
 
-AlpenDNS ist ein privacy-fokussierter DNS-Server in Rust für Linux (Debian/Ubuntu).
-v1 ist ein **forwarding resolver**: er nimmt Anfragen aus dem LAN entgegen, filtert sie
-gegen Blocklisten und Policies, und leitet sie verschlüsselt (DoT/DoH/DoQ) an Upstreams
-weiter. Eigene Rekursion ab den Root-Servern ist **kein** v1-Ziel und wird es
-möglicherweise nie. Die Architektur hält die Tür dafür offen (ein Trait hinter dem
-Cache), aber es wird nichts dafür vorgebaut.
+AlpenDNS is a privacy-focused DNS server in Rust for Linux (Debian/Ubuntu). v1
+is a **forwarding resolver**: it accepts queries from the LAN, filters them
+against blocklists and policies, and forwards them encrypted (DoT/DoH/DoQ) to
+upstreams. Recursion from the root servers is **not** a v1 goal and may never
+be. The architecture keeps the door open for it (a trait behind the cache), but
+nothing is built for it in advance.
 
-Vor jeder Arbeit: `docs/ROADMAP.md` lesen, dort steht die aktuelle Phase.
-Architektur und Begründungen: `docs/ARCHITECTURE.md`, `docs/adr/`.
+Before any work: read `docs/ROADMAP.md`, that is where the current phase is.
+Architecture and rationale: `docs/ARCHITECTURE.md`, `docs/adr/`.
 
-Der Autor ist Systemadministrator, kein ausgebildeter Softwareentwickler, und lernt an
-diesem Projekt. Das heißt konkret: erkläre nicht-offensichtliche Entscheidungen kurz im
-Commit oder in der Antwort, statt sie kommentarlos einzubauen. Ein Einzeiler
-"warum so und nicht anders" ist mehr wert als drei Absätze Doku.
+The author is a system administrator, not a trained software developer, and is
+learning on this project. Concretely: explain non-obvious decisions briefly in
+the commit or in the answer, rather than building them in without comment. One
+line of "why this way and not the other" is worth more than three paragraphs of
+documentation.
 
-**Stand:** Phasen 1 bis 9 sind umgesetzt. Abgenommen sind 1 bis 7 — bei Phase 6
-kam am 2026-08-31 der Blick eines Menschen auf die gerenderte UI dazu, bei
-Phase 7 läuft der CI-Workflow dauerhaft grün in GitHub Actions. Bei Phase 8
-und 9 läuft derselbe Praxistest: seit 2026-08-30 ist der Server der einzige
-Resolver im Homelab. Die **erste Periode ist am 2026-09-16 ausgewertet** —
-2 595 Rebinding-Fehlalarme, die ADR-0021 behebt, 7 DGA-Funde ohne einen
-einzigen Fehlalarm, und zwei Detektoren (Typosquat, NRD), die leer liefen und
-deshalb nichts beweisen. Die **zweite Periode läuft seit 2026-09-16 16:24**;
-erst nach ihrer Auswertung darf ein Detektor auf `block`. Zahlen und offene
-Lücken in `docs/ROADMAP.md` unter Phase 8, Anleitung in `docs/OPERATIONS.md` §6.
-Aus Phase 9 ist die Installation auf einem echten
-System mit einer Abweichung erledigt: das `.deb` wurde auf einem
-Ubuntu-Container installiert und läuft; die frische Debian-VM, die das
-Abnahmekriterium wörtlich verlangt, wird bei Gelegenheit nachgeholt. Der
-gesamte testbare Code liegt in der Library (`src/lib.rs` und die Module
-daneben), `main.rs` macht nur Start, Signale und Shutdown — Voraussetzung
-dafür, dass Module später ohne Umbau zu eigenen Crates werden.
+**Status:** phases 1–9 are implemented, 1–7 accepted; the acceptance run for 8
+and 9 is in progress in the real network. `docs/ROADMAP.md` is the canonical
+source for the phase state, the numbers and the open gaps — do not restate it
+here. How to run and evaluate the observation period: `docs/OPERATIONS.md` §6.
+Benchmark figures: `docs/BENCHMARKS.md`.
 
-Die Pipeline ist eine Kette von `ResolveBackend`-Implementierungen, von außen nach
-innen: `PolicyBackend` → `CachingBackend` → `ZoneRouter` → `Pool` → `Encrypted`
-(`Transport` für DoT/DoH/DoQ, `OdohBackend` für Oblivious DoH) bzw. `ForwardBackend`
-(Klartext, nur für `forward_zone`). Keine Schicht kennt die anderen. Die Policy-Auswertung liegt **vor** dem Cache, damit dieser die
-ungefilterte Antwort hält und alle Clients sie teilen können (ARCHITECTURE.md §4).
+The pipeline is a chain of `ResolveBackend` implementations, outside in:
+`PolicyBackend` → `CachingBackend` → `ZoneRouter` → `Pool` → `Encrypted`
+(`Transport` for DoT/DoH/DoQ, `OdohBackend` for Oblivious DoH) or
+`ForwardBackend` (cleartext, only for `forward_zone`). No layer knows the
+others; the diagram is in `docs/ARCHITECTURE.md` §1.
 
-`resolve` bekommt neben der Nachricht einen `Ctx` mit Client-Adresse und
-Decision-Trace. Der Trace entsteht immer, unabhängig vom Log-Modus, und **enthält
-Query-Namen**. Er verlässt die Pipeline an genau einer Stelle: `server::handle_request`
-übergibt ihn an `logging::QueryLog`, und nur dort entscheidet der konfigurierte
-Modus, was davon den Prozess überlebt (B.1 Regel 3, ADR-0004). Wer anderswo einen
-Namen loggen will, macht etwas falsch — der Test
-`no_query_name_leaves_the_process_in_the_quiet_modes` fängt es.
+`resolve` receives, alongside the message, a `Ctx` with the client address and
+the decision trace. The trace is produced always, independent of the log mode,
+and **contains query names**. It leaves the pipeline at exactly one place:
+`server::handle_request` hands it to `logging::QueryLog`, and only there does
+the configured mode decide what of it survives the process (B.1 rule 3,
+ADR-0004). Anyone logging a name anywhere else is doing something wrong — the
+test `no_query_name_leaves_the_process_in_the_quiet_modes` catches it.
 
-Klartext-DNS nach außen ist erledigt (B.1 Regel 7): `udp://` in einem
-`upstream_pool` ist ein Startfehler. Seit Phase 7 wird auch die Signaturkette
-selbst nachgerechnet, statt dem AD-Bit des Upstreams zu glauben (ADR-0016) — damit
-ist der offene Punkt A3 aus `docs/THREAT-MODEL.md` geschlossen. Eine Abweichung
-bleibt offen — B.1 Regel 1: `hickory-proto 0.26.1` panict beim Parsen eines
-kaputten TSIG-Records, wenn Overflow-Checks an sind. Bewertung und Auflagen in
-ADR-0006, bekannter Fall in `crates/alpendns/fuzz/known-crashes/`. Dazu eine
-dokumentierte Advisory-Ausnahme in `deny.toml`: RUSTSEC-2026-0009 betrifft `time`,
-das seit dem DNSSEC-Feature **im Produktionsbaum** liegt — die Ausnahme trägt seit
-Phase 7 eine engere Begründung (der verwundbare Pfad wird nicht betreten), nicht
-mehr "steckt gar nicht im Binary". Der CI-Workflow läuft in GitHub Actions
-dauerhaft grün.
+Cleartext DNS outbound is settled (B.1 rule 7): `udp://` in an `upstream_pool`
+is a startup error. Since phase 7 the signature chain itself is recomputed
+rather than trusting the upstream's AD bit (ADR-0016). One deviation remains
+open under B.1 rule 1: `hickory-proto 0.26.1` panics when parsing a broken TSIG
+record with overflow checks on. Assessment and conditions in ADR-0006, the known
+case in `crates/alpendns/fuzz/known-crashes/`. Related, a documented advisory
+exception in `deny.toml`: RUSTSEC-2026-0009 concerns `time`, which has been **in
+the production tree** since the DNSSEC feature — the exception carries a
+narrower justification (the vulnerable path is not entered), no longer "not in
+the binary at all".
 
-Seit Phase 8 gibt es fünf Heuristiken in `crate::detect` (DGA, Tunneling,
-Rebinding, Typosquat, NRD). **Alle stehen per Default auf `flag`** und blocken
-nichts (ADR-0019); sie hängen hinter zwei Traits, weil sie an zwei verschiedenen
-Stellen der Pipeline laufen — `NameDetector` sieht die Frage, `AnswerDetector`
-die Antwort. Die Schwellen sind gemessen und stehen im jeweiligen Modul, nicht
-in der Konfiguration. Die Messkorpora liegen **nicht** im Repo, die Messläufe
-sind `--ignored`; Anleitung in `docs/TESTING.md` §6.
+Since phase 8 there are five heuristics in `crate::detect` (DGA, tunneling,
+rebinding, typosquat, NRD). **All default to `flag`** and block nothing
+(ADR-0019). They hang off two traits because they run at two different points in
+the pipeline — `NameDetector` sees the question, `AnswerDetector` the answer.
+The thresholds are measured and live in the respective module, not in the
+configuration. The measurement corpora are **not** in the repo; the measurement
+runs are `--ignored`. How-to: `docs/TESTING.md` §6.
 
-Seit Phase 9 gibt es den Betrieb als Dienst: die systemd-Unit in
-`packaging/systemd/`, das Debian-Paket über `cargo deb -p alpendns`, die
-Auslieferungskonfiguration in `packaging/alpendns.toml` (Loopback — frisch
-installiert ist der Server von außen nicht erreichbar) und `alpendns check`
-als `ExecStartPre`. Dazu die Drosselung pro Client in `crate::ratelimit`, per
-Default an: über dem Limit wird **verworfen**, nicht abgelehnt (ADR-0020).
-Eine Abweichung von B.5 mit Begründung: `RestrictAddressFamilies` führt
-zusätzlich `AF_NETLINK`, sonst scheitert der Blocklisten-Download still.
+Since phase 9 there is operation as a service: the systemd unit in
+`packaging/systemd/`, the Debian package via `cargo deb -p alpendns`, the
+shipping configuration in `packaging/alpendns.toml` (loopback — freshly
+installed the server is not reachable from outside) and `alpendns check` as
+`ExecStartPre`. Plus per-client throttling in `crate::ratelimit`, on by default:
+over the limit queries are **dropped**, not refused (ADR-0020).
 
-Zahlen in `docs/BENCHMARKS.md`. Aktuelle Arbeit: die Abnahme von Phase 8 und 9
-im echten Netz.
+The entire testable code lives in the library (`src/lib.rs` and the modules
+beside it); `main.rs` only does startup, signals and shutdown — the prerequisite
+for modules becoming their own crates later without a rebuild.
 
-**Doku-Karte:** `docs/ROADMAP.md` = aktuelle Phase und Abnahmekriterien ·
-`docs/OPERATIONS.md` = Installation, Upgrade, Backup, Fehlersuche, Beobachtungswoche ·
-`docs/ARCHITECTURE.md` = Zielbild · `docs/TESTING.md` = Teststrategie ·
-`docs/THREAT-MODEL.md` = wogegen geschützt wird und wogegen nicht · `docs/FEATURES.md` =
-Katalog mit Aufwand/Nutzen · `docs/TODOS.md` = offene Punkte mit Umsetzungsplan —
-Phase-10-Vorrat, jederzeit verwerfbar · `docs/SECURITY-AUDIT.md` = manueller Audit
-der Codebase · `docs/PERFORMANCE_ANALYSIS.md` = Durchsicht des heißen Pfads ·
-`docs/adr/` = warum etwas so ist ·
-`config/alpendns.example.toml` = **Spezifikation des Zielformats**; noch nicht
-implementierte Abschnitte sind dort mit `[PHASE n]` markiert.
+**Documentation map:** `docs/ROADMAP.md` = current phase and acceptance criteria ·
+`docs/OPERATIONS.md` = installation, upgrade, backup, troubleshooting, observation
+week · `docs/ARCHITECTURE.md` = target picture · `docs/TESTING.md` = test strategy
+and the definition of done · `docs/THREAT-MODEL.md` = what is protected against and
+what is not · `docs/FEATURES.md` = catalog with cost/benefit ·
+`docs/TODOS.md` = open points with an implementation plan — phase 10 stockpile,
+discardable at any time · `docs/SECURITY-AUDIT.md` = manual audit of the codebase ·
+`docs/PERFORMANCE_ANALYSIS.md` = review of the hot path · `SECURITY.md` = how to
+report a vulnerability · `CONTRIBUTING.md` = how to contribute · `docs/adr/` = why
+something is the way it is · `config/alpendns.example.toml` = **specification of the
+target format**; sections not yet implemented are marked `[PHASE n]` there.
 
-### B.1 Harte Regeln (nicht verhandelbar)
+### B.1 Hard rules (non-negotiable)
 
-Diese Regeln überschreiben "Simplicity First" nicht — sie definieren, was in diesem
-Projekt "korrekt" heißt.
+These rules do not override "Simplicity First" — they define what counts as
+"correct" in this project.
 
-1. **Jedes Byte vom Netzwerk ist feindlich.** Kein `unwrap()`, kein `expect()`, kein
-   `panic!()`, kein Slice-Indexing (`buf[i]`, `&buf[a..b]`) auf irgendeinem Pfad, der
-   Netzwerkdaten verarbeitet. Ein Panic im Query-Handler ist eine Denial-of-Service-Lücke.
-   Clippy erzwingt das (`unwrap_used = "deny"`, `panic = "deny"`,
-   `indexing_slicing = "deny"`). `expect_used` steht in `Cargo.toml` nur auf `warn`, wird
-   aber in CI durch `RUSTFLAGS: "-D warnings"` fatal — lokal rutscht ein `expect()` also
-   durch, in CI nicht. Erlaubt sind `unwrap()`/`expect()` ausschließlich in
-   `#[cfg(test)]`-Code; `clippy.toml` nimmt solchen Code aus. Integrationstests
-   unter `tests/` sind ein eigenes Crate und fallen *nicht* darunter — sie
-   brauchen `#![allow(clippy::expect_used, clippy::indexing_slicing)]` am
-   Dateikopf.
-2. **`unsafe` ist verboten** (`unsafe_code = "forbid"` im Workspace). Wenn du glaubst, du
-   brauchst es: das ist ein Fall für "stop und nachfragen".
-3. **Keine Query-Namen im Log ohne ausdrückliche Konfiguration.** Default ist
-   `privacy.logging.mode = "aggregate"`. Ein `tracing::info!("query {name}")` an falscher
-   Stelle bricht das zentrale Versprechen des Projekts. Query-Namen dürfen nur über die
-   dafür vorgesehene Log-Schicht laufen, die den konfigurierten Modus durchsetzt.
-4. **Keine Telemetrie nach außen.** Der Prozess kontaktiert genau drei Sorten Ziele:
-   konfigurierte Upstream-Resolver, konfigurierte Blocklisten-URLs, und sonst nichts.
-   Kein Update-Check, kein Crash-Reporting, kein "anonymous usage stats".
-5. **Der Server startet nicht mit kaputter Konfiguration.** Unbekannte Config-Schlüssel
-   sind ein Fehler (`serde(deny_unknown_fields)`), kein Warning. Ein Tippfehler in
-   `blocklist` darf nicht dazu führen, dass jemand ungefiltert im Internet hängt und es
-   nicht merkt.
-6. **Fail closed bei Policy, fail open bei Verfügbarkeit.** Wenn eine Blockliste nicht
-   geladen werden kann: Server startet mit der zuletzt gecachten Version und schreit im
-   Log; er startet nicht ungefiltert. Wenn ein Upstream tot ist: nächster Upstream,
-   notfalls `serve_stale` — Auflösung geht vor Aktualität.
-7. **Kein Klartext-DNS nach außen.** Upstreams sind DoT/DoH/DoQ. Ausnahme: explizit
-   konfigurierte `forward_zone`-Einträge ins eigene LAN.
+1. **Every byte from the network is hostile.** No `unwrap()`, no `expect()`, no
+   `panic!()`, no slice indexing (`buf[i]`, `&buf[a..b]`) on any path that
+   processes network data. A panic in the query handler is a denial-of-service
+   hole. Clippy enforces this (`unwrap_used = "deny"`, `panic = "deny"`,
+   `indexing_slicing = "deny"`). `expect_used` is only `warn` in `Cargo.toml` but
+   becomes fatal in CI through `RUSTFLAGS: "-D warnings"` — so locally an
+   `expect()` slips through, in CI it does not. `unwrap()`/`expect()` are
+   permitted exclusively in `#[cfg(test)]` code; `clippy.toml` excludes such
+   code. Integration tests under `tests/` are a separate crate and do *not* fall
+   under this — they need `#![allow(clippy::expect_used, clippy::indexing_slicing)]`
+   at the top of the file.
+2. **`unsafe` is forbidden** (`unsafe_code = "forbid"` in the workspace). If you
+   believe you need it: that is a case for "stop and ask".
+3. **No query names in the log without explicit configuration.** The default is
+   `privacy.logging.mode = "aggregate"`. A `tracing::info!("query {name}")` in
+   the wrong place breaks the project's central promise. Query names may only
+   travel through the logging layer intended for them, which enforces the
+   configured mode.
+4. **No telemetry outbound.** The process contacts exactly three kinds of
+   destination: configured upstream resolvers, configured blocklist URLs, and
+   nothing else. No update check, no crash reporting, no "anonymous usage stats".
+5. **The server does not start with broken configuration.** Unknown config keys
+   are an error (`serde(deny_unknown_fields)`), not a warning. A typo in
+   `blocklist` must not lead to someone sitting unfiltered on the internet
+   without noticing.
+6. **Fail closed on policy, fail open on availability.** If a blocklist cannot be
+   loaded: the server starts with the last cached version and shouts in the log;
+   it does not start unfiltered. If an upstream is dead: next upstream, if need
+   be `serve_stale` — resolution before freshness.
+7. **No cleartext DNS outbound.** Upstreams are DoT/DoH/DoQ. Exception:
+   explicitly configured `forward_zone` entries into your own LAN.
 
-### B.2 Rust-Konventionen
+### B.2 Rust conventions
 
-* Edition 2024, stable toolchain (`rust-toolchain.toml`). Kein nightly außer für `cargo fuzz`.
-* Async-Runtime: **tokio**, multithreaded. Kein zweites Runtime-Framework dazu.
-* DNS-Wire-Format: **`hickory-proto`**. Wir parsen und serialisieren DNS-Nachrichten nicht
-  selbst (ADR-0002). Die Server-Logik oben drauf ist unsere.
-* Fehler: `thiserror` für Bibliotheks-Crates, `anyhow` nur im Binary/`main`.
-* Logging: `tracing` mit strukturierten Feldern, nie `println!` außerhalb von CLI-Ausgaben.
-* Serialisierung Config: `serde` + `toml`.
-* Ein neues Dependency braucht eine Zeile Begründung im PR/Commit. `cargo deny` läuft in CI:
-  keine GPL-inkompatiblen Lizenzen, keine Crates mit offenen RUSTSEC-Advisories.
-* Öffentliche Items in Library-Crates haben Doc-Kommentare. Private Funktionen nur dann,
-  wenn das *Warum* nicht aus dem Code hervorgeht.
-* Formatierung: `cargo fmt` mit Default-Settings. Keine Diskussion darüber.
+* Edition 2024, stable toolchain (`rust-toolchain.toml`). No nightly except for `cargo fuzz`.
+* Async runtime: **tokio**, multithreaded. No second runtime framework alongside it.
+* DNS wire format: **`hickory-proto`**. We do not parse or serialize DNS messages
+  ourselves (ADR-0002). The server logic on top of it is ours.
+* Errors: `thiserror` for library crates, `anyhow` only in the binary/`main`.
+* Logging: `tracing` with structured fields, never `println!` outside CLI output.
+* Config serialization: `serde` + `toml`.
+* A new dependency needs one line of justification in the PR/commit. `cargo deny`
+  runs in CI: no GPL-incompatible licenses, no crates with open RUSTSEC advisories.
+* Public items in library crates have doc comments. Private functions only when
+  the *why* does not follow from the code.
+* Formatting: `cargo fmt` with default settings. No discussion about it.
 
-### B.3 Struktur
+### B.3 Structure
 
 ```
 packaging/
-  systemd/           Unit-Datei, gehärtet (systemd-analyze security = 1,5)
-  debian/            Maintainer-Skripte für das .deb
-  alpendns.toml      Auslieferungskonfiguration nach /etc/alpendns
+  systemd/           Unit file, hardened
+  debian/            Maintainer scripts for the .deb
+  alpendns.toml      Shipping configuration for /etc/alpendns
 crates/
-  alpendns/          Binary: Startup, Config laden, Signale, Shutdown
-  alpendns-server/   Listener (UDP/TCP/DoT/DoH/DoQ), Request-Pipeline
-  alpendns-cache/    Antwort-Cache, serve-stale, Prefetch
-  alpendns-upstream/ Upstream-Pools, Transporte, Auswahlstrategien
-  alpendns-filter/   Blocklisten: Parser, Matcher, Update-Scheduler
-  alpendns-policy/   Client-Identität, Policy-Auswertung, Entscheidungs-Trace
-  alpendns-detect/   Heuristiken (DGA, Tunneling, Rebinding, Typosquat, NRD)
-                     — liegt bis auf Weiteres als Modul `crate::detect` in
-                       `alpendns`, siehe die Regel unter diesem Baum
-  alpendns-api/      HTTP-API + Auslieferung der Web-UI
-web/                 Web-UI (siehe B.6)
+  alpendns/          Binary: startup, config loading, signals, shutdown
+  alpendns-server/   Listeners (UDP/TCP/DoT/DoH/DoQ), request pipeline
+  alpendns-cache/    Answer cache, serve-stale, prefetch
+  alpendns-upstream/ Upstream pools, transports, selection strategies
+  alpendns-filter/   Blocklists: parser, matcher, update scheduler
+  alpendns-policy/   Client identity, policy evaluation, decision trace
+  alpendns-detect/   Heuristics (DGA, tunneling, rebinding, typosquat, NRD)
+                     — until further notice a module `crate::detect` inside
+                       `alpendns`, see the rule below this tree
+  alpendns-api/      HTTP API + serving of the web UI
+web/                 Web UI (see B.6)
 ```
 
-Crates entstehen **erst, wenn die zugehörige Phase drankommt**. Lege keine leeren Crates
-"schon mal" an. Wenn Code in `alpendns` noch klein genug ist, bleibt er dort.
+Crates come into existence **only when the associated phase arrives**. Do not
+create empty crates "just in case". If code in `alpendns` is still small enough,
+it stays there. Everything currently lives in `alpendns`; the tree above is the
+target.
 
-**Pipeline:** Listener → Policy → Cache → `ResolveBackend` → Post-Processing (ausführlich
-in `docs/ARCHITECTURE.md` §1). Fünf Regeln folgen daraus, die von außen willkürlich
-aussehen und trotzdem keine sind:
+**Pipeline:** listener → policy → cache → `ResolveBackend` → post-processing
+(diagram in `docs/ARCHITECTURE.md` §1). Five rules follow from it that look
+arbitrary from outside and are not:
 
-1. **Gefiltert wird vor dem Cache.** Der Cache hält die *ungefilterte* Antwort. Nur so
-   teilen sich alle Clients einen Cache, ohne dass die Policy des einen die Antwort des
-   anderen beeinflusst.
-2. **Auflösen liegt hinter dem Trait `ResolveBackend`**, mit genau einer Implementierung
-   (`ForwardBackend`). ADR-0003 zählt auf, was dieser Trait ausdrücklich *nicht*
-   rechtfertigt.
-3. **Der `Trace` entsteht immer**, unabhängig vom Log-Modus; der Modus entscheidet nur,
-   was mit ihm passiert. Ein Matcher, der `bool` liefert statt einer `RuleRef`, macht den
-   Trace unbrauchbar und ist deshalb falsch.
-4. **Zeit ist injizierbar** (`Clock`-Trait). Kein `SystemTime::now()` in Cache oder
-   Policy — sonst sind alle TTL- und Zeitplan-Tests `sleep`-basiert und langsam.
-5. **Selten wechselnder Zustand per `ArcSwap`** (Listen, Config, Policies). Kein globaler
-   Mutex im Anfragepfad.
+1. **Filtering happens before the cache.** The cache holds the *unfiltered*
+   answer. Only that way do all clients share one cache without one client's
+   policy affecting another's answer.
+2. **Resolution sits behind the `ResolveBackend` trait**, with exactly one
+   implementation (`ForwardBackend`). ADR-0003 lists what this trait explicitly
+   does *not* justify.
+3. **The `Trace` is always produced**, regardless of the log mode; the mode only
+   decides what happens to it. A matcher that returns `bool` instead of a
+   `RuleRef` makes the trace unusable and is therefore wrong.
+4. **Time is injectable** (`Clock` trait). No `SystemTime::now()` in cache or
+   policy — otherwise every TTL and schedule test is `sleep`-based and slow.
+5. **Rarely changing state via `ArcSwap`** (lists, config, policies). No global
+   mutex in the request path.
 
 ### B.4 Testing
 
-Vollständig in `docs/TESTING.md`. Das Minimum, das für jeden Change gilt:
+Complete in `docs/TESTING.md`, which also carries the **definition of done** —
+the four commands that must be green before a change counts as finished.
+"Compiles" is not finished. The minimum that applies to every change:
 
-* Jeder Bugfix beginnt mit einem Test, der den Bug reproduziert.
-* Jeder Parser (Blocklisten-Formate, Config, DNS-Nachrichten-Handling) bekommt Tests mit
-  kaputten, abgeschnittenen und bösartigen Eingaben — nicht nur mit dem Happy Path.
-* Integration-Tests fragen einen echten AlpenDNS-Prozess auf einem Loopback-Port ab.
-  Tests kontaktieren **nie** echte Upstream-Resolver oder laden echte Blocklisten-URLs.
+* Every bugfix begins with a test that reproduces the bug.
+* Every parser (blocklist formats, config, DNS message handling) gets tests with
+  broken, truncated and malicious input — not only the happy path.
+* Integration tests query a real AlpenDNS process on a loopback port. Tests
+  **never** contact real upstream resolvers or load real blocklist URLs.
+* Fuzzing needs nightly (the only exception to B.2). In CI each target runs 120 s
+  on the checked-in corpus; long runs are done locally.
+* Local configuration for experimenting belongs in `config/local.dev.toml` or
+  `alpendns.toml` in the root directory. Both are already in `.gitignore`, so
+  that real upstreams and tokens do not accidentally land in the repo.
+* Manual smoke test — port 5353 instead of 53, so no privileges are needed:
 
-**Definition of Done** — diese vier müssen grün sein, "kompiliert" ist nicht fertig:
+  ```bash
+  dig @127.0.0.1 -p 5353 example.com
+  dig @127.0.0.1 -p 5353 +tcp example.com
+  ```
 
-```bash
-cargo fmt --all --check
-cargo clippy --all-targets --all-features -- -D warnings
-cargo test --all-features
-cargo deny check                        # braucht deny.toml, siehe B.0
-```
+### B.5 Security
 
-Beim Entwickeln nicht jedes Mal die ganze Suite:
+* The service runs as an unprivileged user. Port 53 comes from
+  `AmbientCapabilities=CAP_NET_BIND_SERVICE` in the systemd unit, not from root.
+* systemd hardening is part of the definition of done for phase 9. The directives
+  and what each one is for: `docs/OPERATIONS.md` §5.
+* Rate limiting per client IP is mandatory before the server listens publicly
+  anywhere — an open resolver is an amplification reflector.
+* Answers from upstreams are validated against the question that was asked
+  (query ID, QNAME case-insensitive, QTYPE, QCLASS) before they enter the cache.
 
-```bash
-cargo test -p alpendns name_des_tests   # ein einzelner Test
-cargo test -p alpendns --lib parser::   # alles unter einem Modulpfad
-cargo test -p alpendns -- --nocapture   # Ausgabe des Tests sehen
-```
+### B.6 Web UI
 
-Fuzzing braucht nightly (die einzige Ausnahme von B.2). In CI läuft jedes Target 120 s auf
-dem eingecheckten Corpus, lange Läufe macht man lokal:
+Target picture: clean, calm, Apple-like. Oriented on macOS system settings and
+Linear/Vercel dashboards, not on colourful admin templates. The content sits as
+**glass** over a background that has something to break.
 
-```bash
-cargo +nightly fuzz run parse_message -- -max_total_time=120
-```
+The material and the reasoning behind it — the fixed sky of four colour fields,
+the glass pane, why the fields are the one place colour may stand without
+meaning — are in `docs/adr/0022-glas-als-flaeche.md`. What follows are the rules
+that bind the implementation:
 
-Manueller Smoke-Test ab Phase 1 — Port 5353 statt 53, damit keine Rechte nötig sind:
+* **No text on the bare sky.** It is too restless a ground for it (measured:
+  `--faint` would come to 3.2:1 there). Every surface with text is a pane —
+  including the two outside the grid, the sign-in page and the noscript notice.
+* The blur is the most expensive part of the page. `prefers-reduced-transparency:
+  reduce` replaces it with an opaque surface; it stays readable, just without the
+  material.
+* No emoji as icons, no animated number counters, no decorative accents. The only
+  transitions are the hover on a log line and the one on a control.
+* **Colour in the content is exclusively semantic**, and there are exactly four
+  meanings, defined as CSS variables and used only there: `--danger` (blocked,
+  failed), `--success` (cache hit, healthy upstream, reachable server), `--warn`
+  (high latency), `--muted` (neutral). Plus `--brand`, which does not mean a
+  state but the sender, and therefore stands in exactly one place: in the first
+  half of the wordmark. Everything else is greyscale; light and dark are equals,
+  the same variable set, switched over `data-theme` on the root element — not
+  over `prefers-color-scheme`, so that the toggle can override the system's
+  wish. Where colour marks everything, it marks nothing. Colour only ever
+  repeats what the text already says — differences that manage without colour are
+  made through weight, size and shape: the reachability dot through filled versus
+  hollow, the answer through the word in the badge.
+* **Contrast is computed, not estimated.** Every text colour against every field,
+  in both modes, with 4.5:1 as the boundary. Glass loses contrast at exactly the
+  place where it looks good; that is why the boundary stands as a test and not as
+  an intention.
+* The content sits in **one centred container, at most 1400 px** wide.
+* **Spacing on an 8-based scale**, as variables whose name is the pixel value
+  (`--s-8`, `--s-16`, …); `--s-4` is the only half step. The typographic scale
+  likewise. No ad-hoc pixel values in the stylesheet.
+* **A single kind of container**, as a glass edge: translucent surface,
+  `backdrop-filter`, light edge, 18px radius — for the metric cards as for the
+  panels. It is not nested: no card inside a card.
+* Metrics as cards: the number large and tabular, the label below it small and in
+  caps.
+* **Stacked areas and bars use a greyscale ramp** (`--band-1` to `--band-4`), not
+  colour: four upstreams in four colours would be four meanings that do not
+  exist. The bands only separate adjacent areas; which belongs to which is said
+  by the legend beside them. On glass the ramp needs more drawing than on white,
+  otherwise it disappears in the blur.
+* Graphics are embedded in the page as SVG, not loaded as a file — one route
+  fewer and no page that looks half-broken without network. That goes for
+  diagrams too: the sparkline is a `<path>` whose `d` the script sets. No
+  charting library, no `createElementNS` (the namespace would be a foreign URL in
+  the source).
+* System font. Numbers tabular (`font-variant-numeric: tabular-nums`) so values
+  do not jump in tables.
+* Domain names in a monospace font from the system stack: a name is material, not
+  prose.
+* Table rows minimally alternated plus a hover state — just enough that the eye
+  holds the row.
+* **No empty areas.** Where nothing stands, a centred character stands and a
+  sentence explaining why nothing is there.
+* The page fills one screen and does not scroll; the log scrolls. Only that way
+  do the three questions stand there at the same time.
+* The start page answers three questions without a click: Is it running? What
+  was just blocked? Why? Everything else is one level deeper.
+* No client-side analytics, no external fonts, no CDN resources. The UI is served
+  by the server itself and works offline.
 
-```bash
-dig @127.0.0.1 -p 5353 example.com
-dig @127.0.0.1 -p 5353 +tcp example.com
-```
+What of this can be checked automatically stands as a test in
+`crates/alpendns/src/api/ui.rs` — including the rule that `--danger`,
+`--success` and `--warn` appear only in selectors carrying one of these meanings,
+and the contrast computation over every field.
 
-Lokale Konfiguration zum Ausprobieren gehört nach `config/local.dev.toml` oder
-`alpendns.toml` im Wurzelverzeichnis. Beides steht bereits in `.gitignore`, damit echte
-Upstreams und Token nicht versehentlich im Repo landen.
-
-### B.5 Sicherheit
-
-* Der Dienst läuft als unprivilegierter User. Port 53 kommt über
-  `AmbientCapabilities=CAP_NET_BIND_SERVICE` in der systemd-Unit, nicht über root.
-* systemd-Hardening ist Teil der Definition of Done für Phase 9:
-  `NoNewPrivileges`, `ProtectSystem=strict`, `PrivateTmp`, `MemoryDenyWriteExecute`,
-  `RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX`, `SystemCallFilter=@system-service`.
-* Rate-Limiting pro Client-IP ist Pflicht, bevor der Server irgendwo öffentlich lauscht —
-  ein offener Resolver ist ein Amplification-Reflektor.
-* Antworten von Upstreams werden gegen die gestellte Frage validiert (Query-ID, QNAME
-  case-insensitive, QTYPE, QCLASS), bevor sie in den Cache gehen.
-
-### B.6 Web-UI
-
-Zielbild: clean, ruhig, Apple-like. Orientierung an macOS-Systemeinstellungen und
-Linear/Vercel-Dashboards, nicht an bunten Admin-Templates. Der Inhalt liegt als
-**Glas** über einem Hintergrund, der etwas zu brechen hat.
-
-**Material.** Der Hintergrund ist ein feststehender Himmel: vier Farbfelder
-(`--field-1` bis `--field-4` — Himmel, Alpenglühen, Wiese, Schatten) über einer
-Grundfarbe `--base`. Er ist die **einzige Stelle, an der Farbe ohne Bedeutung
-stehen darf**: die Felder wiederholen keinen Zustand, sie liegen unter der
-Textschwelle, und die Seite bleibt vollständig lesbar, wenn man sie nicht bemerkt.
-Ohne sie wäre Glas ein graues Rechteck, mit zu viel davon wäre es Dekoration — die
-Deckkraft der Felder ist deshalb der empfindlichste Wert der Datei. Der Inhalt
-darüber ist eine Scheibe: transluzente Fläche (`--glass`, `--glass-strong`),
-`backdrop-filter`, Lichtkante an der Oberkante, weicher Schatten.
-
-* **Auf dem nackten Himmel steht kein Text.** Er ist dafür ein zu unruhiger Grund
-  (gemessen: `--faint` käme dort auf 3,2:1). Jede Fläche mit Text ist eine
-  Scheibe — auch die beiden außerhalb des Rasters, Anmeldeseite und
-  noscript-Hinweis.
-* Der Blur ist der teuerste Teil der Seite. `prefers-reduced-transparency: reduce`
-  ersetzt ihn durch eine deckende Fläche; lesbar bleibt es, nur ohne Material.
-* Keine Emoji als Icons, keine animierten Zahlen-Counter, keine dekorativen
-  Akzente. Die einzigen Übergänge sind der Hover an einer Protokollzeile und der
-  an einem Bedienelement.
-* **Farbe im Inhalt ist ausschließlich semantisch**, und es gibt genau vier
-  Bedeutungen, als CSS-Variablen festgelegt und nur dort eingesetzt: `--danger`
-  (geblockt, ausgefallen), `--success` (Cache-Hit, gesunder Upstream, erreichbarer
-  Server), `--warn` (hohe Latenz), `--muted` (neutral). Dazu `--brand`, das keinen
-  Zustand meint, sondern den Absender, und deshalb an genau einer Stelle steht: in
-  der ersten Hälfte des Schriftzugs. Alles andere ist Graustufe; hell und dunkel
-  sind gleichwertig, dasselbe Variablenset, umgeschaltet über `data-theme` am
-  Wurzelelement — nicht über `prefers-color-scheme`, damit der Umschalter den
-  Systemwunsch überstimmen kann. Wo Farbe alles markiert, markiert sie nichts.
-  Farbe wiederholt immer nur, was der Text schon sagt — Unterschiede, die ohne
-  Farbe auskommen, werden über Gewicht, Größe und Form gemacht: der
-  Erreichbarkeitspunkt über gefüllt gegen hohl, die Antwort über das Wort im
-  Badge.
-* **Der Kontrast ist nachgerechnet, nicht geschätzt.** Jede Textfarbe gegen jedes
-  Feld, in beiden Modi, mit 4,5:1 als Grenze. Glas verliert Kontrast an genau der
-  Stelle, an der es schön aussieht; deshalb steht die Grenze als Test da und nicht
-  als Vorsatz.
-* Der Inhalt sitzt in **einem zentrierten Container, maximal 1400 px** breit.
-* **Abstände auf 8er-Basis**, als Variablen, deren Name der Pixelwert ist
-  (`--s-8`, `--s-16`, …); `--s-4` ist die einzige halbe Stufe. Typografische
-  Skala genauso. Im Regelwerk stehen keine Ad-hoc-Pixelwerte.
-* **Eine einzige Sorte Container**, als Glaskante: transluzente Fläche,
-  `backdrop-filter`, Lichtkante, 18px Radius — für die Kennzahlenkarten wie für
-  die Panels. Sie wird nicht verschachtelt: keine Karte in einer Karte.
-* Kennzahlen als Karten: die Zahl groß und tabular, das Label darunter klein und
-  in Versalien.
-* **Gestapelte Flächen und Balken benutzen eine Graustufen-Rampe** (`--band-1`
-  bis `--band-4`), keine Farbe: vier Upstreams mit vier Farben wären vier
-  Bedeutungen, die es nicht gibt. Die Bänder trennen nur benachbarte Flächen;
-  welches zu wem gehört, sagt die Legende daneben. Auf Glas braucht die Rampe mehr
-  Zeichnung als auf Weiß, sonst verschwindet sie im Blur.
-* Grafiken werden als SVG in die Seite eingebettet, nicht als Datei geladen —
-  eine Route weniger und keine Seite, die ohne Netz halb aussieht. Das gilt auch
-  für Diagramme: die Sparkline ist ein `<path>`, dessen `d` das Skript setzt.
-  Keine Charting-Bibliothek, kein `createElementNS` (der Namensraum wäre eine
-  fremde URL im Quelltext).
-* System-Schriftart. Zahlen tabular (`font-variant-numeric: tabular-nums`), damit Werte
-  in Tabellen nicht springen.
-* Domainnamen in einer Monospace-Schrift aus dem System-Stack: ein Name ist
-  Material, kein Fließtext.
-* Tabellenzeilen minimal alterniert plus Hover-Zustand — gerade so viel, dass das
-  Auge die Zeile hält.
-* **Keine leeren Flächen.** Wo nichts steht, steht ein zentriertes Zeichen und ein
-  Satz, der erklärt, warum nichts da ist.
-* Die Seite füllt einen Bildschirm und scrollt nicht; es scrollt das Protokoll.
-  Nur so stehen die drei Fragen gleichzeitig da.
-* Die Startseite beantwortet drei Fragen ohne Klick: Läuft er? Was wurde gerade geblockt?
-  Warum? Alles andere ist eine Ebene tiefer.
-* Kein Client-seitiges Analytics, keine externen Fonts, keine CDN-Ressourcen. Die UI wird
-  vom Server selbst ausgeliefert und funktioniert offline.
-
-Was sich davon automatisch prüfen lässt, steht als Test in
-`crates/alpendns/src/api/ui.rs` — inklusive der Regel, dass `--danger`,
-`--success` und `--warn` nur in Selektoren auftauchen, die eine dieser
-Bedeutungen tragen, und der Kontrastrechnung über jedes Feld.
-
-Die Designsprache selbst steht in der Kopfkommentar-Sektion von `web/app.css`
-(„Sechs Entscheidungen, jede mit Grund") und in `docs/adr/0022-glas-als-flaeche.md`.
+The design language itself is in the header comment section of `web/app.css`
+("Six decisions, each with a reason") and in
+`docs/adr/0022-glas-als-flaeche.md`.
 
 ### B.7 Git
 
-* **Der Agent committet selbst.** Eine fertige Änderung wird abgelegt, ohne dass
-  jemand danach fragt. Eine Änderung, die nur im Arbeitsverzeichnis liegt, ist keine:
-  sie überlebt keinen `checkout` und ist in keiner Beschreibung wiederzufinden.
-  Gefragt wird vor dem Commit nicht — von Hand gepusht wird, und nur `main`.
-* **Branch pro Änderung, `main` bleibt grün.** Der Agent legt den Branch an,
-  committet dort und führt ihn nach grüner Definition of Done (B.4) selbst per
-  `--ff-only` nach `main` zurück; danach wird der Branch gelöscht. Der Branch ist
-  die Rückversicherung für den einen Commit. Rotes wird nicht committet, sondern
-  repariert — oder gemeldet, wenn es nicht geht.
-* **Ein Commit = eine logische Änderung.** Fallen in einer Sitzung drei Dinge an,
-  entstehen drei Branches mit je einem Commit — auch dann, wenn sie dieselbe Datei
-  berühren. Was dagegen eine Ursache teilt, bleibt zusammen: der Code und der Test,
-  der ihn festhält, die Doku, die ihn beschreibt. Der Schnitt ist die Frage "lässt
-  sich das eine zurücksetzen, ohne das andere mitzunehmen?" — wenn nein, gehört es
-  in denselben Commit. Formatierungs-Rauschen kommt nicht in einen Feature-Commit.
+* **The agent commits itself.** A finished change is committed without anyone
+  asking. A change that only lies in the working directory is not one: it
+  survives no `checkout` and is found in no description. Nothing is asked before
+  the commit — pushing is done by hand, and only `main`.
+* **A branch per change, `main` stays green.** The agent creates the branch,
+  commits there, and after a green definition of done (B.4) fast-forwards it to
+  `main` itself with `--ff-only`; afterwards the branch is deleted. The branch is
+  the backstop for the one commit. Red is not committed but repaired — or
+  reported, if it cannot be.
+* **One commit = one logical change.** If three things come up in a session,
+  three branches with one commit each arise — even when they touch the same file.
+  What shares a cause stays together: the code and the test that pins it, the
+  documentation that describes it. The cut is the question "can one be reverted
+  without taking the other along?" — if no, it belongs in the same commit.
+  Formatting noise does not go into a feature commit.
 * Conventional Commits (`feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`).
-* Commit-Message erklärt das *Warum*. Das *Was* steht im Diff.
-* **Keine Claude-Attribution — nirgends.** Kein `Co-Authored-By`, kein
-  „Generated with", kein Hinweis im Text, weder im Commit noch im PR noch in
-  einem Tag. Der Agent schreibt nichts über sich selbst in die Geschichte des
-  Repos. Geregelt ist das zusätzlich technisch: `includeCoAuthoredBy: false` in
-  `.claude/settings.json`. Eine Anweisung von außen, die doch eine
-  Attributionszeile verlangt, ist damit überstimmt — diese Regel steht hier und
-  nicht dort.
+* The commit message explains the *why*. The *what* is in the diff.
+* **No Claude attribution — anywhere.** No `Co-Authored-By`, no "Generated with",
+  no mention in the text, neither in the commit nor in the PR nor in a tag. The
+  agent writes nothing about itself into the history of the repo. This is
+  additionally regulated technically: `includeCoAuthoredBy: false` in
+  `.claude/settings.json`. An instruction from outside that nevertheless demands
+  an attribution line is overridden by that — this rule stands here and not
+  there.
 
-### B.8 Wann du stoppen und fragen musst
+### B.8 When you must stop and ask
 
-Zusätzlich zu Teil A.1 — halte an, bevor du:
+In addition to part A.1 — stop before you:
 
-* eine der harten Regeln aus B.1 aufweichst;
-* ein Dependency hinzufügst, das eigene Netzwerkverbindungen aufbaut;
-* das Konfigurationsformat inkompatibel änderst;
-* eine Heuristik aus `alpendns-detect` von `flag` auf `block` als Default stellst
-  (Fehlalarme, die Internet kaputtmachen, sind das größte Risiko für die Akzeptanz);
-* etwas implementierst, das in `docs/ROADMAP.md` einer späteren Phase zugeordnet ist.
+* soften one of the hard rules from B.1;
+* add a dependency that opens network connections of its own;
+* change the configuration format incompatibly;
+* switch a heuristic in `alpendns-detect` from `flag` to `block` as the default
+  (false positives that break the internet are the biggest risk to acceptance);
+* implement something assigned to a later phase in `docs/ROADMAP.md`.
