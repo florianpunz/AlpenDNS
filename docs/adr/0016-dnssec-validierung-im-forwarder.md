@@ -166,6 +166,59 @@ aber der Zähler steht jetzt auf 0 — Quad9 validiert selbst und liefert eine l
 Fehlerantwort, wir sehen also nie eine faule Signatur. Die alte 1 war der
 Mislabel, nicht die neue 0.
 
+## Nachtrag vom 2026-09-19: das CD-Bit des Clients entscheidet nicht mehr
+
+Ein Scan über die Codebase hat dieselbe Ursache dreimal gefunden (F1, F2, F3):
+beide Transporte hingen die Validierung am CD-Bit der Anfrage. Die Begründung
+stand als Kommentar an `dnssec::checking_disabled` — *wer die Prüfung
+abbestellt, schadet nur sich* — und sie war falsch, an derselben Stelle, an der
+Punkt 3 oben schon einmal falsch war.
+
+**Der Cache ist der Grund.** Er ist nach (Name, Typ, Klasse) geschlüsselt
+(`crate::caching`), CD steht nicht darin. Die Antwort, die ein CD-Client
+auslöst, ist dieselbe, die der nächste Client ohne CD bekommt. Ein einzelner
+Client im LAN hätte damit die Signaturprüfung für das ganze Netz abbestellt —
+und nicht bloß theoretisch: bei gesetztem CD liefert der Upstream genau die
+ungeprüfte Antwort, die DNSSEC abfangen soll (THREAT-MODEL.md, Punkt A3).
+
+**Was jetzt gilt.** `Transport::send_checked` rechnet nur noch
+`let validate = self.privacy.dnssec;`, `OdohBackend::resolve` nimmt den
+validierenden Griff ohne Bedingung; `checking_disabled` hat keinen Aufrufer mehr
+und ist weg. Es entscheidet die Konfiguration, nie die Anfrage. Nach außen war
+CD ohnehin wirkungslos: `DnssecDnsHandle::send` in `hickory-net` setzt auf der
+Strecke zum Upstream selbst `checking_disabled = false` und `authentic_data =
+true`. Wirkung hatte CD nur nach innen, gegenüber dem eigenen Cache — und genau
+dort gehörte es nicht hin.
+
+Es ist dieselbe Trennung wie im dritten Punkt unter „Was der erste Lauf gegen
+echte Upstreams gezeigt hat“, nur andersherum: damals wanderte das Zuschneiden
+an die Außenkante, weil der Cache für alle gilt; hier verschwindet eine
+Bedingung, die nie in den Cache hineingehört hätte. Was für alle gilt, muss für
+alle entschieden werden.
+
+**Die zweite Hälfte der Empfehlung ist bewusst nicht gebaut.** Vorgeschlagen war
+auch, CD an der Außenkante zu ehren — AD-Bit löschen und dem CD-Client die
+Rohdaten durchreichen. Das gibt es nicht: wer CD setzt und nach einem
+Bogus-Namen fragt, bekommt SERVFAIL wie jeder andere. Ihm Daten zu geben, von
+denen wir gerade nachgerechnet haben, dass sie falsch sind, wäre eine eigene
+Entscheidung über `dnssec::for_client`. RFC 4035 §3.2.2 beschreibt CD als „nicht
+prüfen“; dass wir es trotzdem tun, ist eine Abweichung — sie steht hier, damit
+sie eine ist und kein Versehen.
+
+**Was das kostet.** Ein Client, der CD setzt und selbst prüft, bekommt für eine
+kaputte Zone SERVFAIL statt der Daten, mit denen er sein eigenes Urteil hätte
+fällen können. Strenger als nötig, aber in der Richtung, in der ein Fehler
+auffällt statt still zu bleiben. `encrypted.rs::a_client_setting_cd_does_not_disable_validation`
+hält fest, dass mit CD das DO-Bit rausgeht und die Kette nachverfolgt wird. Der
+ODoH-Zweig hat keinen eigenen Test; er ist gelesen, nicht gefahren — die
+entfernte Bedingung ist eine reine Verschärfung, aber verlassen sollte man sich
+darauf nicht.
+
+**Umkehrbedingung dieses Nachtrags:** Wenn im Praxistest ein Client mit CD
+aufläuft, der auf SERVFAIL stößt, ist die Antwort nicht, die Prüfung wieder
+abzuschalten, sondern CD in `dnssec::for_client` zu behandeln — pro Client, an
+der Außenkante, hinter dem Cache.
+
 ## Umkehrbedingung
 
 Wenn im Praxistest aus Phase 9 kaputte Zonen zu Ausfällen führen, die niemand
