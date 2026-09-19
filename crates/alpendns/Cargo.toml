@@ -6,6 +6,13 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+# Ohne diese Zeile hätte eine crates.io-Seite keinen Beschreibungstext: die
+# README liegt im Wurzelverzeichnis, nicht im Paket.
+readme = "../../README.md"
 
 [lints]
 workspace = true

@@ -3,11 +3,18 @@ resolver = "3"
 members = ["crates/alpendns"]
 
 [workspace.package]
-version = "0.6.0"
+version = "0.7.0"
 edition = "2024"
 rust-version = "1.85"
 license = "AGPL-3.0-or-later"
 repository = "https://github.com/florianpunz/alpendns"
+# Zeigt auf die Demo, nicht auf das Repo: die ist für jemanden, der das Projekt
+# noch nicht kennt, die nützlichere Antwort auf "was ist das?". Sie wird von
+# .github/workflows/pages.yml aus web/ gebaut.
+homepage = "https://florianpunz.github.io/alpendns/"
+authors = ["Florian Punz <florian.punz04@gmail.com>"]
+keywords = ["dns", "privacy", "resolver", "dns-over-tls", "blocklist"]
+categories = ["network-programming", "command-line-utilities"]
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

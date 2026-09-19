@@ -1,0 +1,67 @@
+name: Demo
+
+# Baut die öffentliche Demo der Oberfläche und legt sie auf GitHub Pages.
+#
+# Veröffentlicht wird genau eine Datei: web/dist/alpendns-demo.html, umbenannt
+# zu index.html. web/demo/build.sh setzt die drei Dateien, die der Server
+# ausliefert, mit der Demo-Schicht zu einer selbsttragenden Seite zusammen und
+# bricht ab, wenn das Erzeugnis nach außen verweist oder app.js einen Endpunkt
+# abruft, den die Demo nicht bedient. Die veröffentlichte Seite kann deshalb
+# nicht still verrotten — entweder der Build ist grün oder es gibt keine Seite.
+#
+# Deshalb gibt es hier auch keinen zweiten Build-Schritt und keine Kopie der
+# Prüfungen: die Zusicherungen stehen im Skript, nicht im Workflow.
+#
+# Einmalig von Hand nötig: Settings → Pages → Source auf "GitHub Actions".
+on:
+  push:
+    branches: [main]
+    paths:
+      # Nur wenn sich die Oberfläche oder ihr Bauwerkzeug ändert. Ein
+      # Doku-Commit soll keine Demo neu ausliefern.
+      - "web/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Zwei Pushes kurz nacheinander: der zweite soll den ersten nicht überholen.
+# Anders als beim Release ist Abbruch hier richtig — veröffentlicht wird der
+# jeweils letzte Stand, nicht jeder.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Demo bauen
+        run: sh web/demo/build.sh
+
+      # Pages erwartet eine index.html an der Wurzel des Artefakts. Statt sie
+      # umzubenennen wird kopiert: der Build-Ausgabename bleibt die einzige
+      # Stelle, an der er steht.
+      - name: Als index.html bereitlegen
+        run: |
+          mkdir -p publish
+          cp web/dist/alpendns-demo.html publish/index.html
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: publish
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
