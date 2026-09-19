@@ -407,9 +407,11 @@ impl crate::resolve::ResolveBackend for OdohBackend {
         request: &Message,
         ctx: &mut crate::trace::Ctx,
     ) -> Result<Message, ResolveError> {
-        // CD im Kopf des Clients heißt: der prüft selbst, wir sollen nicht.
-        let validate = !crate::dnssec::checking_disabled(request);
-        let Some(handle) = self.validating.as_ref().filter(|_| validate) else {
+        // Unabhängig vom CD-Bit des Clients validieren (siehe
+        // `upstream::transport::send_checked`): die Antwort landet im
+        // gemeinsamen Cache, ein CD-Client darf die Prüfung nicht für alle
+        // abschalten. Was er zu sehen bekommt, entscheidet `dnssec::for_client`.
+        let Some(handle) = self.validating.as_ref() else {
             return self.transport.send(request).await;
         };
 

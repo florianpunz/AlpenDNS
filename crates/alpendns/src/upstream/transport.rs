@@ -132,8 +132,11 @@ impl Transport {
     ) -> Result<(Message, Option<dnssec::Verdict>), ResolveError> {
         let connection = self.exchange().await?;
 
-        // CD im Kopf des Clients heißt: der prüft selbst, wir sollen nicht.
-        let validate = self.privacy.dnssec && !dnssec::checking_disabled(request);
+        // Unabhängig vom CD-Bit des Clients validieren: die Antwort landet im
+        // gemeinsamen Cache (crate::caching), ein CD-Client würde sonst die
+        // Prüfung für alle abschalten. Was der einzelne Client davon zu sehen
+        // bekommt, entscheidet `dnssec::for_client` an der Außenkante.
+        let validate = self.privacy.dnssec;
 
         let mut outbound = request.clone();
         if self.privacy.strip_ecs {

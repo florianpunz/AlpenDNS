@@ -339,6 +339,70 @@ async fn dnssec_sets_the_do_bit_and_asks_for_the_chain() {
     );
 }
 
+/// Ein Client, der CD setzt, schaltet die Validierung nicht mehr ab.
+///
+/// CD heißt „ich prüfe selbst“ — früher hat der Transport darauf die
+/// Validierung ausgeschaltet, und die ungeprüfte Antwort landete im
+/// gemeinsamen Cache, wo sie für alle anderen Clients verbindlich wurde.
+/// Seit dem Fix wird trotz CD validiert; was der einzelne Client vom Urteil
+/// zu sehen bekommt, entscheidet `dnssec::for_client` an der Außenkante.
+#[tokio::test]
+async fn a_client_setting_cd_does_not_disable_validation() {
+    let pki = TestPki::new(&[]);
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let addr = listener.local_addr().expect("local_addr");
+    let acceptor = TlsAcceptor::from(Arc::clone(&pki.server));
+    let seen = Arc::new(std::sync::Mutex::new(Vec::<RecordType>::new()));
+    let dnssec_ok = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let (recorded, flag) = (Arc::clone(&seen), Arc::clone(&dnssec_ok));
+
+    tokio::spawn(async move {
+        while let Ok((stream, _)) = listener.accept().await {
+            let recorded = Arc::clone(&recorded);
+            let flag = Arc::clone(&flag);
+            let acceptor = acceptor.clone();
+            tokio::spawn(async move {
+                let Ok(mut tls) = acceptor.accept(stream).await else {
+                    return;
+                };
+                while let Some(request) = read_prefixed(&mut tls).await {
+                    if let Some(query) = request.queries.first() {
+                        recorded.lock().expect("Lock").push(query.query_type());
+                    }
+                    if request
+                        .edns
+                        .as_ref()
+                        .is_some_and(|edns| edns.flags().dnssec_ok)
+                    {
+                        flag.store(true, Ordering::SeqCst);
+                    }
+                    write_prefixed(&mut tls, &answer(&request)).await;
+                }
+            });
+        }
+    });
+
+    let transport = transport_with(UpstreamAddr::Dot(addr), &pki, true);
+    let mut request = question("example.com.");
+    request.metadata.checking_disabled = true;
+    // Das Ergebnis interessiert nicht — der Fake beantwortet auch die
+    // Ketten-Abfragen mit einem A-Record, also endet das als Bogus. Bewiesen
+    // werden soll nur, dass der validierende Griff trotz CD vorgeschaltet war.
+    let _ = transport.resolve(&request, &mut ctx()).await;
+
+    assert!(
+        dnssec_ok.load(Ordering::SeqCst),
+        "mit CD ging das DO-Bit nicht raus: die Validierung wurde abgeschaltet"
+    );
+    let types = seen.lock().expect("Lock").clone();
+    assert!(
+        types
+            .iter()
+            .any(|kind| matches!(*kind, RecordType::NS | RecordType::DS | RecordType::DNSKEY)),
+        "die Kette wurde trotz CD nicht nachverfolgt: {types:?}"
+    );
+}
+
 #[tokio::test]
 async fn a_wrong_server_name_is_refused() {
     // Ohne Zertifikatsprüfung wäre die Verschlüsselung wertlos.

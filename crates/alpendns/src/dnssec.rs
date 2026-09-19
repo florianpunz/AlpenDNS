@@ -245,15 +245,6 @@ fn is_empty_failure(message: &Message) -> bool {
         )
 }
 
-/// Ob der Client die Prüfung ausdrücklich abbestellt hat (CD-Bit, RFC 4035 §3.2.2).
-///
-/// Dann wird nicht validiert und nichts verworfen. Das ist kein Schlupfloch für
-/// einen Angreifer: CD setzt der Client selbst, und wer die Prüfung abschaltet,
-/// schadet nur sich.
-pub fn checking_disabled(request: &Message) -> bool {
-    request.metadata.checking_disabled
-}
-
 /// Wertet eine validierte Antwort aus: Urteil bilden, Bogus verwerfen, AD-Bit
 /// setzen.
 ///
@@ -519,11 +510,6 @@ mod tests {
             "AD in der Anfrage ist kein Wunsch nach Records"
         );
         assert!(client_wants_verdict(&with_ad));
-
-        assert!(!checking_disabled(&plain));
-        let mut with_cd = plain;
-        with_cd.metadata.checking_disabled = true;
-        assert!(checking_disabled(&with_cd));
     }
 
     #[test]
