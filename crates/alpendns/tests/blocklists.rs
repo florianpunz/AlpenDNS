@@ -17,7 +17,7 @@ use alpendns::config::BlockingConfig;
 use alpendns::filter::Lists;
 use alpendns::filter::block::BlockMode;
 use alpendns::filter::parser::Format;
-use alpendns::filter::source::{ListSpec, Loader, Origin, Source};
+use alpendns::filter::source::{ListSpec, LoadError, Loader, Origin, Source};
 use alpendns::policy::rules::RegexRules;
 use alpendns::policy::{Blueprint, Decision, Engine, PolicyBackend, PolicyBlueprint};
 use alpendns::resolve::{ResolveBackend, ResolveError};
@@ -68,13 +68,21 @@ struct HttpFake {
 
 /// Ein HTTP/1.1-Server, der genau eine Liste ausliefert und ETag beherrscht.
 async fn http_fake(body: &'static str, etag: &'static str) -> HttpFake {
+    http_fake_bytes(body.as_bytes().to_vec(), etag, false).await
+}
+
+/// Wie [`http_fake`], aber mit beliebigem Body. Mit `chunked` fehlt
+/// `content-length` und der Body kommt als `Transfer-Encoding: chunked` —
+/// genau die Form, in der die Größe vor dem Lesen nicht feststeht.
+async fn http_fake_bytes(body: Vec<u8>, etag: &'static str, chunked: bool) -> HttpFake {
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
     let addr = listener.local_addr().expect("local_addr");
     let requests = Arc::new(AtomicUsize::new(0));
     let not_modified = Arc::new(AtomicUsize::new(0));
     let down = Arc::new(AtomicBool::new(false));
 
-    let (counter, cached, offline) = (
+    let (body, counter, cached, offline) = (
+        Arc::new(body),
         Arc::clone(&requests),
         Arc::clone(&not_modified),
         Arc::clone(&down),
@@ -87,7 +95,7 @@ async fn http_fake(body: &'static str, etag: &'static str) -> HttpFake {
                 drop(stream);
                 continue;
             }
-            let cached = Arc::clone(&cached);
+            let (body, cached) = (Arc::clone(&body), Arc::clone(&cached));
             tokio::spawn(async move {
                 let Some(headers) = read_headers(&mut stream).await else {
                     return;
@@ -95,18 +103,32 @@ async fn http_fake(body: &'static str, etag: &'static str) -> HttpFake {
                 let matches_etag = headers.lines().any(|line| {
                     line.to_ascii_lowercase().starts_with("if-none-match:") && line.contains(etag)
                 });
-                let response = if matches_etag {
+                if matches_etag {
                     cached.fetch_add(1, Ordering::SeqCst);
-                    format!(
+                    let response = format!(
                         "HTTP/1.1 304 Not Modified\r\netag: {etag}\r\ncontent-length: 0\r\n\r\n"
+                    );
+                    let _ = stream.write_all(response.as_bytes()).await;
+                    let _ = stream.flush().await;
+                    return;
+                }
+                let head = if chunked {
+                    format!(
+                        "HTTP/1.1 200 OK\r\netag: {etag}\r\ncontent-type: text/plain\r\ntransfer-encoding: chunked\r\n\r\n{:x}\r\n",
+                        body.len()
                     )
                 } else {
                     format!(
-                        "HTTP/1.1 200 OK\r\netag: {etag}\r\ncontent-type: text/plain\r\ncontent-length: {}\r\n\r\n{body}",
+                        "HTTP/1.1 200 OK\r\netag: {etag}\r\ncontent-type: text/plain\r\ncontent-length: {}\r\n\r\n",
                         body.len()
                     )
                 };
-                let _ = stream.write_all(response.as_bytes()).await;
+                let mut response = head.into_bytes();
+                response.extend_from_slice(&body);
+                if chunked {
+                    response.extend_from_slice(b"\r\n0\r\n\r\n");
+                }
+                let _ = stream.write_all(&response).await;
                 let _ = stream.flush().await;
             });
         }
@@ -118,6 +140,39 @@ async fn http_fake(body: &'static str, etag: &'static str) -> HttpFake {
         not_modified,
         down,
     }
+}
+
+/// Ein HTTP/1.1-Server, der einen `chunked`-Body ausliefert und die Antwort
+/// danach offen lässt: der Abschluss-Chunk kommt nie. Genau die Form, bei der
+/// ein Lesen ohne eigene Grenze unbegrenzt puffern würde.
+async fn http_fake_never_ending(body: Vec<u8>) -> SocketAddr {
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let addr = listener.local_addr().expect("local_addr");
+    let body = Arc::new(body);
+
+    tokio::spawn(async move {
+        while let Ok((mut stream, _)) = listener.accept().await {
+            let body = Arc::clone(&body);
+            tokio::spawn(async move {
+                let Some(_headers) = read_headers(&mut stream).await else {
+                    return;
+                };
+                let mut response = format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\ntransfer-encoding: chunked\r\n\r\n{:x}\r\n",
+                    body.len()
+                )
+                .into_bytes();
+                response.extend_from_slice(&body);
+                if stream.write_all(&response).await.is_err() {
+                    return;
+                }
+                let _ = stream.flush().await;
+                std::future::pending::<()>().await;
+            });
+        }
+    });
+
+    addr
 }
 
 async fn read_headers(stream: &mut TcpStream) -> Option<String> {
@@ -319,6 +374,99 @@ async fn a_list_can_come_from_a_file() {
     );
     let set = lists.load(true).await.expect("Datei lädt");
     assert_eq!(set.total_entries(), 1);
+}
+
+// ---------------------------------------------------------------------------
+// Größengrenze
+// ---------------------------------------------------------------------------
+
+/// Derselbe Wert wie `MAX_LIST_BYTES` in `filter::source`: 64 MB.
+const MAX_LIST_BYTES: usize = 64 * 1024 * 1024;
+
+#[tokio::test]
+async fn an_oversized_chunked_list_is_refused_while_reading() {
+    // Ohne `content-length` (chunked) ist die Größe vor dem Lesen unbekannt.
+    // Die Antwort endet nie — wer erst den ganzen Body puffert, hängt hier bis
+    // zum Download-Timeout; die Grenze muss schon beim Lesen greifen.
+    let addr = http_fake_never_ending(vec![b'a'; MAX_LIST_BYTES + 1]).await;
+    let cache = TempDir::new("toobig-chunked");
+    let loader = Loader::new(cache.path()).expect("Loader");
+    let list = spec(
+        "test",
+        Source::Url(format!("http://{addr}/liste")),
+        Format::Hosts,
+    );
+
+    let result = tokio::time::timeout(Duration::from_secs(20), loader.load(&list))
+        .await
+        .expect("die Grenze greift erst nach dem Ende des Bodys");
+    // Kein `expect_err`: der geladene Text wäre zig Megabyte lang.
+    let Err(error) = result else {
+        panic!("eine Liste über der Grenze wurde geladen");
+    };
+
+    assert!(matches!(error, LoadError::TooLarge { .. }), "{error}");
+    assert!(
+        !cache.path().join("test.list").exists(),
+        "eine abgelehnte Liste darf nicht im Cache landen"
+    );
+}
+
+#[tokio::test]
+async fn a_list_without_content_length_still_loads() {
+    // Der Weg für chunked-Antworten darf normale Listen nicht kaputtmachen.
+    let fake = http_fake_bytes(LIST_BODY.as_bytes().to_vec(), "\"v1\"", true).await;
+    let cache = TempDir::new("chunked-ok");
+    let loader = Loader::new(cache.path()).expect("Loader");
+
+    let loaded = loader
+        .load(&spec(
+            "test",
+            Source::Url(format!("http://{}/liste", fake.addr)),
+            Format::Hosts,
+        ))
+        .await
+        .expect("eine Liste unter der Grenze lädt");
+    assert_eq!(loaded.origin, Origin::Network);
+    assert!(loaded.text.contains("ads.example.com"));
+    assert!(
+        cache.path().join("test.list").exists(),
+        "die geladene Liste gehört in den Cache"
+    );
+}
+
+#[tokio::test]
+async fn a_body_that_grows_while_decoding_is_refused() {
+    // 0xFF ist kein gültiges UTF-8: `from_utf8_lossy` macht aus jedem Byte ein
+    // U+FFFD und verdreifacht damit die Länge. Die Rohform liegt unter der
+    // Grenze, die dekodierte darüber. Die Grenze gilt dem, was im Cache landet
+    // — sonst entstünde eine Datei, die `read_limited` nie wieder liest, und
+    // der Rückfall auf die letzte Fassung (B.1 Regel 6) wäre zerstört.
+    let raw = vec![0xFF_u8; 23 * 1024 * 1024];
+    assert!(raw.len() < MAX_LIST_BYTES);
+    assert!(raw.len() * 3 > MAX_LIST_BYTES);
+
+    let fake = http_fake_bytes(raw, "\"v1\"", false).await;
+    let cache = TempDir::new("lossy");
+    let loader = Loader::new(cache.path()).expect("Loader");
+
+    let result = loader
+        .load(&spec(
+            "test",
+            Source::Url(format!("http://{}/liste", fake.addr)),
+            Format::Hosts,
+        ))
+        .await;
+    // Kein `expect_err`: der geladene Text wäre zig Megabyte lang.
+    let Err(error) = result else {
+        panic!("eine Liste, die erst beim Dekodieren zu groß wird, wurde geladen");
+    };
+
+    assert!(matches!(error, LoadError::TooLarge { .. }), "{error}");
+    assert!(
+        !cache.path().join("test.list").exists(),
+        "eine abgelehnte Liste darf nicht im Cache landen"
+    );
 }
 
 // ---------------------------------------------------------------------------

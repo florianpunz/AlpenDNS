@@ -176,7 +176,7 @@ impl Loader {
             request = request.header(reqwest::header::IF_MODIFIED_SINCE, modified);
         }
 
-        let response = match request.send().await {
+        let mut response = match request.send().await {
             Ok(response) => response,
             Err(error) => return self.fall_back(spec, &body_path, &error.to_string()).await,
         };
@@ -213,10 +213,35 @@ impl Loader {
             etag: header(&response, reqwest::header::ETAG),
             last_modified: header(&response, reqwest::header::LAST_MODIFIED),
         };
-        let text = match response.text().await {
-            Ok(text) => text,
-            Err(error) => return self.fall_back(spec, &body_path, &error.to_string()).await,
-        };
+        // Stückweise lesen und mitzählen: `content-length` fehlt bei
+        // `Transfer-Encoding: chunked`, die Prüfung oben greift dort also
+        // nicht, und `text()` würde erst den ganzen Body puffern und die
+        // Grenze danach anwenden (CWE-770).
+        let mut body = Vec::new();
+        loop {
+            let chunk = match response.chunk().await {
+                Ok(Some(chunk)) => chunk,
+                Ok(None) => break,
+                Err(error) => {
+                    return self.fall_back(spec, &body_path, &error.to_string()).await;
+                }
+            };
+            if body.len() as u64 + chunk.len() as u64 > MAX_LIST_BYTES {
+                return Err(LoadError::TooLarge {
+                    name: spec.name.clone(),
+                });
+            }
+            body.extend_from_slice(&chunk);
+        }
+
+        // Die Grenze muss für das gelten, was geparst und zwischengespeichert
+        // wird, nicht für die Rohbytes: `from_utf8_lossy` ersetzt jedes
+        // ungültige Byte durch U+FFFD und bläht die Länge damit auf bis zu das
+        // Dreifache auf. Eine Rohgröße unter der Grenze kann so eine
+        // Cache-Datei über der Grenze erzeugen, die `read_limited` nie wieder
+        // liest — der Rückfall auf die letzte Fassung (B.1 Regel 6) wäre
+        // dauerhaft zerstört.
+        let text = String::from_utf8_lossy(&body).into_owned();
         if text.len() as u64 > MAX_LIST_BYTES {
             return Err(LoadError::TooLarge {
                 name: spec.name.clone(),
