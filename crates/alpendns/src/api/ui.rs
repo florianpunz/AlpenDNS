@@ -193,6 +193,39 @@ mod tests {
         );
     }
 
+    /// Die vier Kacheln oben und die beiden Spalten darunter liegen auf
+    /// denselben vier Spuren: die Begründung ist damit genau drei Kacheln breit,
+    /// die Nebenspalte genau eine. Zwei voneinander unabhängige Raster liefen
+    /// sonst irgendwann auseinander, und die Kanten stünden nicht mehr
+    /// übereinander — was man erst sieht, wenn es passiert ist.
+    #[test]
+    fn the_panes_sit_on_the_same_four_tracks_as_the_figures() {
+        let tracks = "repeat(4, minmax(0, 1fr))";
+        assert!(
+            rule(".figures").contains(tracks),
+            "die Kacheln stehen nicht auf vier Spuren"
+        );
+        assert!(
+            rule(".panes").contains(tracks),
+            "die Spalten stehen auf anderen Spuren als die Kacheln"
+        );
+        assert!(
+            rule(".column").contains("grid-column: span 3"),
+            "die linke Spalte ist nicht drei Kacheln breit"
+        );
+        assert!(
+            rule(".side").contains("grid-column: span 1"),
+            "die Nebenspalte ist nicht eine Kachel breit"
+        );
+        // Und im schmalen Fenster wieder zurück: ein "span 3" in einem Raster
+        // mit einer einzigen Spalte legte zwei zusätzliche Spuren an, statt
+        // einfach voll breit zu sein.
+        assert!(
+            STYLE.contains("grid-column: auto"),
+            "die Spannen werden in der einspaltigen Ansicht nicht zurückgesetzt"
+        );
+    }
+
     #[test]
     fn the_sparkline_is_inline_svg_without_a_library() {
         // Eine Linie, kein Diagrammpaket: die Seite lädt nichts nach.

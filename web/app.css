@@ -659,16 +659,24 @@ h2 {
 
 .stream { display: grid; min-height: 0; }
 
+/* Dieselben vier Spuren wie .figures, nicht zwei ungleiche: beide Raster liegen
+   in .board und sind gleich breit, also steht die Begründungsspalte damit genau
+   über den ersten drei Kacheln und die Nebenspalte genau über der vierten. Die
+   Kanten stehen nur übereinander, solange Spurzahl und Abstand in beiden Regeln
+   dieselben sind — deshalb steht das als Test in api/ui.rs und nicht nur als
+   Absicht. */
 .panes {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 19rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--s-16);
   min-height: 0;
 }
 
-/* Links: die Begründung oben, das Protokoll darunter — es bekommt den Rest. */
+/* Links: die Begründung oben, das Protokoll darunter — es bekommt den Rest.
+   Drei der vier Spuren, siehe .panes. */
 .column {
   display: grid;
+  grid-column: span 3;
   grid-template-rows: auto minmax(0, 1fr);
   gap: var(--s-16);
   min-height: 0;
@@ -805,6 +813,7 @@ td.c-time { color: var(--muted); }
    damit sie bei kurzer Liste den Rest der Spalte füllt. */
 .side {
   display: grid;
+  grid-column: span 1;
   grid-template-rows: auto auto auto auto minmax(max-content, 1fr);
   gap: var(--s-16);
   min-height: 0;
@@ -813,13 +822,13 @@ td.c-time { color: var(--muted); }
 }
 .top-panel { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; }
 
-/* Die Spalte ist 19rem breit; keines ihrer Kinder darf sie aufziehen. Als
-   Grid-Element geben sie sonst ihr min-content an die Spur weiter — für die
-   häufigsten Namen gemessen 346px bei 292px Platz, für einen langen
-   Upstream-Namen 405px. Die Spur wird dann breiter als ihr Behälter, und weil
-   .side rollt, wird der Überstand nicht sichtbar abgeschnitten, sondern still:
-   an jedem Panel der Spalte, nicht nur am schuldigen. Die Ellipse auf .n und
-   .up-name kommt erst zum Zug, wenn geschrumpft werden darf.
+/* Die Spalte ist eine Spur breit, also eine Kachel (siehe .panes); keines ihrer
+   Kinder darf sie aufziehen. Als Grid-Element geben sie sonst ihr min-content
+   an die Spur weiter — für die häufigsten Namen gemessen 346px, für einen
+   langen Upstream-Namen 405px. Die Spur wird dann breiter als ihr Behälter,
+   und weil .side rollt, wird der Überstand nicht sichtbar abgeschnitten,
+   sondern still: an jedem Panel der Spalte, nicht nur am schuldigen. Die
+   Ellipse auf .n und .up-name kommt erst zum Zug, wenn geschrumpft werden darf.
    Die zweite Zeile, weil das ol in einem eigenen Grid liegt (.top-panel) und
    dort selbst Grid-Element ist. */
 .side > * { min-width: 0; }
@@ -935,9 +944,12 @@ code { font-family: var(--mono); font-size: 0.9em; color: var(--muted); }
   .board { grid-template-rows: none; }
   .figures { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .panes { grid-template-columns: minmax(0, 1fr); }
-  .column { grid-template-rows: none; }
+  /* Die Spannen gehören zurückgesetzt: in einem Raster mit einer einzigen Spalte
+     legte "span 3" zwei zusätzliche Spuren an, und das Raster wäre wieder
+     zweispaltig — nur ohne Spurbreite dafür. */
+  .column { grid-template-rows: none; grid-column: auto; }
   .log { max-height: 60vh; }
-  .side { grid-template-rows: none; overflow-y: visible; }
+  .side { grid-template-rows: none; overflow-y: visible; grid-column: auto; }
   .counters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .facts { gap: var(--s-24); }
   .c-client { display: none; }
