@@ -482,7 +482,12 @@ function showReason(event) {
  *
  *  Der Unterschied zur Kette aus dem Protokoll: die dort ist ein Protokoll
  *  dessen, was passiert ist; diese hier ist die Antwort auf "und was würde
- *  jetzt passieren?". Deshalb steht dabei, woher sie kommt. */
+ *  jetzt passieren?". Deshalb steht dabei, woher sie kommt.
+ *
+ *  Die angeklickte Zeile ist zugleich die Anweisung, das Panel in Ruhe zu
+ *  lassen: solange sie gesetzt ist, führt der Strom die Begründung nicht mehr
+ *  nach. Eine Auswahl, die die nächste geblockte Anfrage überschreibt, ist
+ *  keine — man liest die Kette ja nicht in der Sekunde, in der man klickt. */
 let askedRow = null;
 
 async function explainRow(name, client, row) {
@@ -646,8 +651,9 @@ function flushRows() {
   pending.length = 0;
   syncEmptyStates();
   // Nur die jüngste Begründung: unter Last wäre alles andere ein Flackern, das
-  // niemand lesen kann.
-  if (newestBlocked) showReason(newestBlocked);
+  // niemand lesen kann. Und gar keine, sobald jemand selbst eine Zeile gewählt
+  // hat — dann gehört das Panel dieser Zeile, bis die Seite neu geladen wird.
+  if (newestBlocked && !askedRow) showReason(newestBlocked);
 }
 
 async function refreshTop() {
@@ -800,7 +806,7 @@ async function loadRecent() {
   for (const event of recent) fragment.append(row(event));
   $("log").prepend(fragment);
   const newestBlocked = recent.find((event) => event.blocked && event.name);
-  if (newestBlocked) showReason(newestBlocked);
+  if (newestBlocked && !askedRow) showReason(newestBlocked);
   syncEmptyStates();
 }
 

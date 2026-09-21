@@ -717,8 +717,27 @@ mod tests {
         assert!(SCRIPT.contains("createDocumentFragment"));
         // Und die Begründung wird je Bild höchstens einmal ausgetauscht.
         assert!(
-            SCRIPT.contains("if (newestBlocked) showReason(newestBlocked);"),
+            SCRIPT.contains("if (newestBlocked && !askedRow) showReason(newestBlocked);"),
             "unter Last flackert die Begründung"
+        );
+    }
+
+    /// Die selbst gewählte Zeile wird nicht vom Strom überschrieben.
+    ///
+    /// Ohne die Bedingung an `askedRow` wechselte das Panel bei jeder neu
+    /// geblockten Anfrage auf diese um — genau in dem Moment, in dem man die
+    /// aufgerufene Kette noch liest. Die Auswahl gilt, bis die Seite neu geladen
+    /// wird; im Ringpuffer verschwindet mit der Zeile nur ihre Markierung.
+    #[test]
+    fn an_asked_row_survives_the_next_block() {
+        // Zwei Stellen führen nach: der erste Aufbau aus /api/recent und jedes
+        // gezeichnete Bild. Beide müssen fragen, ob jemand selbst gewählt hat.
+        assert_eq!(
+            SCRIPT
+                .matches("&& !askedRow) showReason(newestBlocked)")
+                .count(),
+            2,
+            "eine der beiden Stellen überschreibt die gewählte Zeile"
         );
     }
 
