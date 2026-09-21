@@ -15,12 +15,16 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 src="$root/docs/images/ui.png"
 out="$root/docs/images/ui-card.png"
 
-radius=28          # bei 1600 px Breite — auf GitHub rund 14 px sichtbar
+# Der Radius ist auf 1600 px Aufnahmebreite bemessen — auf GitHub rund 14 px
+# sichtbar. Er wächst mit der Breite mit: sonst sähe dieselbe Karte bei einer
+# breiteren Aufnahme eckiger aus als bei einer schmaleren.
+radius_at_1600=28
 pad=80              # Platz, in den der Schatten fallen kann
 shadow="55x24+0+14" # Weichzeichner x Größe + Versatz nach unten
 
 w=$(identify -format '%w' "$src")
 h=$(identify -format '%h' "$src")
+radius=$((w * radius_at_1600 / 1600))
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
