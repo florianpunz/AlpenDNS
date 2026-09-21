@@ -217,6 +217,15 @@ mod tests {
             rule(".side").contains("grid-column: span 1"),
             "die Nebenspalte ist nicht eine Kachel breit"
         );
+        // Eine reservierte Rollbalken-Spur an der Nebenspalte zöge jedes ihrer
+        // Panels um ihre Breite ein — gemessen 15 px — und die rechte Kante
+        // damit von der der Kacheln weg. Dieselbe Spur an .log ist dagegen
+        // folgenlos: sie liegt im Panel, nicht an seiner Kante.
+        assert!(
+            !rule(".side").contains("scrollbar-gutter"),
+            "die Nebenspalte reserviert eine Rollbalken-Spur und steht damit \
+             nicht mehr auf der Kante der Kacheln"
+        );
         // Und im schmalen Fenster wieder zurück: ein "span 3" in einem Raster
         // mit einer einzigen Spalte legte zwei zusätzliche Spuren an, statt
         // einfach voll breit zu sein.

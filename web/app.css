@@ -818,8 +818,14 @@ td.c-time { color: var(--muted); }
   gap: var(--s-16);
   min-height: 0;
   overflow-y: auto;
-  scrollbar-gutter: stable;
 }
+/* Hier bewusst keine reservierte Rollbalken-Spur, anders als bei .log: die
+   Panels sind die sichtbare Fläche dieser Spur, die Spur selbst ist das
+   Grid-Element. Eine reservierte Bahn zöge jedes Panel um ihre Breite ein —
+   gemessen 15 px — und damit die rechte Kante weg von der, auf der die
+   Kacheln darüber stehen (siehe the_panes_sit_on_the_same_four_tracks, und
+   der Kommentar an .panes). Bei .log ist das folgenlos: dort liegt die Bahn
+   im Panel, nicht an seiner Kante. */
 .top-panel { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; }
 
 /* Die Spalte ist eine Spur breit, also eine Kachel (siehe .panes); keines ihrer

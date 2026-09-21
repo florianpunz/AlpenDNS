@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/alpendns"]
 
 [workspace.package]
-version = "0.13.0"
+version = "0.14.0"
 edition = "2024"
 rust-version = "1.85"
 license = "AGPL-3.0-or-later"
