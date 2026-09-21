@@ -3,7 +3,7 @@
 </div>
 
 <p align="center">
-  <a href="https://florianpunz.github.io/alpendns/"><b>Live demo</b></a> ·
+  <a href="https://florianpunz.github.io/AlpenDNS/"><b>Live demo</b></a> ·
   <a href="docs/OPERATIONS.md"><b>Install</b></a> ·
   <a href="docs/ROADMAP.md"><b>Roadmap</b></a> ·
   <a href="docs/ARCHITECTURE.md"><b>Architecture</b></a> ·
