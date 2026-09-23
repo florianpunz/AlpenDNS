@@ -15,6 +15,7 @@ pub mod dns;
 pub mod dnssec;
 pub mod filter;
 pub mod history;
+pub mod local;
 pub mod logging;
 pub mod metrics;
 pub mod policy;

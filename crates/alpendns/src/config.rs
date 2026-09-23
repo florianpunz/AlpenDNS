@@ -16,6 +16,8 @@ use std::time::Duration;
 use hickory_proto::rr::Name;
 use serde::Deserialize;
 
+use crate::local::{LocalZoneConfig, build_zones};
+
 /// Fehler beim Laden oder Validieren der Konfiguration.
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
@@ -54,6 +56,9 @@ pub struct Config {
     /// Zonen, die an einen Server im eigenen Netz gehen statt ins Internet.
     #[serde(default)]
     pub forward_zone: Vec<ForwardZone>,
+    /// Zonen, die AlpenDNS selbst beantwortet. Siehe [`crate::local`].
+    #[serde(default)]
+    pub local_zone: Vec<LocalZoneConfig>,
     #[serde(default)]
     pub privacy: PrivacyConfig,
     #[serde(default)]
@@ -1244,6 +1249,33 @@ impl Config {
                 )));
             }
         }
+        self.validate_local_zones()?;
+        Ok(())
+    }
+
+    /// Prüft die lokalen Zonen und ihr Verhältnis zu `[[forward_zone]]`.
+    ///
+    /// Baut die Tabellen wirklich, statt die Konfiguration nur anzusehen: so
+    /// fällt ein Tippfehler beim Start auf (`alpendns check` ruft dieselbe
+    /// Validierung) und nicht erst, wenn die Zone das erste Mal greifen soll.
+    fn validate_local_zones(&self) -> Result<(), ConfigError> {
+        build_zones(&self.local_zone)?;
+        for local in &self.local_zone {
+            for forward in &self.forward_zone {
+                // Eine Zone ist entweder lokal oder weitergeleitet. Beides
+                // zugleich wäre eine Frage der Reihenfolge — und die soll
+                // niemand raten müssen.
+                if local.zone.0.zone_of(&forward.zone.0) || forward.zone.0.zone_of(&local.zone.0) {
+                    return Err(ConfigError::Invalid(format!(
+                        "local_zone '{}' und forward_zone '{}' überschneiden sich. local_zone \
+                         beantwortet selbst, forward_zone gibt an einen anderen Nameserver \
+                         weiter — für dieselbe Zone geht nur eines. Eine der beiden Zonen \
+                         muss woanders hin.",
+                        local.zone.0, forward.zone.0
+                    )));
+                }
+            }
+        }
         Ok(())
     }
 }
@@ -1786,6 +1818,82 @@ odoh = { enabled = true, proxy = "https://proxy.example/p" }
                 .to_ascii(),
             "home.arpa."
         );
+    }
+
+    #[test]
+    fn a_local_zone_is_checked_when_the_config_is_loaded() {
+        // Nicht erst in `main`: `alpendns check` ruft dieselbe Validierung, und
+        // ein Tippfehler soll beim Start auffallen, nicht beim ersten Treffer.
+        let text = format!(
+            "{MINIMAL}\n[[local_zone]]\nzone = \"Miloo.AT\"\n\
+             records = [{{ name = \"nas\", type = \"A\", value = \"192.168.1.5\" }}]\n"
+        );
+        let config = valid(&text);
+        let zone = config.local_zone.first().expect("eine Zone");
+        assert_eq!(zone.zone.0.to_ascii(), "miloo.at.");
+        assert_eq!(zone.ttl, 300);
+        assert_eq!(zone.fallback, crate::local::Fallback::Upstream);
+    }
+
+    #[test]
+    fn a_local_record_that_cannot_work_is_a_startup_error() {
+        let text = format!(
+            "{MINIMAL}\n[[local_zone]]\nzone = \"miloo.at\"\n\
+             records = [{{ name = \"mail\", type = \"MX\", value = \"10 mail.miloo.at.\" }}]\n"
+        );
+        let err = valid_err(&text);
+        assert!(err.contains("MX"), "{err}");
+        assert!(err.contains("AAAA"), "{err}");
+    }
+
+    #[test]
+    fn the_root_zone_is_not_a_local_zone() {
+        let text = format!("{MINIMAL}\n[[local_zone]]\nzone = \".\"\n");
+        let err = valid_err(&text);
+        assert!(err.contains("Wurzelzone"), "{err}");
+    }
+
+    #[test]
+    fn two_local_zones_may_not_be_the_same_zone() {
+        let text = format!(
+            "{MINIMAL}\n[[local_zone]]\nzone = \"miloo.at\"\n\
+             \n[[local_zone]]\nzone = \"miloo.at\"\n"
+        );
+        let err = valid_err(&text);
+        assert!(err.contains("zweimal"), "{err}");
+    }
+
+    #[test]
+    fn a_local_zone_may_not_overlap_a_forward_zone() {
+        // Gleich, enthalten, enthaltend — in allen drei Fällen wäre nicht
+        // vorhersagbar, wer gewinnt.
+        for (local, forward) in [
+            ("miloo.at", "miloo.at"),
+            ("sub.miloo.at", "miloo.at"),
+            ("miloo.at", "sub.miloo.at"),
+        ] {
+            let text = format!(
+                "{MINIMAL}\n[[forward_zone]]\nzone = \"{forward}\"\n\
+                 upstream = \"udp://10.0.0.1:53\"\n\
+                 \n[[local_zone]]\nzone = \"{local}\"\n"
+            );
+            let err = valid_err(&text);
+            assert!(err.contains("überschneiden"), "{local} / {forward}: {err}");
+        }
+    }
+
+    #[test]
+    fn a_local_zone_beside_a_forward_zone_is_fine() {
+        // Die Gegenprobe: die Prüfung darf nicht jedes zweite Zonenpaar
+        // ablehnen.
+        let text = format!(
+            "{MINIMAL}\n[[forward_zone]]\nzone = \"home.arpa\"\n\
+             upstream = \"udp://10.0.0.1:53\"\n\
+             \n[[local_zone]]\nzone = \"miloo.at\"\n"
+        );
+        let config = valid(&text);
+        assert_eq!(config.local_zone.len(), 1);
+        assert_eq!(config.forward_zone.len(), 1);
     }
 
     #[test]
