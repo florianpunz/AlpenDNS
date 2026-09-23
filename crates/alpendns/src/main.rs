@@ -38,6 +38,14 @@ const STATS_INTERVAL: Duration = Duration::from_secs(300);
 /// Wohin das Paket die logrotate-Regel legt (`packaging/logrotate/`).
 const LOGROTATE_DIR: &str = "/etc/logrotate.d";
 
+/// Woran `systemd-timesyncd` vermerkt, dass es die Uhr gestellt hat.
+///
+/// Aus `systemd-time-wait-sync.service(8)`: „The presence of this file indicates
+/// to this service that the system clock has been synchronized." Geschrieben
+/// wird sie von `systemd-timesyncd` selbst, nicht von `systemd-time-wait-sync` —
+/// sie liegt deshalb auch dann da, wenn jenes gar nicht läuft.
+const TIME_SYNC_MARKER: &str = "/run/systemd/timesync/synchronized";
+
 const USAGE: &str = "alpendns — privacy-fokussierter DNS-Server
 
 Aufruf:
@@ -961,6 +969,15 @@ fn check(path: &std::path::Path) -> anyhow::Result<()> {
         config.privacy.logging.mode,
         &config.privacy.logging.path,
         std::path::Path::new(LOGROTATE_DIR),
+    ) {
+        println!("\nHinweis: {hint}");
+    }
+
+    // Derselbe Ton, derselbe Grund: kein Fehler, aber der eine Zustand, in dem
+    // der Server läuft und trotzdem nichts beantwortet. Siehe `clock::time_sync_hint`.
+    if let Some(hint) = alpendns::clock::time_sync_hint(
+        config.privacy.dnssec,
+        std::path::Path::new(TIME_SYNC_MARKER),
     ) {
         println!("\nHinweis: {hint}");
     }

@@ -19,6 +19,21 @@ Documentation=https://github.com/florianpunz/alpendns
 # dieser erste Start ab (fail closed, CLAUDE.md B.1 Regel 6).
 After=network-online.target
 Wants=network-online.target
+# Die eigene DNSSEC-Prüfung rechnet Signaturzeiten gegen die Systemuhr
+# (ADR-0016). Steht die auf dem Epoch-Datum, ist jede signierte Zone bogus und
+# jede Anfrage SERVFAIL — und zwar ohne dass ein Upstream als ausgefallen
+# zählte. Deshalb: nach der Zeitsynchronisation starten, wenn es eine gibt.
+#
+# `Wants=` fehlt hier mit Absicht, und zwar aus einem härteren Grund als
+# "soll keiner mitstarten müssen": das Ziel wird von
+# systemd-time-wait-sync.service hereingeholt, und das steht auf
+# `TimeoutStartSec=infinity`. Es wartet also *unbegrenzt*, wenn keine Uhr
+# gestellt wird — auf einer Kiste ohne NTP stünde der Resolver damit für immer.
+# `After=` ohne `Wants=` ordnet nur, wenn das Ziel ohnehin in der Transaktion
+# ist, und ist sonst folgenlos. Auf einem Debian-Standardystem ist es das
+# nicht: dort ist systemd-time-wait-sync.service nicht aktiviert. Wer die
+# Ordnung wirklich will, schaltet sie ein — siehe docs/OPERATIONS.md §4.
+After=time-sync.target
 # Ein Resolver, der beim Start dauerhaft scheitert, soll auffallen und nicht
 # alle zwei Sekunden das Journal füllen. Die beiden Schlüssel gehören nach
 # [Unit], obwohl sie das Restart= aus [Service] begrenzen.

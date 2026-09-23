@@ -362,6 +362,54 @@ alpendns -c /etc/alpendns/alpendns.toml check   # zones, entries, fallback
 dig @127.0.0.1 nas.meinedomain.at A             # what comes back, and from whom
 ```
 
+### Everything is SERVFAIL
+
+Every name, from every client, and the upstreams look healthy in the UI. If
+`privacy.dnssec` is on, suspect the system clock before anything else:
+
+```bash
+timedatectl                                    # "System clock synchronized: yes"?
+journalctl -u alpendns | grep -i "Auflösung fehlgeschlagen"
+# → DNSSEC-Prüfung fehlgeschlagen, die Antwort wurde verworfen
+alpendns -c /etc/alpendns/alpendns.toml check  # prints a note about the clock
+```
+
+A signature carries a validity window, and the validator compares it against
+the system clock (`hickory-net`, `ExpiredRrsig`). A box without a working RTC
+comes up on the epoch date; `current_time >= sig_inception` is then false for
+*every* signed zone, so every answer is bogus and every query is SERVFAIL. The
+upstreams stay green while this happens, and that is not a bug: a bogus zone is
+not an upstream outage — the upstream answered, and it would answer the same at
+every other provider, so counting it as a failure would let one broken zone
+mark the whole pool dead (`crates/alpendns/src/upstream/pool.rs`).
+
+The usual case is milder than the epoch date: at boot the resolver can be up
+before `systemd-timesyncd` has set the clock, and until it has, DNS is SERVFAIL.
+Then it heals by itself — a bogus answer is never cached. /run is a tmpfs, so
+the marker file disappears with every reboot; the note from `check` therefore
+appears again on each start until the clock has been set, and not only on the
+very first one.
+
+**NTP is a prerequisite here, not a comfort.** With the clock correct, the
+signature check is the thing that stops a forged answer; with it wrong, the
+check itself is what breaks the network. Do not "fix" this by turning
+`privacy.dnssec` off — anything that can set the clock can then also forge an
+answer.
+
+The unit is ordered after `time-sync.target`, which is what
+`systemd-time-wait-sync.service` provides. That ordering alone changes nothing
+on a stock Debian/Ubuntu system, because the service is not enabled there.
+Enabling it is a decision rather than a default, and the price is real: it
+waits with `TimeoutStartSec=infinity`, so on a machine that never synchronizes
+it would hold the resolver back for good. On a box with an RTC and a working NTP
+server, the wait is over in the first seconds of boot, and the ordering buys
+exactly those seconds:
+
+```bash
+sudo systemctl enable systemd-time-wait-sync.service   # the wait becomes real
+systemctl status systemd-time-wait-sync                # what it is waiting for
+```
+
 ### A device stops getting answers
 
 Possibly the rate limiter. The counter is in the log and in the metrics:

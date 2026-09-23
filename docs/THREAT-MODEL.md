@@ -110,6 +110,15 @@ configuration. The UI shows the active log mode prominently.
   score of 0.9 means "looks generated", not "is malicious".
 * **Anonymity.** AlpenDNS is a privacy tool, not an anonymity tool. The
   difference is not cosmetic.
+* **A wrong system clock.** With `privacy.dnssec` on, the validity window of
+  every signature is checked against the system clock. A box that comes up on
+  the epoch date therefore answers SERVFAIL to everything, and the upstreams
+  keep looking healthy while it does. That is an availability risk, not an
+  attack, and nothing here defends against it: neither a tolerating skew nor a
+  fallback that switches validation off (which would hand the protection to
+  whoever can set the clock). What exists instead is the unit's ordering after
+  `time-sync.target` and a note from `alpendns check` — see
+  [OPERATIONS.md §4](OPERATIONS.md), "Everything is SERVFAIL".
 
 ## The project's own attack surface
 
