@@ -9,6 +9,8 @@ all-features = true
 [advisories]
 # Kein Dependency mit offenem RUSTSEC-Advisory. Ausnahmen kommen hier rein,
 # jeweils mit einer Begründung und der Bedingung, wann sie wegfällt.
+# Die Prüfung läuft seit dem wöchentlichen Lauf in ci.yml auch ohne Commit; was
+# dann zu tun ist, steht in CONTRIBUTING.md unter "Dependencies and advisories".
 ignore = [
     { id = "RUSTSEC-2026-0009", reason = """
 time 0.3.45: Stack Exhaustion beim Parsen von RFC-2822-Daten aus fremder Eingabe.

@@ -4,6 +4,13 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Die Advisory-Datenbank ändert sich ohne Commit. Ohne diesen Trigger fällt
+  # eine neue RUSTSEC-Meldung erst beim nächsten Commit auf, und in einem
+  # Repo, das abends und unregelmäßig bearbeitet wird, kann das Wochen dauern.
+  # Nicht zur vollen Stunde: dort starten die Workflows der halben Welt, GitHub
+  # empfiehlt selbst einen Versatz.
+  schedule:
+    - cron: '17 6 * * 1'
 
 env:
   CARGO_TERM_COLOR: always
@@ -27,9 +34,54 @@ jobs:
 
   deny:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
     steps:
       - uses: actions/checkout@v4
-      - uses: EmbarkStudios/cargo-deny-action@v2
+      # Der Lauf darf scheitern, ohne dass dieser Job hier endet: der
+      # Meldeschritt darunter muss noch drankommen. Ob der Job rot wird,
+      # entscheidet der letzte Schritt.
+      - id: deny
+        uses: EmbarkStudios/cargo-deny-action@v2
+        continue-on-error: true
+      # Genau ein Issue, das beim nächsten Mal kommentiert statt neu angelegt
+      # wird. Ein wöchentlich neues Issue wäre nach drei Monaten Rauschen, und
+      # Rauschen wird ignoriert.
+      #
+      # Nur auf main, nicht auf Pull Requests: aus einem Fork heraus darf
+      # GITHUB_TOKEN keine Issues schreiben, und ein roter PR ist ohnehin
+      # Sache des Autors.
+      - name: Advisory melden
+        if: steps.deny.outcome == 'failure' && github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          title="cargo deny schlägt fehl — neue Advisory?"
+          body=$(cat <<TEXT
+          Der Lauf "cargo deny check" ist fehlgeschlagen: $RUN_URL
+
+          In diesem Repo muss sich dafür nichts geändert haben — die
+          Advisory-Datenbank bewegt sich ohne Commit. Der Ablauf steht in
+          CONTRIBUTING.md unter "Dependencies and advisories": erst prüfen, ob
+          der verwundbare Pfad von hier aus erreichbar ist; dann beheben oder
+          eine Ausnahme in deny.toml eintragen, mit Begründung und
+          Umkehrbedingung.
+          TEXT
+          )
+          number=$(gh issue list --state open --limit 200 --json number,title \
+            --jq "[.[] | select(.title == \"$title\")][0].number // empty")
+          if [ -n "$number" ]; then
+            echo "bestehendes Issue #$number aktualisiert"
+            gh issue comment "$number" --body "$body"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
+      - name: Ergebnis
+        if: steps.deny.outcome == 'failure'
+        run: exit 1
 
   # Enable once crates/*/fuzz targets exist (see docs/TESTING.md).
   # fuzz:

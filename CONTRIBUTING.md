@@ -36,6 +36,29 @@ A new dependency needs one line of justification in the commit message.
 `cargo deny` runs in CI and rejects GPL-incompatible licenses and crates with
 open advisories (one documented exception, argued in [`deny.toml`](deny.toml)).
 
+### Dependencies and advisories
+
+`cargo deny` also runs on its own every Monday, with nobody committing. That is
+the point of it: the advisory database moves by itself, so a new RUSTSEC entry
+would otherwise surface only on the next commit — in a repository worked on in
+the evenings and irregularly, that can be weeks. When that run fails it opens a
+single issue, *"cargo deny schlägt fehl — neue Advisory?"*, and comments on that
+one instead of opening a new one every week.
+
+Three steps, in this order:
+
+1. **Is the vulnerable path reachable from here?** The question is not "is the
+   crate in the dependency tree" but "is the affected function called on a path
+   that touches data we do not control". The exception for `time` in
+   [`deny.toml`](deny.toml) is the pattern to copy: it names the crate, the
+   function, and why the two never meet here.
+2. **Reachable → fix it**, replacing the dependency if need be. Not reachable,
+   or not fixable → an entry in `deny.toml` with a rationale **and a reversal
+   condition** — the one for `time` reads "falls away as soon as the MSRV rises
+   to 1.88".
+3. **Every exception is read again on the next weekly failure.** An exception
+   without a reversal condition is not an exception, it is a capitulation.
+
 ## Commits
 
 Conventional Commits, and the message explains *why* — the *what* is in the
