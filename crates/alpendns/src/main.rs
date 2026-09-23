@@ -438,6 +438,14 @@ fn run() -> anyhow::Result<()> {
 
         let shutdown = CancellationToken::new();
 
+        // Das Query-Log puffert (Finding B3 in docs/TODOS.md); hier geht der
+        // Puffer im Takt auf Platte. In jedem Modus außer `full` endet die
+        // Aufgabe von selbst, weil es keine Datei gibt.
+        tokio::spawn(alpendns::logging::run_flusher(
+            Arc::clone(&query_log),
+            shutdown.clone(),
+        ));
+
         // Der Seed von split_by_zone wird regelmäßig neu gezogen, damit kein
         // Anbieter über die Zeit ein stabiles Bild lernt (FEATURES.md P2).
         tokio::spawn(alpendns::upstream::pool::run_seed_rotation(
@@ -546,6 +554,10 @@ fn run() -> anyhow::Result<()> {
         });
 
         bound.run(shutdown).await;
+        // Von Hand, nicht durch die Flush-Aufgabe: die wird beim Herunterfahren
+        // abgebrochen und nicht abgewartet, und was im Puffer steht, wäre mit
+        // dem Prozess weg.
+        query_log.flush();
         log_stats(&cache, &pool, &engine, "Cache-Bilanz");
         tracing::info!("beendet");
         Ok(())

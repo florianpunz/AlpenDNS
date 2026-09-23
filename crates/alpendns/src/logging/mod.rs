@@ -375,7 +375,9 @@ pub struct QueryLog {
     /// **nirgends** — das ist der ganze Punkt.
     reportable: Mutex<HashMap<String, DomainCount>>,
     ring: Mutex<Ring<LoggedQuery>>,
-    file: Option<Mutex<std::fs::File>>,
+    /// Gepuffert, weil sonst jede beantwortete Anfrage einen `write`-Syscall
+    /// kostet (Finding B3). Geflusht wird von [`run_flusher`].
+    file: Option<Mutex<std::io::BufWriter<std::fs::File>>>,
     /// Live-Strom für die UI. Wer nicht zuhört, kostet nichts.
     events: tokio::sync::broadcast::Sender<StreamEvent>,
     /// Bezugspunkt für das Sekundenfenster des Live-Stroms.
@@ -400,12 +402,12 @@ impl QueryLog {
             if let Some(parent) = config.path.parent() {
                 std::fs::create_dir_all(parent)?;
             }
-            Some(Mutex::new(
+            Some(Mutex::new(std::io::BufWriter::new(
                 std::fs::OpenOptions::new()
                     .create(true)
                     .append(true)
                     .open(&config.path)?,
-            ))
+            )))
         } else {
             None
         };
@@ -520,9 +522,25 @@ impl QueryLog {
             && let Ok(line) = serde_json::to_string(&entry)
         {
             let mut file = file.lock().unwrap_or_else(PoisonError::into_inner);
-            // Ein Schreibfehler darf keine Anfrage scheitern lassen.
+            // Ein Schreibfehler darf keine Anfrage scheitern lassen. In den
+            // Puffer zu schreiben kostet keinen Syscall — der kommt erst, wenn
+            // er voll ist oder [`Self::flush`] ihn leert.
             let _ = writeln!(file, "{line}");
         }
+    }
+
+    /// Schreibt den Puffer auf Platte.
+    ///
+    /// Ohne das stünde bis zu einem vollen Puffer alles im Speicher, und beim
+    /// Herunterfahren ginge die letzte Füllung verloren. Ein Fehler bleibt
+    /// still: er ist derselbe, den `writeln!` oben schon verschweigt, und es
+    /// gibt niemanden, dem man ihn hier melden könnte.
+    pub fn flush(&self) {
+        let Some(file) = &self.file else {
+            return;
+        };
+        let mut file = file.lock().unwrap_or_else(PoisonError::into_inner);
+        let _ = file.flush();
     }
 
     /// Wer den Live-Strom mitlesen will.
@@ -705,12 +723,161 @@ impl QueryLog {
     }
 }
 
+/// Wie oft der Puffer des Query-Logs auf Platte geht.
+const FLUSH_INTERVAL: Duration = Duration::from_secs(1);
+
+/// Leert den Puffer des Query-Logs im Takt.
+///
+/// Der Tausch (Finding B3): jede beantwortete Anfrage kostet keinen
+/// `write`-Syscall mehr, dafür liegt beim Absturz die letzte Sekunde im
+/// Speicher. Eine Sekunde Query-Log ist kein Verlust, den jemand betrauern
+/// würde — eine Zeile je Anfrage im Anfragepfad dagegen kostet den Server
+/// spürbar, sobald der Modus `full` eingeschaltet ist.
+///
+/// Beim Herunterfahren flusht nicht diese Aufgabe, sondern `main` von Hand: sie
+/// wird abgebrochen, nicht abgewartet, und käme dazu nicht mehr rechtzeitig dran.
+pub async fn run_flusher(log: Arc<QueryLog>, shutdown: tokio_util::sync::CancellationToken) {
+    if !log.writes_to_disk() {
+        // In `none`, `aggregate` und `ring` gibt es keine Datei; die Aufgabe
+        // endet dann von selbst, statt jede Sekunde ins Leere zu ticken.
+        return;
+    }
+    let mut ticker = tokio::time::interval(FLUSH_INTERVAL);
+    ticker.tick().await; // der erste Tick kommt sofort
+    loop {
+        tokio::select! {
+            () = shutdown.cancelled() => return,
+            _ = ticker.tick() => log.flush(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn log() -> QueryLog {
         QueryLog::new(&crate::config::LoggingConfig::default()).expect("QueryLog")
+    }
+
+    /// Ein Query-Log im Modus `full`, das in ein eigenes Testverzeichnis
+    /// schreibt. Zurück kommen Log, Dateipfad und Verzeichnis.
+    fn disk_log(prefix: &str) -> (QueryLog, std::path::PathBuf, std::path::PathBuf) {
+        let dir = std::env::temp_dir().join(format!("{prefix}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("Testverzeichnis");
+        let path = dir.join("queries.jsonl");
+        let config = crate::config::LoggingConfig {
+            mode: Mode::Full,
+            path: path.clone(),
+            ..Default::default()
+        };
+        (QueryLog::new(&config).expect("QueryLog"), path, dir)
+    }
+
+    fn event(name: &str) -> QueryEvent {
+        QueryEvent {
+            name: name.to_owned(),
+            query_type: "A".to_owned(),
+            client: Arc::from("192.0.2.1"),
+            blocked: false,
+            reason: None,
+            rcode: ResponseCode::NoError,
+            why: Vec::new(),
+            elapsed: Duration::from_millis(4),
+            findings: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn the_buffer_stays_in_memory_until_it_is_flushed() {
+        // Finding B3: im Modus `full` kostete jede beantwortete Anfrage einen
+        // `write`-Syscall im Anfragepfad. Der Puffer ist der Unterschied — und
+        // dass er nicht liegen bleibt, ist der Flush.
+        let (log, path, dir) = disk_log("alpendns-logbuffer");
+        log.record(&event("beispiel.example"));
+
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("lesen"),
+            "",
+            "die Zeile steht schon auf Platte, obwohl niemand geflusht hat"
+        );
+
+        log.flush();
+        let written = std::fs::read_to_string(&path).expect("lesen");
+        assert!(written.contains("beispiel.example"), "{written}");
+        assert!(written.ends_with('\n'), "die Zeile ist nicht abgeschlossen");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_flusher_empties_the_buffer_on_its_tick() {
+        let (log, path, dir) = disk_log("alpendns-logflusher");
+        let log = Arc::new(log);
+        let shutdown = tokio_util::sync::CancellationToken::new();
+        let task = tokio::spawn(run_flusher(Arc::clone(&log), shutdown.clone()));
+
+        log.record(&event("getaktet.example"));
+        assert_eq!(std::fs::read_to_string(&path).expect("lesen"), "");
+
+        tokio::time::sleep(FLUSH_INTERVAL * 2).await;
+        assert!(
+            std::fs::read_to_string(&path)
+                .expect("lesen")
+                .contains("getaktet.example"),
+            "die Aufgabe flusht nicht im Takt"
+        );
+
+        shutdown.cancel();
+        task.await.expect("die Aufgabe endet beim Shutdown");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_flusher_ends_when_nothing_is_written() {
+        // In `aggregate` gibt es keine Datei. Eine Aufgabe, die dann jede
+        // Sekunde ins Leere tickt, wäre eine, die jemand später sucht.
+        let log = Arc::new(log());
+        let task = tokio::spawn(run_flusher(
+            Arc::clone(&log),
+            tokio_util::sync::CancellationToken::new(),
+        ));
+        tokio::time::sleep(FLUSH_INTERVAL * 10).await;
+        assert!(task.is_finished(), "die Aufgabe läuft ohne Datei weiter");
+    }
+
+    #[test]
+    fn the_log_keeps_writing_after_the_file_was_truncated() {
+        // Die Eigenschaft, auf der die Rotation beruht (packaging/logrotate):
+        // logrotate schneidet die Datei von außen auf null zurück, während der
+        // Dienst sie offen hält. Mit `append` landet die nächste Zeile wieder
+        // bei Offset 0. Ohne O_APPEND bliebe der Schreibzeiger stehen, die Datei
+        // wäre um eine Lücke aus Nullbytes gewachsen und läse sich wie eine
+        // leere Zeile am Anfang.
+        let (log, path, dir) = disk_log("alpendns-logtruncate");
+        log.record(&event("vorher.example"));
+        log.flush();
+
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .expect("öffnen")
+            .set_len(0)
+            .expect("zurückschneiden");
+
+        log.record(&event("nachher.example"));
+        log.flush();
+
+        let written = std::fs::read_to_string(&path).expect("lesen");
+        assert!(!written.contains("vorher.example"), "{written}");
+        assert!(written.contains("nachher.example"), "{written}");
+        assert!(
+            !written.contains('\0'),
+            "die Datei hat eine Lücke: {written:?}"
+        );
+        assert_eq!(written.lines().count(), 1, "{written}");
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
