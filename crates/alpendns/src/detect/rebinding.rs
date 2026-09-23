@@ -15,9 +15,11 @@
 //! **Die Ausnahmeliste ist nicht optional.** Ein Split-Horizon-DNS, eine
 //! Weboberfläche unter einem echten Namen, ein Gerätehersteller, der
 //! `geraet.hersteller.example` auf `192.168.1.50` zeigen lässt — alles legitim
-//! und alles hier ein Treffer. `forward_zone`-Einträge trägt die
-//! Konfiguration von selbst ein (siehe `crate::config`), damit der eigene
-//! LAN-Nameserver den Schutz nicht beim ersten Start auslöst.
+//! und alles hier ein Treffer. `forward_zone`-Einträge und die lokalen Zonen
+//! trägt die Konfiguration von selbst ein (siehe `crate::config`), damit der
+//! eigene LAN-Nameserver den Schutz nicht beim ersten Start auslöst. Bei einer
+//! lokalen Zone sind es die **eingetragenen Namen**, nicht die Zone: was nicht
+//! in der Tabelle steht, kommt weiterhin von draußen und wird weiter geprüft.
 //!
 //! **Was als privat zählt, ist eng gefasst**: nur Adressen, auf denen ein
 //! Gerät im lokalen Netz sitzen kann. Sinkholes (`0.0.0.0`, `::`) und

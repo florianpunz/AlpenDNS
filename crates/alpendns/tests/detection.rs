@@ -514,3 +514,73 @@ upstream = "udp://10.0.0.1:53"
         "{zones:?}"
     );
 }
+
+/// Eine Konfiguration mit zwei lokalen Zonen: eine im Split-Horizon-Betrieb,
+/// eine geschlossene.
+fn local_zone_config() -> alpendns::config::Config {
+    toml::from_str(
+        r#"
+[server]
+listen_udp = ["127.0.0.1:5353"]
+
+[[upstream_pool]]
+name = "default"
+
+[[upstream_pool.resolver]]
+name = "quad9"
+addr = "dot://9.9.9.9:853"
+tls_name = "dns.quad9.net"
+
+[[local_zone]]
+zone = "miloo.at"
+records = [{ name = "nas", type = "A", value = "192.168.1.5" }]
+
+[[local_zone]]
+zone = "intern.example"
+fallback = "nxdomain"
+"#,
+    )
+    .expect("Konfiguration parst")
+}
+
+#[test]
+fn local_zone_entries_are_exempt_from_rebinding_without_being_configured() {
+    // Dieselbe Falle wie bei `forward_zone`, eine Ebene feiner: eine lokale
+    // Antwort auf `nas.miloo.at` ist 192.168.1.5, und genau darauf wartet der
+    // Detektor. Ohne diese Ausnahme stünde jede lokale Antwort als
+    // "auffällig" in der Oberfläche — beim Default `flag` sofort, und die
+    // Beobachtungswoche wäre voll davon.
+    let zones = local_zone_config().rebinding_allow_zones();
+    assert!(
+        zones.iter().any(|zone| zone == &name("nas.miloo.at.")),
+        "der eingetragene Name fehlt: {zones:?}"
+    );
+}
+
+#[test]
+fn a_closed_zone_is_exempt_as_a_whole() {
+    // Aus einer geschlossenen Zone kommt *gar nichts* vom Upstream. Der
+    // Detektor hat dort nichts zu prüfen.
+    let zones = local_zone_config().rebinding_allow_zones();
+    assert!(
+        zones.iter().any(|zone| zone == &name("intern.example.")),
+        "{zones:?}"
+    );
+}
+
+#[test]
+fn a_split_horizon_zone_is_not_exempt_as_a_whole() {
+    // Die Gegenprobe, und der Grund, warum die Ausnahme je *Name* gilt und
+    // nicht je Zone: `www.miloo.at` kommt weiterhin vom Upstream. Ein
+    // Angreifer, der dort 192.168.1.1 liefert, ist genau der Fall, gegen den
+    // der Detektor da ist — für diesen Namen darf der Schutz nicht ruhen.
+    //
+    // Für sich allein wäre diese Zusicherung schwach (eine leere Liste besteht
+    // sie): erst zusammen mit den beiden Tests darüber, die Einträge
+    // *erzwingen*, ist "die Zone steht nicht drin" eine Aussage.
+    let zones = local_zone_config().rebinding_allow_zones();
+    assert!(
+        !zones.iter().any(|zone| zone == &name("miloo.at.")),
+        "die ganze Zone wurde ausgenommen: {zones:?}"
+    );
+}

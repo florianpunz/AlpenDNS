@@ -16,7 +16,7 @@ use std::time::Duration;
 use hickory_proto::rr::Name;
 use serde::Deserialize;
 
-use crate::local::{LocalZoneConfig, build_zones};
+use crate::local::{LocalZone, LocalZoneConfig, build_zones};
 
 /// Fehler beim Laden oder Validieren der Konfiguration.
 #[derive(Debug, thiserror::Error)]
@@ -1337,21 +1337,29 @@ impl Config {
             .collect()
     }
 
-    /// Die Zonen, in denen private Adressen erlaubt sind.
+    /// Die Zonen und Namen, in denen private Adressen erlaubt sind.
     ///
-    /// Die konfigurierten plus **alle `forward_zone`-Einträge**. Ohne diese
-    /// Ergänzung wäre der Rebinding-Schutz beim ersten Start eine Falle: der
-    /// eigene LAN-Nameserver antwortet für `home.arpa` naturgemäß mit
-    /// `192.168.x.y`, und genau das ist der Treffer, auf den der Detektor
-    /// wartet. Wer eine Zone ausdrücklich ins eigene Netz leitet, hat damit
-    /// schon gesagt, dass private Adressen von dort in Ordnung sind.
+    /// Die konfigurierten plus **alle `forward_zone`-Einträge** plus die
+    /// lokalen Zonen. Ohne diese Ergänzung wäre der Rebinding-Schutz beim
+    /// ersten Start eine Falle: der eigene LAN-Nameserver antwortet für
+    /// `home.arpa` naturgemäß mit `192.168.x.y`, und genau das ist der Treffer,
+    /// auf den der Detektor wartet. Wer eine Zone ausdrücklich ins eigene Netz
+    /// leitet, hat damit schon gesagt, dass private Adressen von dort in
+    /// Ordnung sind. Für eine lokale Zone gilt dasselbe — aber **je Name**,
+    /// siehe [`LocalZone::rebinding_exempt`].
     pub fn rebinding_allow_zones(&self) -> Vec<Name> {
+        // `build_zones` schlägt hier nicht fehl: `validate()` hat dieselbe
+        // Funktion beim Laden schon laufen lassen und den Start abgebrochen,
+        // wenn sie fehlschlug. Sollte es doch einmal so weit kommen, ist die
+        // leere Liste die sichere Richtung — dann gilt der Schutz überall.
+        let local = build_zones(&self.local_zone).unwrap_or_default();
         self.detection
             .rebinding
             .allow_zones
             .iter()
             .map(|zone| zone.0.clone())
             .chain(self.forward_zone.iter().map(|zone| zone.zone.0.clone()))
+            .chain(local.iter().flat_map(LocalZone::rebinding_exempt))
             .collect()
     }
 }

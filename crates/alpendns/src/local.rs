@@ -140,6 +140,35 @@ impl LocalZone {
         self.entries.keys()
     }
 
+    /// Die Namen, die der Rebinding-Schutz ausnehmen muss.
+    ///
+    /// **Je Name, nicht je Zone** — der Unterschied ist der ganze Punkt. Eine
+    /// lokale Antwort ist typischerweise `192.168.x.y` und damit genau das, was
+    /// der Detektor sucht; ohne Ausnahme stünde jede lokale Antwort als
+    /// "auffällig" in der Oberfläche (ADR-0019, ADR-0023).
+    ///
+    /// Bei [`Fallback::Nxdomain`] ist es die Zone selbst: aus ihr kommt gar
+    /// nichts vom Upstream, dort gibt es nichts zu prüfen. Bei
+    /// [`Fallback::Upstream`] dagegen **nur die eingetragenen Namen** —
+    /// `www.miloo.at` kommt weiterhin von draußen, und eine private Adresse
+    /// darauf ist genau der Angriff, gegen den der Detektor da ist.
+    ///
+    /// Die Ausnahmeliste des Detektors ist eine Zonenliste und passt deshalb
+    /// auch auf Unterzonen: `nas.miloo.at` nimmt `x.nas.miloo.at` mit. Für
+    /// einen Eintrag unter einer eigenen Zone ist das der Unterschied um eine
+    /// Theoretiker-Ebene — wer `*.nas.miloo.at` kontrolliert, kontrolliert
+    /// `miloo.at`. Ein Eintrag unter einer *fremden* Zone (der
+    /// Gerätehersteller-Fall im Kopf von [`crate::detect::rebinding`]) ist die
+    /// eine Stelle, an der das zu weit greift.
+    #[must_use]
+    pub fn rebinding_exempt(&self) -> Vec<Name> {
+        if self.is_closed() {
+            vec![self.zone.clone()]
+        } else {
+            self.entries.keys().cloned().collect()
+        }
+    }
+
     /// Die Gültigkeitsdauer der Antworten aus dieser Zone.
     #[must_use]
     pub const fn ttl(&self) -> u32 {
@@ -737,6 +766,42 @@ fallback = "nxdomain"
         assert_eq!(table.ttl, DEFAULT_TTL);
         assert_eq!(table.fallback, Fallback::Upstream);
         assert!(!table.is_closed());
+    }
+
+    #[test]
+    fn only_the_entered_names_are_exempt_from_rebinding() {
+        // Nicht die Zone als Ganzes: bei `fallback = "upstream"` kommt
+        // `www.miloo.at` weiterhin von draußen, und eine private Adresse
+        // darauf ist genau der Angriff, gegen den der Detektor da ist.
+        let table = built(
+            r#"
+zone = "miloo.at"
+records = [
+  { name = "@",   type = "A", value = "192.168.1.5" },
+  { name = "nas", type = "A", value = "192.168.1.5" },
+]
+"#,
+        );
+        let mut exempt: Vec<String> = table
+            .rebinding_exempt()
+            .iter()
+            .map(Name::to_ascii)
+            .collect();
+        exempt.sort();
+        assert_eq!(exempt, ["miloo.at.", "nas.miloo.at."]);
+    }
+
+    #[test]
+    fn a_closed_zone_is_exempt_as_a_whole() {
+        // Aus ihr kommt gar nichts vom Upstream — es gibt dort nichts zu
+        // prüfen, auch nicht für Namen, die nicht in der Tabelle stehen.
+        let table = built(
+            r#"
+zone = "miloo.at"
+fallback = "nxdomain"
+"#,
+        );
+        assert_eq!(table.rebinding_exempt(), vec![zone("miloo.at")]);
     }
 
     #[test]
