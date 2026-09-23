@@ -68,6 +68,41 @@ impl Mode {
     }
 }
 
+/// Der Hinweis, den ein Query-Log ohne Rotation verdient.
+///
+/// `None`, solange nichts auf Platte geht (jeder Modus außer [`Mode::Full`])
+/// oder die Regel dort liegt, wo das Paket sie hinlegt. Beide Pfade sind
+/// Parameter, damit der Test erfundene hineingeben kann — die Funktion fasst
+/// nur an, was man ihr nennt.
+///
+/// **Ein Hinweis, kein Fehler.** `alpendns check` läuft als `ExecStartPre`; ein
+/// Resolver, der nicht startet, weil eine logrotate-Datei fehlt, wäre die
+/// schlechtere Antwort auf ein volles Log. Und es geht nicht in erster Linie um
+/// die Platte: die Aufbewahrungsdauer der Namen ist die einzige
+/// Privacy-Entscheidung dieses Systems, und ohne Rotation trifft sie niemand,
+/// weil die Zahl in keiner Konfiguration steht (docs/OPERATIONS.md §6).
+pub fn rotation_hint(
+    mode: Mode,
+    log_path: &std::path::Path,
+    logrotate_dir: &std::path::Path,
+) -> Option<String> {
+    if mode != Mode::Full {
+        return None;
+    }
+    let rule = logrotate_dir.join("alpendns");
+    if rule.is_file() {
+        return None;
+    }
+    Some(format!(
+        "privacy.logging.mode steht auf \"full\", aber die Rotation fehlt: {} \n\
+         gibt es nicht. {} wächst damit unbegrenzt, und wie lange die Namen \n\
+         darin liegen, entscheidet der Zufall statt einer Einstellung. Was die \n\
+         Regel tun muss, steht in /usr/share/doc/alpendns/OPERATIONS.md.",
+        rule.display(),
+        log_path.display()
+    ))
+}
+
 /// Woran eine Anfrage gescheitert ist.
 ///
 /// Abgeleitet aus dem Decision-Trace, nicht getrennt mitgeführt: der Trace ist
@@ -720,6 +755,46 @@ mod tests {
                 .count();
             assert_eq!(passed, STREAM_MAX_PER_SECOND as usize, "Sekunde {second}");
         }
+    }
+
+    #[test]
+    fn the_rotation_hint_appears_only_when_names_go_to_disk() {
+        let dir = std::env::temp_dir().join(format!("alpendns-logrotate-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("Testverzeichnis");
+        let rule = dir.join("alpendns");
+        let log_path = std::path::Path::new("/var/log/alpendns/queries.jsonl");
+
+        // Ohne `full` entsteht gar keine Datei. Ein Hinweis wäre dort Lärm, und
+        // Lärm in `ExecStartPre` ist der Anfang davon, dass niemand mehr
+        // hinsieht.
+        std::fs::remove_file(&rule).ok();
+        for mode in [Mode::None, Mode::Aggregate, Mode::Ring] {
+            assert!(rotation_hint(mode, log_path, &dir).is_none(), "{mode:?}");
+        }
+
+        // Mit `full` und ohne Regel: der Hinweis nennt beide Pfade, damit man
+        // nicht suchen muss, welche Datei gemeint ist.
+        let hint = rotation_hint(Mode::Full, log_path, &dir).expect("Hinweis ohne Regel");
+        assert!(hint.contains(&rule.display().to_string()), "{hint}");
+        assert!(hint.contains(&log_path.display().to_string()), "{hint}");
+
+        // Liegt die Regel da, wo das Paket sie hinlegt, schweigt er wieder.
+        std::fs::write(&rule, "# Testregel\n").expect("schreiben");
+        assert!(rotation_hint(Mode::Full, log_path, &dir).is_none());
+
+        // Und die ausgelieferte Regel zeigt auf denselben Pfad wie die Vorgabe
+        // in der Konfiguration. Sonst rotiert sie ins Leere, und `missingok`
+        // sagt dazu nichts — genau die Art Fehler, die ein Jahr unbemerkt
+        // bleibt.
+        let shipped = include_str!("../../../../packaging/logrotate/alpendns");
+        let default = crate::config::LoggingConfig::default();
+        assert!(
+            shipped.contains(&default.path.display().to_string()),
+            "die Regel im Paket nennt {} nicht",
+            default.path.display()
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

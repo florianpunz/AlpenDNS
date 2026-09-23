@@ -60,6 +60,7 @@ The package creates:
 |---|---|---|
 | `/usr/bin/alpendns` | The program | root |
 | `/etc/alpendns/alpendns.toml` | Configuration (conffile) | root |
+| `/etc/logrotate.d/alpendns` | Rotation of the query log (conffile), see §6 | root |
 | `/lib/systemd/system/alpendns.service` | The unit | root |
 | `/var/lib/alpendns/` | API token, NRD file | `alpendns` |
 | `/var/cache/alpendns/` | Downloaded blocklists | `alpendns` |
@@ -477,6 +478,17 @@ mode = "full"
 ```
 
 Set it back after the evaluation.
+
+**How long the names stay.** `full` writes to `/var/log/alpendns/queries.jsonl`
+and nothing in the server deletes that file. The package ships a logrotate rule
+to `/etc/logrotate.d/alpendns`: daily, compressed, and `rotate 7` — **seven files
+means seven days of names**. That number *is* the retention period of the
+observation, and it is a decision rather than a default: change it in that file.
+The rule is a conffile, so an upgrade will not overwrite an edited version. It
+works on a running service — `copytruncate` keeps the process writing into the
+same file, so no restart and no signal to the server are needed, at the price of
+a window of milliseconds in which a line can be lost. `alpendns check` prints a
+note when the mode is `full` and the rule is missing.
 
 Also enter your own domains into the typosquat guard (bank, government agency,
 employer), otherwise it does nothing:

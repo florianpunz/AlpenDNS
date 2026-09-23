@@ -86,13 +86,18 @@ depends = "$auto, adduser, systemd"
 assets = [
     ["target/release/alpendns", "usr/bin/", "755"],
     ["../../packaging/alpendns.toml", "etc/alpendns/alpendns.toml", "644"],
+    # Die Rotation liegt fertig im Paket, obwohl sie nur im Modus `full`
+    # greift: wer den Modus einschaltet, soll nicht erst eine Regel
+    # zusammensuchen müssen — und die Zahl darin ist die Aufbewahrungsdauer
+    # der Namen.
+    ["../../packaging/logrotate/alpendns", "etc/logrotate.d/alpendns", "644"],
     ["../../docs/OPERATIONS.md", "usr/share/doc/alpendns/OPERATIONS.md", "644"],
     ["../../config/alpendns.example.toml", "usr/share/doc/alpendns/alpendns.example.toml", "644"],
     ["../../README.md", "usr/share/doc/alpendns/README.md", "644"],
 ]
 # Ausdrücklich, obwohl cargo-deb alles unter /etc ohnehin so behandelt: ein
 # Upgrade darf eine bearbeitete Konfiguration nicht überschreiben.
-conf-files = ["/etc/alpendns/alpendns.toml"]
+conf-files = ["/etc/alpendns/alpendns.toml", "/etc/logrotate.d/alpendns"]
 maintainer-scripts = "../../packaging/debian"
 
 [package.metadata.deb.systemd-units]

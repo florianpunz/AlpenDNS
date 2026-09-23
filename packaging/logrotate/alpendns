@@ -1,0 +1,32 @@
+# Rotation für das Query-Log. Wirksam nur bei privacy.logging.mode = "full" —
+# in jedem anderen Modus entsteht die Datei gar nicht, und `missingok` lässt die
+# Regel dann still durchlaufen.
+#
+# Die Zahl unten ist die Aufbewahrungsdauer der Namen, und sie ist die einzige
+# Privacy-Entscheidung, die dieses System nicht selbst trifft: "rotate 7" bei
+# "daily" heißt sieben Tage Namen auf Platte. Wer weniger will, ändert die Zahl
+# hier; die Datei ist ein conffile, ein Upgrade überschreibt sie also nicht.
+#
+# copytruncate ist der Kern. AlpenDNS hält die Datei dauerhaft mit O_APPEND
+# offen und öffnet sie nie neu — der Normalfall (Datei verschieben, neue
+# anlegen) ließe den Dienst weiter in die verschobene Datei schreiben, bis
+# jemand ihn neu startet. copytruncate kopiert stattdessen und schneidet das
+# Original auf null zurück; mit O_APPEND landet der nächste Schreibvorgang
+# wieder am Anfang. Der Preis ist ein Fenster von Millisekunden, in dem Zeilen
+# verloren gehen können — bei einem Query-Log verschmerzbar, und der Preis
+# dafür, dass hier kein Reopen-Signal im Code nötig ist.
+#
+# su steht bewusst nicht hier: die Vorgabe aus /etc/logrotate.conf (auf Debian
+# root) darf die Datei lesen und zurückschneiden, und ein fest eingetragener
+# Benutzername ginge kaputt, sobald jemand den Dienstuser umbenennt.
+
+/var/log/alpendns/queries.jsonl {
+	daily
+	rotate 7
+	maxsize 100M
+	compress
+	delaycompress
+	copytruncate
+	missingok
+	notifempty
+}

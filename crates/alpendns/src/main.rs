@@ -35,6 +35,9 @@ use tokio_util::sync::CancellationToken;
 /// Endpunkt dafür kommt in Phase 6.
 const STATS_INTERVAL: Duration = Duration::from_secs(300);
 
+/// Wohin das Paket die logrotate-Regel legt (`packaging/logrotate/`).
+const LOGROTATE_DIR: &str = "/etc/logrotate.d";
+
 const USAGE: &str = "alpendns — privacy-fokussierter DNS-Server
 
 Aufruf:
@@ -936,6 +939,18 @@ fn check(path: &std::path::Path) -> anyhow::Result<()> {
     }
     if !problems.is_empty() {
         anyhow::bail!("{}", problems.join("\n"));
+    }
+
+    // Der Hinweis zur Rotation steht vor dem OK und nicht darunter: die
+    // Aufbewahrungsdauer der Namen ist die eine Entscheidung, die dieses System
+    // nicht selbst trifft, und ein Query-Log ohne Rotation trifft sie
+    // stillschweigend. Er ist trotzdem kein Fehler — der Exit-Code bleibt 0.
+    if let Some(hint) = alpendns::logging::rotation_hint(
+        config.privacy.logging.mode,
+        &config.privacy.logging.path,
+        std::path::Path::new(LOGROTATE_DIR),
+    ) {
+        println!("\nHinweis: {hint}");
     }
 
     // Kein Fehler, sondern ein Hinweis: wer bewusst öffentlich lauscht, hat

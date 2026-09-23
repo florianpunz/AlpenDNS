@@ -237,6 +237,8 @@ odoh = { enabled = false, proxy = "https://odoh-proxy.example/proxy" }
 #             exakt unter einem gesalzenen Hash, nicht unter dem Namen
 # ring      — letzte N Sekunden im RAM für Debugging, nie persistiert
 # full      — Query-Log auf Platte. Bewusste Entscheidung, nicht Default.
+#             Dann entscheidet /etc/logrotate.d/alpendns, wie lange die Namen
+#             dort liegen ("rotate 7" = sieben Tage). Siehe docs/OPERATIONS.md §6.
 mode = "aggregate"
 ring_seconds = 300
 # Unter diesem Zählerstand taucht eine Domain in keiner Statistik auf.
