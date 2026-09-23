@@ -541,6 +541,9 @@ h2 {
 /* ── Auffällige Anfragen ───────────────────────────────────────────────── */
 
 .flagged { margin: 0; padding: 0 var(--s-16) var(--s-16); list-style: none; }
+/* Der Satz zu den Knöpfen: gleiche Kante wie die Liste darunter, ein halber
+   Schritt Abstand nach unten. */
+.flagged-note { padding: 0 var(--s-16) var(--s-8); }
 .flagged li { padding: var(--s-8) 0; border-top: 1px solid var(--hairline); }
 .flagged li:first-child { border-top: 0; }
 

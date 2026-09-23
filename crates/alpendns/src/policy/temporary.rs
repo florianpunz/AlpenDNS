@@ -12,6 +12,14 @@
 //!
 //! Die Frist läuft über [`Clock`] und damit über monotone Zeit: eine
 //! verstellte Systemuhr verlängert keine Freigabe.
+//!
+//! **Nichts davon überlebt einen Neustart, und das ist Absicht.** Die Einträge
+//! sind befristet; sie zu persistieren hieße, ihre Frist beim Schreiben auf
+//! Wanduhrzeit abzubilden und beim Laden zurück — und damit genau die
+//! Uhrenabhängigkeit einzuführen, die der Absatz darüber vermeidet. Eine
+//! Freigabe, die einen Reboot überlebt, ist außerdem keine befristete Freigabe
+//! mehr, sondern eine Allowlist mit Ablaufdatum; wer die will, trägt den Namen
+//! in eine Allowlist ein.
 
 use std::collections::HashMap;
 use std::sync::{Mutex, PoisonError};

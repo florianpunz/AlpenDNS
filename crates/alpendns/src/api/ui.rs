@@ -306,6 +306,19 @@ mod tests {
         assert!(SCRIPT.contains("/api/deny"));
     }
 
+    /// Der Satz, der die Überraschung nach dem Neustart verhindert.
+    ///
+    /// Die beiden Knöpfe setzen befristete Einträge, die nur im Arbeitsspeicher
+    /// liegen. Wer das nicht weiß, sucht nach einem Neustart den Fehler bei
+    /// sich statt in der Natur der Sache.
+    #[test]
+    fn the_temporary_buttons_say_that_they_do_not_survive_a_restart() {
+        assert!(
+            INDEX.contains("do not survive a restart"),
+            "der Hinweis an den Knöpfen fehlt"
+        );
+    }
+
     #[test]
     fn the_answer_badge_says_what_it_means_without_colour() {
         // Farbe wiederholt den Text, sie ersetzt ihn nicht — sonst ist die

@@ -258,6 +258,13 @@ There is deliberately **no database**: in `aggregate` mode the query log exists
 only as counters, in `ring` mode only in RAM. Backing that up would contradict
 the project's purpose.
 
+Temporary grants and blocks — the `Allow` and `Deny` buttons in the interface —
+are not in the backup either, because they never reach the disk. A restart clears
+them. That is deliberate: they are time-limited, and persisting them would tie
+their deadline to the wall clock, which the policy layer otherwise avoids (a
+grant that survives a reboot is an allowlist with an expiry date — put the name
+in a real allowlist instead).
+
 ---
 
 ## 4. Troubleshooting
