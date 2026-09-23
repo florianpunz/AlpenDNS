@@ -108,6 +108,77 @@ upstream = "udp://10.0.0.1:53"
 zone = "10.in-addr.arpa"
 upstream = "udp://10.0.0.1:53"
 
+# Lokale Zone: eigene Einträge, die AlpenDNS SELBST beantwortet.
+#
+# Der Unterschied zu forward_zone oben: dort *fragt* AlpenDNS einen anderen
+# Nameserver, hier *antwortet* es. Deshalb schließen sich die beiden Wege aus —
+# eine Zone, die in beiden Sektionen steht (oder die andere enthält), ist ein
+# Startfehler und keine Frage des Vorrangs.
+#
+# Das ist eine TABELLE, kein Zonenfile: kein SOA, kein NS, kein AXFR/IXFR, kein
+# NOTIFY, kein Signieren, und das AA-Bit bleibt in der Antwort aus. AlpenDNS
+# wird davon nicht autoritativ — wer eine Zone wirklich hosten will, nimmt Knot
+# oder NSD. Der Preis dafür, dass es keine Zone ist: Änderungen an dieser
+# Tabelle brauchen einen Neustart.
+#
+# Der Rebinding-Schutz nimmt die eingetragenen Namen von selbst aus, sonst
+# stünde jede lokale Antwort als "auffällig" in der Oberfläche (siehe unten).
+[[local_zone]]
+zone = "miloo.at"
+# Gültigkeitsdauer aller Antworten dieser Zone. 0 ist erlaubt und heißt "nicht
+# zwischenspeichern"; der Cache hebt es auf cache.min_ttl an.
+ttl = 300
+# Was mit Namen geschieht, für die es hier KEINEN Eintrag gibt:
+#   "upstream"  sie werden wie gewohnt aufgelöst (Default, Split-Horizon)
+#   "nxdomain"  es gibt sie nicht; die Zone ist zu und nichts geht hinaus
+#
+# Split-Horizon ist der Default, weil eine lokale Tabelle nur die Namen
+# festnagelt, die in ihr stehen — alles andere ist eine Zone wie jede andere.
+# Wer eine Zone vollständig ausnehmen will, schreibt "nxdomain" und lässt
+# records weg:
+#   [[local_zone]]
+#   zone = "miloo.at"
+#   fallback = "nxdomain"      # nichts aus miloo.at verlässt das Haus
+# `alpendns check` sagt den Zustand ausdrücklich hin, weil ein vergessener
+# fallback sonst genau die Zusage abschwächt, um die es geht.
+records = [
+  # "@" ist die Zone selbst; ein Name ist relativ zur Zone, absolut wenn er auf
+  # "." endet. Normalisiert wird auf kleingeschrieben und absolut — "@", "NAS",
+  # "nas" und "nas.miloo.at." sind derselbe Eintrag.
+  #
+  # Eine Falle: ein Name mit Punkt darin, aber ohne Punkt am Ende, wird wie in
+  # einem Zonenfile RELATIV gelesen. "nas.example.com" heißt hier also
+  # "nas.example.com.miloo.at". Für "_https._tcp" in einer SRV-Zone richtig,
+  # sonst ein Tippfehler, der nichts tut. Absolut schreibt man
+  # "nas.example.com."
+  { name = "@",       type = "A",     value = "192.168.1.5" },
+  { name = "nas",     type = "A",     value = "192.168.1.5" },
+  # Mehrere Adressen für denselben Namen sind der Normalfall (dual-stack,
+  # Round-Robin); doppelt heißt doppelt.
+  { name = "nas",     type = "AAAA",  value = "fd00::5" },
+  # Ein CNAME wird beantwortet, wie er dasteht — AlpenDNS löst ihn nicht selbst
+  # auf. Den Zielnamen fragt der Client danach nach und trifft dieselbe Tabelle.
+  { name = "drucker", type = "CNAME", value = "nas" },
+  # TXT-Werte mit Leerzeichen brauchen die Schreibweise aus dem Zonenfile,
+  # damit der Lexer sie als einen String liest:
+  { name = "_dmarc",  type = "TXT",   value = '"v=DMARC1; p=none"' },
+]
+
+# v1 kennt genau sechs Typen: A, AAAA, CNAME, TXT, PTR und SRV. Alles andere
+# (MX, NS, SOA, DNSKEY …) ist ein Startfehler mit Begründung statt eines stillen
+# Ignorierens — eine Tabelle ist kein Zonenfile.
+#
+# Ein fehlender Typ ist NODATA, auch bei fallback = "upstream": steht "nas" mit
+# A in der Tabelle und ein Client fragt AAAA, bekommt er "gibt es nicht" und
+# nicht die Antwort des Upstreams. Sonst hätte ein Name zwei Horizonte, und ein
+# fremder Typ wäre die Hintertür aus der Zone.
+#
+# Reverse-Zonen entstehen NICHT automatisch aus den A-Records. `dig -x
+# 192.168.1.5` braucht eine eigene Zone:
+#   [[local_zone]]
+#   zone = "1.168.192.in-addr.arpa"
+#   records = [{ name = "5", type = "PTR", value = "nas.miloo.at." }]
+
 # ---------------------------------------------------------------------------
 # Cache
 # ---------------------------------------------------------------------------
@@ -280,8 +351,13 @@ tunneling = { action = "flag", threshold = 0.75, window = "5m", allow_zones = []
 # Private IPs in Antworten für öffentliche Namen.
 # Die forward_zone-Einträge von oben kommen automatisch dazu — wer eine Zone
 # ins eigene Netz leitet, hat schon gesagt, dass private Adressen von dort in
-# Ordnung sind. Hier stehen nur die zusätzlichen Ausnahmen: Split-Horizon-DNS,
-# Geräte-Weboberflächen unter einem echten Namen.
+# Ordnung sind. Dasselbe gilt für die lokalen Zonen, aber je Name: `nas.miloo.at`
+# ist ausgenommen, `www.miloo.at` nicht — das kommt weiterhin von draußen, und
+# eine private Adresse darauf wäre genau der Angriff. Eine geschlossene Zone
+# (fallback = "nxdomain") ist als Ganzes ausgenommen, aus ihr kommt ohnehin
+# nichts mehr nach draußen.
+# Hier stehen nur die zusätzlichen Ausnahmen: Split-Horizon-DNS, Geräte-
+# Weboberflächen unter einem echten Namen.
 rebinding = { action = "flag", allow_zones = [] }
 
 # Typosquatting relativ zu Domains, die DIR wichtig sind — nicht gegen eine

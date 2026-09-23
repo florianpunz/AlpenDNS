@@ -39,8 +39,9 @@ order:
                            │             ┌──────────────────────┐
                            │             │ 4  Resolve backend   │
                            │             │    (trait)           │
-                           │             │  ├ Forwarder (v1)    │
-                           │             │  └ Recursor (open)   │
+                           │             │  ├ LocalBackend      │
+                           │             │  ├ ForwardBackend    │
+                           │             │  └ (Recursor, open)  │
                            │             └──────────┬───────────┘
                            │                        │ answer
                            │                        ▼
@@ -65,9 +66,18 @@ trait ResolveBackend: Send + Sync {
 }
 ```
 
-v1 implements exactly one variant: `ForwardBackend`. If a `RecursiveBackend`
-joins it one day, nothing changes in layers 1, 2, 3 and 5. That is the entire
-preparation for recursion — deliberately, nothing more is built in advance
+The layer behind it is a chain, outside in:
+`LocalBackend` → `ZoneRouter` → `Pool` → `Encrypted` (DoT/DoH/DoQ), and
+`ForwardBackend` (cleartext) for `forward_zone`. Every link is one
+implementation of the trait and knows only the one below it; which links exist
+is decided once, when `main` wires them up. `LocalBackend` answers the names in
+`[[local_zone]]` and passes everything else down — a static table, not an
+authoritative zone ([ADR-0023](adr/0023-lokale-zonen.md)).
+
+For recursion, v1 does not implement a variant of its own: the slot where a
+`RecursiveBackend` would sit is the trait itself. If one joins, nothing changes
+in layers 1, 2, 3 and 5. That is the entire preparation for recursion —
+deliberately, nothing more is built in advance
 ([ADR-0003](adr/0003-forwarder-first.md)).
 
 ## 2. The decision trace
@@ -95,8 +105,13 @@ enum Step {
     CacheHit      { ttl_left: u32, stale: bool },
     UpstreamUsed  { pool: PoolId, resolver: ResolverId, rtt: Duration },
     Synthesized   { mode: BlockMode },
+    LocalAnswer   { zone: Arc<str>, records: usize },
 }
 ```
+
+`LocalAnswer` is deliberately **not** `Synthesized`: the server reads exactly
+that pattern as "blocked", and a local answer is not a block — it would land in
+the blocked counter, in the metric and against the k-anonymity threshold.
 
 The trace is **always** there, regardless of the log mode. What happens to it
 is decided by the logging layer:
@@ -221,9 +236,10 @@ periodically from `Blueprint` + `Lists` anyway — the reload only wakes it
 instead of waiting for the next refresh tick.
 
 Everything else requires a restart: listener addresses, upstreams/TLS,
-`forward_zone`, cache configuration, rate limiting, `blocking.mode`/sinkholes,
-detectors and `privacy.logging.mode`. The reload names that boundary explicitly
-in the log, rather than silently ignoring a change.
+`forward_zone`, `local_zone`, cache configuration, rate limiting,
+`blocking.mode`/sinkholes, detectors and `privacy.logging.mode`. The reload
+names that boundary explicitly in the log, rather than silently ignoring a
+change.
 
 ## 8. Concurrency
 

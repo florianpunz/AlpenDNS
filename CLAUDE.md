@@ -91,10 +91,12 @@ here. How to run and evaluate the observation period: `docs/OPERATIONS.md` §6.
 Benchmark figures: `docs/BENCHMARKS.md`.
 
 The pipeline is a chain of `ResolveBackend` implementations, outside in:
-`PolicyBackend` → `CachingBackend` → `ZoneRouter` → `Pool` → `Encrypted`
-(`Transport` for DoT/DoH/DoQ, `OdohBackend` for Oblivious DoH) or
-`ForwardBackend` (cleartext, only for `forward_zone`). No layer knows the
-others; the diagram is in `docs/ARCHITECTURE.md` §1.
+`PolicyBackend` → `CachingBackend` → `LocalBackend` → `ZoneRouter` → `Pool` →
+`Encrypted` (`Transport` for DoT/DoH/DoQ, `OdohBackend` for Oblivious DoH) or
+`ForwardBackend` (cleartext, only for `forward_zone`). `LocalBackend` answers
+the names of `[[local_zone]]` from a static table itself — that is not an
+authoritative zone ([ADR-0023](docs/adr/0023-lokale-zonen.md)). No layer knows
+the others; the diagram is in `docs/ARCHITECTURE.md` §1.
 
 `resolve` receives, alongside the message, a `Ctx` with the client address and
 the decision trace. The trace is produced always, independent of the log mode,

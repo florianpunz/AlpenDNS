@@ -84,6 +84,13 @@ tls_name = "dns.mullvad.net"
 # zone = "home.arpa"
 # upstream = "udp://10.0.0.1:53"
 
+# Eigene Einträge, die AlpenDNS selbst beantwortet. Eine Tabelle, kein
+# Zonenfile — kein SOA, kein AXFR, keine Autorität. Form und Einzelheiten:
+# alpendns.example.toml.
+# [[local_zone]]
+# zone = "meinedomain.at"
+# records = [{ name = "nas", type = "A", value = "192.168.1.5" }]
+
 # ---------------------------------------------------------------------------
 # Blocken
 # ---------------------------------------------------------------------------

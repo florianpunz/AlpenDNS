@@ -72,6 +72,11 @@ Test cases that must exist:
 * An answer over 1232 bytes over UDP sets TC; the same query over TCP returns
   the full answer.
 * Rebinding: upstream answers `192.168.1.1` for a public name → blocked.
+* A local zone answers and the fake upstream counts **zero** queries; a name
+  outside the zone reaches it, and a missing type is NODATA instead of a
+  question to the upstream (`tests/local_zones.rs`). The count is the assertion:
+  without it, the test would only show that the answer is right, not that it
+  came from here.
 * SIGHUP with a broken config → old config stays active, the server keeps
   answering.
 * Policy time window: the same query at two simulated clock times, two results.

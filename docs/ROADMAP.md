@@ -760,6 +760,10 @@ No order, no obligation. As the mood and the need take you:
   automatically and switch from cleartext to DoH/DoT ([FEATURES.md](FEATURES.md), P5).
 * **Blocklist diff review** before applying a list update (O3).
 * **Two instances** with a synchronized policy state for fault tolerance.
+* **Local zones, built out**: PTR generated from the A records, a TTL per
+  record, reload without a restart, an editing surface in the UI. Built is the
+  static table ([ADR-0023](adr/0023-lokale-zonen.md)); everything beyond it is
+  convenience and belongs here.
 * **Own DNS parser** as a pure learning project, checked via differential testing
   against `hickory-proto` — deliberately outside the production path.
 

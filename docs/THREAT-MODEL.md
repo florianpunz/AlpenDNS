@@ -124,3 +124,10 @@ The greatest realistic damage does not come from an attacker but from the code:
    justify every new dependency.
 4. **False positives in the heuristics** break the internet and lead the user
    to switch everything off. Hence `flag` is the default, not `block`.
+5. **A writable zone table** would be a way to redirect every client in the
+   network to an address of the attacker's choosing. `[[local_zone]]` is
+   therefore read only from the configuration file: no API route writes it, no
+   remote path reaches it, and a change needs a restart
+   ([ADR-0023](adr/0023-lokale-zonen.md)). The API can set a temporary allow or
+   deny for a single name; it cannot change what a zone answers. The systemd
+   unit additionally makes `/etc` read-only for the service.

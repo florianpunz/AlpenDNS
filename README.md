@@ -50,6 +50,7 @@ Not to replace Pi-hole — to answer the questions it leaves open.
 | Client transports | UDP/53, TCP/53 |
 | Upstream transports | DoT, DoH, DoQ; cleartext only for explicit internal zones |
 | Filtering | Blocklists (hosts, domains, wildcard), allowlists, regex rules |
+| Own names | `[[local_zone]]`: a static table answered locally, plus `fallback = "nxdomain"` to keep a whole domain inside |
 | Policies | per client (IP/subnet), time windows, temporary grants |
 | Privacy | ECS stripping, padding, DNS cookies, 0x20, upstream splitting, DNSSEC, ODoH, aggregated logging |
 | Heuristics | DGA, tunneling, rebinding, typosquatting, newly registered domains — all `flag`, block nothing |
@@ -63,7 +64,10 @@ tokens or mTLS are planned, not built — policies distinguish clients by IP tod
 * **Not recursive.** It queries upstreams, not the root servers; the slot where
   recursion would hook in stays open
   ([ADR-0003](docs/adr/0003-forwarder-first.md)).
-* **Not authoritative.** To host a zone, use Knot or NSD.
+* **Not authoritative.** To host a zone, use Knot or NSD. A `[[local_zone]]`
+  is a static table of names answered in front of the resolver — no SOA, no NS,
+  no transfer, no signing, and no `AA` in the answer
+  ([ADR-0023](docs/adr/0023-lokale-zonen.md)).
 * **Not a DHCP server.** Pi-hole does that too; that's a different job.
 * **Not a VPN.** DNS privacy protects name resolution, not the connection after
   it — [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md).

@@ -86,6 +86,20 @@ tls_name = "dnsforge.de"
 # zone = "home.arpa"
 # upstream = "udp://192.168.1.1:53"
 
+# Eigene Einträge, die AlpenDNS selbst beantwortet — für Namen, die es im DNS
+# nicht gibt (nas.meinedomain.at, drucker.meinedomain.at). Eine Tabelle, kein
+# Zonenfile: kein SOA, kein AXFR, AlpenDNS wird davon nicht autoritativ. Der
+# Unterschied zu forward_zone darüber: dort wird ein anderer Nameserver
+# gefragt, hier wird geantwortet. Beides gleichzeitig für dieselbe Zone ist ein
+# Startfehler. Form und alle Einzelheiten: alpendns.example.toml.
+# [[local_zone]]
+# zone = "meinedomain.at"
+# fallback = "upstream"          # "nxdomain" schließt die Zone ganz
+# records = [
+#   { name = "@",   type = "A", value = "192.168.1.5" },
+#   { name = "nas", type = "A", value = "192.168.1.5" },
+# ]
+
 [cache]
 max_entries = 100_000
 min_ttl = "10s"

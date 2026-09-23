@@ -307,6 +307,26 @@ Internal zones (`home.arpa`, reverse zones of your own network) go to the intern
 and never to the internet. Standard functionality, but indispensable in the homelab —
 without it every internal hostname leaks to the upstream.
 
+### C6 · Local zones `Effort S` `Novel ○` `Phase 10`
+
+Names that AlpenDNS answers itself, out of a static table in the configuration: the home
+server under one's own domain, a device that insists on a fixed hostname. And the other
+direction, as a one-liner: a whole domain with `fallback = "nxdomain"` and no records
+never leaves the house.
+
+```toml
+[[local_zone]]
+zone = "meinedomain.at"
+records = [{ name = "nas", type = "A", value = "192.168.1.5" }]
+```
+
+**Consequence:** the second DNS service in the LAN becomes unnecessary, and it becomes
+visible which names are answered locally — the trace says `from local zone`. Standard
+functionality in the *result* (dnsmasq, Pi-hole, Unbound all do it), but the shape is a
+decision of its own: a table rather than a zone file, no authority, and local names are
+exempt from the rebinding detector individually rather than by zone
+([ADR-0023](adr/0023-lokale-zonen.md)).
+
 ---
 
 ## O — Observability and operation

@@ -117,6 +117,61 @@ and says why — instead of ending up in a restart loop.
 Finally, switch the clients over: point the DHCP DNS server in your router at
 this machine's address.
 
+### Names of your own
+
+Two things look similar and are not. Both keep a name in the house, and only
+one of them answers:
+
+| | `[[forward_zone]]` | `[[local_zone]]` |
+|---|---|---|
+| Who answers | another nameserver, e.g. the router | AlpenDNS itself |
+| What it is for | a zone that already exists in the LAN (`home.arpa`, `10.in-addr.arpa`) | a name that exists nowhere: `nas.meinedomain.at` |
+| Transport | cleartext UDP, into the own network | none — nothing leaves the process |
+| Changes | on the other server | in this file, restart needed |
+
+A `[[local_zone]]` is a table, not a zone file: no SOA, no transfer, and
+AlpenDNS does not become authoritative for it
+([ADR-0023](adr/0023-lokale-zonen.md)).
+
+A name that should be answered here and *only* here:
+
+```toml
+[[local_zone]]
+zone = "meinedomain.at"
+records = [
+  { name = "@",   type = "A", value = "192.168.1.5" },
+  { name = "nas", type = "A", value = "192.168.1.5" },
+]
+```
+
+Everything else under `meinedomain.at` is still resolved over the upstream — the
+default is `fallback = "upstream"`, split horizon. To keep the whole domain
+inside the house, `fallback = "nxdomain"`; without `records` that is the entire
+zone:
+
+```toml
+[[local_zone]]
+zone = "meinedomain.at"
+fallback = "nxdomain"      # nothing from this domain leaves the house
+```
+
+`alpendns check` prints the state of every local zone, including which of the two
+fallbacks is active — the default is the quieter of the two, and a forgotten
+`fallback` would weaken exactly the promise the section is about.
+
+Three things to know before the first entry:
+
+* **A name with a dot in it, but no dot at the end, is read relative** — as in a
+  zone file. `nas.example.com` becomes `nas.example.com.meinedomain.at`. That is
+  right for `_https._tcp` in an SRV zone and a silent mistake everywhere else.
+  Absolute means `nas.example.com.`
+* **Reverse lookups need a reverse zone of their own.** `dig -x 192.168.1.5`
+  needs `zone = "1.168.192.in-addr.arpa"` with `{ name = "5", type = "PTR",
+  value = "nas.meinedomain.at." }`. It is not derived from the A records.
+* **A publicly signed domain that is overridden here** can produce answers that
+  a validating client rejects — the well-known split-horizon problem. It only
+  concerns clients that validate DNSSEC themselves.
+
 ### The interface
 
 The web UI shows names and therefore listens on loopback only. From another
@@ -276,6 +331,28 @@ without the server having to run. It shows the same reasoning the UI shows under
 
 A name that is blocked wrongly belongs on an allowlist, or as a temporary grant
 in the UI (the "Allow" button).
+
+**A name from `[[local_zone]]` does not resolve.** Four questions, in this
+order:
+
+1. **Is the name in the table at all?** A local zone never answers a name that
+   was not written into it — `grep` in the configuration is faster than any
+   tool here. And watch the relative-name trap from §1.
+2. **Was the right type asked?** A name with an `A` entry and no `AAAA` entry
+   answers NODATA rather than the upstream's answer. That is intended: a name
+   must not have two horizons.
+3. **Is the zone closed?** With `fallback = "nxdomain"` everything the table
+   does not contain is NXDOMAIN. That can lock a whole network out if the zone
+   was meant to be split-horizon. `alpendns check` prints the fallback of every
+   zone for exactly this reason.
+4. **Is the old answer still in the cache?** Positive answers are cached for
+   their TTL, and a change to the table only takes effect after a restart. A
+   restart empties the cache.
+
+```bash
+alpendns -c /etc/alpendns/alpendns.toml check   # zones, entries, fallback
+dig @127.0.0.1 nas.meinedomain.at A             # what comes back, and from whom
+```
 
 ### A device stops getting answers
 
