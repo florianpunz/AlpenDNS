@@ -12,6 +12,7 @@ use alpendns::config::Config;
 use alpendns::filter::Lists;
 use alpendns::filter::source::Loader;
 use alpendns::history::{History, Sample};
+use alpendns::local::LocalBackend;
 use alpendns::logging::QueryLog;
 use alpendns::policy::{Blueprint, Engine, Explanation, PolicyBackend};
 use alpendns::privacy;
@@ -281,6 +282,21 @@ fn run() -> anyhow::Result<()> {
         .iter()
         .map(|zone| zone.zone.0.to_string())
         .collect();
+    // `validate` hat die Tabellen schon gebaut, um Fehler beim Start zu melden;
+    // hier entstehen sie noch einmal als das, was der Layer benutzt. Dieselbe
+    // Funktion, damit `alpendns check` nicht auseinanderläuft mit dem Start.
+    let local_zones = alpendns::local::build_zones(&config.local_zone)?;
+    let local_labels: Vec<String> = local_zones
+        .iter()
+        .map(|zone| {
+            format!(
+                "{} ({} Einträge, fallback {})",
+                zone.label(),
+                zone.names().count(),
+                zone.fallback().as_str()
+            )
+        })
+        .collect();
 
     // Der Blueprint muss vor dem Zerlegen der Konfiguration gebaut werden.
     let blocking_config = config.blocking;
@@ -351,11 +367,13 @@ fn run() -> anyhow::Result<()> {
             .with_detectors(detectors),
         );
 
-        // Von außen nach innen: Filter → Cache → Zonen-Weiche → Pool.
-        // Gefiltert wird vor dem Cache, damit dieser die ungefilterte Antwort
-        // hält und alle Clients sie teilen können (ARCHITECTURE.md §4).
+        // Von außen nach innen: Filter → Cache → Lokale Zonen → Zonen-Weiche
+        // → Pool. Gefiltert wird vor dem Cache, damit dieser die ungefilterte
+        // Antwort hält und alle Clients sie teilen können (ARCHITECTURE.md §4);
+        // eine lokale Zone steht vor der Weiche, weil ein Eintrag spezifischer
+        // ist als eine Zone.
         let caching = CachingBackend::new(
-            ZoneRouter::new(zones, Arc::clone(&pool)),
+            LocalBackend::new(local_zones, ZoneRouter::new(zones, Arc::clone(&pool))),
             &cache_config,
             SystemClock,
         );
@@ -391,6 +409,7 @@ fn run() -> anyhow::Result<()> {
             strategy = ?strategy,
             seed_rotation = ?seed_rotation,
             forward_zones = ?zone_names,
+            local_zones = ?local_labels,
             cache_entries = cache_config.max_entries,
             serve_stale = cache_config.serve_stale,
             list_entries = entries,
@@ -856,6 +875,26 @@ fn check(path: &std::path::Path) -> anyhow::Result<()> {
         "  Blocken:     {:?}, Logging: {:?}",
         config.blocking.mode, config.privacy.logging.mode
     );
+    for zone in &config.local_zone {
+        // `validate` ist bereits durchgelaufen; der Fehlerfall steht hier nur,
+        // damit diese Zeile nicht selbst scheitern kann.
+        let Ok(built) = alpendns::local::build_zone(zone) else {
+            continue;
+        };
+        println!(
+            "  Lokal:       {} — {} Einträge, fallback {}",
+            built.label(),
+            built.names().count(),
+            built.fallback().as_str()
+        );
+        // Kein Fehler, sondern der Zustand, den man leicht überliest: der
+        // Default ist Split-Horizon, also geht alles Unbenannte weiter hinaus.
+        // Wer "miloo.at komplett ausschließen" gemeint hat, sieht es hier.
+        if !built.is_closed() {
+            println!("               Namen ohne Eintrag gehen weiter zum Upstream.");
+            println!("               Zum vollständigen Ausschließen: fallback = \"nxdomain\".");
+        }
+    }
     let limit = &config.server.rate_limit;
     if limit.enabled {
         println!(
@@ -1089,7 +1128,7 @@ async fn reload_on_hangup(
                     tracing::info!(
                         clients = config.client.len(),
                         policies = config.policy.len(),
-                        "Konfiguration neu geladen; Listener, TLS, Cache, Drosselung und Block-Modus erfordern einen Neustart"
+                        "Konfiguration neu geladen; Listener, TLS, Cache, Drosselung, lokale Zonen und Block-Modus erfordern einen Neustart"
                     );
                     wake.notify_one();
                 }

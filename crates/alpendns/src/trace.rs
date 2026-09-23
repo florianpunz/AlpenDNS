@@ -103,6 +103,20 @@ pub enum Step {
     Synthesized {
         mode: BlockMode,
     },
+    /// Die Antwort kam aus einer lokalen Zone.
+    ///
+    /// **Nicht [`Step::Synthesized`] und nicht in `BlockReason::from_steps`
+    /// aufnehmen.** `server::build_event` liest genau jenes Muster als
+    /// "geblockt"; stünde eine lokale Zone dort, zählte jede lokale Antwort als
+    /// Block — im Log, in der Metrik und gegen die k-Anonymitätsschwelle.
+    ///
+    /// `records = 0` heißt: der Name steht in der Tabelle, aber der gefragte
+    /// Typ fehlt (NODATA) — oder die Zone ist zu (NXDOMAIN). Welcher der beiden
+    /// Fälle vorliegt, sagt die RCODE der Antwort.
+    LocalAnswer {
+        zone: Arc<str>,
+        records: usize,
+    },
 }
 
 impl std::fmt::Display for Step {
@@ -165,6 +179,9 @@ impl std::fmt::Display for Step {
                 )
             }
             Self::Synthesized { mode } => write!(f, "Answer synthesized locally, mode {mode:?}"),
+            Self::LocalAnswer { zone, records } => {
+                write!(f, "from local zone '{zone}', {records} record(s)")
+            }
         }
     }
 }
@@ -323,6 +340,10 @@ mod tests {
             },
             Step::Synthesized {
                 mode: BlockMode::Nxdomain,
+            },
+            Step::LocalAnswer {
+                zone: Arc::from("miloo.at"),
+                records: 2,
             },
         ];
         for step in steps {

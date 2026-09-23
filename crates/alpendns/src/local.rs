@@ -17,12 +17,16 @@
 //!   (die Zone ist zu).
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
+use hickory_proto::op::{Message, ResponseCode};
 use hickory_proto::rr::rdata::{CNAME, PTR, SRV};
-use hickory_proto::rr::{Name, RData, RecordType};
+use hickory_proto::rr::{DNSClass, Name, RData, Record, RecordType};
 use serde::Deserialize;
 
 use crate::config::{ConfigError, ZoneName};
+use crate::resolve::{ResolveBackend, ResolveError};
+use crate::trace::{Ctx, Step};
 
 /// Wie lange ein Client eine Antwort aus einer lokalen Zone behalten soll.
 ///
@@ -96,6 +100,9 @@ pub struct LocalRecord {
 #[derive(Debug)]
 pub struct LocalZone {
     zone: Name,
+    /// Für Trace und Ausgabe vorberechnet — sonst allokierte jede einzelne
+    /// lokale Antwort auf dem heißen Pfad.
+    label: Arc<str>,
     ttl: u32,
     fallback: Fallback,
     /// Die Schlüssel sind absolut und kleingeschrieben — siehe [`qualify`].
@@ -107,6 +114,19 @@ impl LocalZone {
     #[must_use]
     pub const fn zone(&self) -> &Name {
         &self.zone
+    }
+
+    /// Der Zonenname, wie er im Trace und in `alpendns check` erscheint —
+    /// ohne den Punkt am Ende, den nur der Draht braucht.
+    #[must_use]
+    pub fn label(&self) -> Arc<str> {
+        Arc::clone(&self.label)
+    }
+
+    /// Was mit Namen geschieht, die nicht in der Tabelle stehen.
+    #[must_use]
+    pub const fn fallback(&self) -> Fallback {
+        self.fallback
     }
 
     /// Ob Namen ohne Eintrag in dieser Zone verschwinden.
@@ -126,11 +146,129 @@ impl LocalZone {
         self.ttl
     }
 
-    /// Ob in dieser Zone ein Eintrag für diesen Namen steht.
-    #[must_use]
-    pub fn contains(&self, name: &Name) -> bool {
-        self.entries.contains_key(name)
+    /// Die Records zu einem Namen, oder `None`, wenn er nicht in der Tabelle
+    /// steht.
+    ///
+    /// Die Suche braucht kein `to_lowercase`: `Label`s `PartialEq` ist
+    /// case-insensitiv und sein `Hash` schreibt klein (hickory-proto,
+    /// `label.rs`). Die Schreibweise des Clients — 0x20-Kodierung — findet den
+    /// kleingeschriebenen Schlüssel also ohne eine Allokation im heißen Pfad.
+    fn entry(&self, name: &Name) -> Option<&[RData]> {
+        self.entries.get(name).map(Vec::as_slice)
     }
+}
+
+/// Beantwortet Namen aus den lokalen Zonen und reicht alles andere weiter.
+///
+/// Steht **unter** dem Cache (lokale Antworten sollen wie jede andere ihre TTL
+/// bekommen) und **über** dem [`ZoneRouter`](crate::router::ZoneRouter): ein
+/// Eintrag ist spezifischer als eine Zone, dieselbe Regel wie dort eine Ebene
+/// feiner.
+#[derive(Debug)]
+pub struct LocalBackend<B> {
+    /// Absteigend nach Tiefe sortiert, damit die spezifischste Zone gewinnt.
+    zones: Vec<LocalZone>,
+    inner: B,
+}
+
+impl<B: ResolveBackend> LocalBackend<B> {
+    pub fn new(mut zones: Vec<LocalZone>, inner: B) -> Self {
+        zones.sort_by_key(|zone| std::cmp::Reverse(zone.zone.num_labels()));
+        Self { zones, inner }
+    }
+
+    /// Der Eintrag zu einem Namen, mit der Zone, in der er steht.
+    fn entry(&self, name: &Name) -> Option<(&LocalZone, &[RData])> {
+        self.zones
+            .iter()
+            .find_map(|zone| zone.entry(name).map(|data| (zone, data)))
+    }
+}
+
+impl<B: ResolveBackend> ResolveBackend for LocalBackend<B> {
+    fn resolve(
+        &self,
+        request: &Message,
+        ctx: &mut Ctx,
+    ) -> impl std::future::Future<Output = Result<Message, ResolveError>> + Send {
+        let query = request.queries.first().cloned();
+        async move {
+            // Ohne Frage gibt es nichts zu vergleichen, und alles außer IN
+            // gehört nicht in diese Tabelle.
+            let Some(query) = query.filter(|q| q.query_class() == DNSClass::IN) else {
+                return self.inner.resolve(request, ctx).await;
+            };
+
+            // 1. Ein Eintrag gewinnt immer — auch gegen eine geschlossene
+            //    Zone, die den Namen ebenfalls enthält. Wer ihn hinschreibt,
+            //    meint ihn.
+            if let Some((zone, data)) = self.entry(query.name()) {
+                let mut response = response_to(request);
+                let answers: Vec<&RData> = match query.query_type() {
+                    // RFC 8482: die Tabelle ist klein und statisch, alles
+                    // aufzulisten hätte keinen Nutzen.
+                    RecordType::ANY => Vec::new(),
+                    // Ein CNAME antwortet auf *jeden* Typ an diesem Namen
+                    // (RFC 1034 §3.6.2) — ohne ihn gäbe es auf "A drucker"
+                    // ein NODATA, und der Client käme nie zum Ziel. Dass hier
+                    // kein zweiter Typ daneben stehen kann, hat `build_zone`
+                    // schon geprüft.
+                    qtype => data
+                        .iter()
+                        .filter(|d| d.record_type() == qtype || matches!(d, RData::CNAME(_)))
+                        .collect(),
+                };
+                // Ein Name darf nicht zwei Horizonte haben: fehlt der Typ,
+                // ist die Antwort NODATA statt "frag den Upstream". Sonst
+                // lieferte A lokal und AAAA von draußen, und der fremde Typ
+                // wäre der Ausgang aus der Zone.
+                for data in &answers {
+                    response.add_answer(Record::from_rdata(
+                        query.name().clone(),
+                        zone.ttl,
+                        (*data).clone(),
+                    ));
+                }
+                ctx.record(Step::LocalAnswer {
+                    zone: zone.label(),
+                    records: answers.len(),
+                });
+                return Ok(response);
+            }
+
+            // 2. Kein Eintrag: die spezifischste Zone, die den Namen enthält,
+            //    entscheidet, ob er überhaupt hinausgeht.
+            if let Some(zone) = self
+                .zones
+                .iter()
+                .find(|zone| zone.zone.zone_of(query.name()))
+                && zone.is_closed()
+            {
+                let mut response = response_to(request);
+                response.metadata.response_code = ResponseCode::NXDomain;
+                ctx.record(Step::LocalAnswer {
+                    zone: zone.label(),
+                    records: 0,
+                });
+                return Ok(response);
+            }
+
+            self.inner.resolve(request, ctx).await
+        }
+    }
+}
+
+/// Baut das Antwortgerüst zu einer Anfrage.
+///
+/// `AA` bleibt aus: AlpenDNS ist nicht autoritativ, auch nicht für eine lokale
+/// Zone (README: "to host a zone, use Knot or NSD"). Ein gesetztes `AA` wäre
+/// eine Behauptung, die wir nicht einlösen.
+fn response_to(request: &Message) -> Message {
+    let mut response = Message::response(request.metadata.id, request.metadata.op_code);
+    response.metadata.recursion_desired = request.metadata.recursion_desired;
+    response.metadata.recursion_available = true;
+    response.add_queries(request.queries.iter().cloned());
+    response
 }
 
 /// Baut eine Tabelle aus ihrer Konfiguration.
@@ -215,6 +353,7 @@ pub fn build_zone(config: &LocalZoneConfig) -> Result<LocalZone, ConfigError> {
     }
 
     Ok(LocalZone {
+        label: Arc::from(zone.to_ascii().trim_end_matches('.').to_owned()),
         zone,
         ttl: config.ttl,
         fallback: config.fallback,
@@ -327,6 +466,12 @@ fn qualify_target(data: RData, zone: &Name) -> Result<RData, String> {
 
 #[cfg(test)]
 mod tests {
+    use std::net::Ipv4Addr;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use hickory_proto::op::{MessageType, OpCode, Query};
+    use hickory_proto::rr::rdata::A;
+
     use super::*;
 
     fn zone(name: &str) -> Name {
@@ -359,11 +504,11 @@ records = [{{ name = "{name}", type = "A", value = "192.168.1.5" }}]
 "#
             ));
             assert!(
-                table.contains(&zone("nas.miloo.at")),
+                table.entry(&zone("nas.miloo.at")).is_some(),
                 "'{name}' ergab keinen absoluten Schlüssel"
             );
             assert!(
-                table.contains(&zone("NAS.MILOO.AT")),
+                table.entry(&zone("NAS.MILOO.AT")).is_some(),
                 "'{name}' ist nicht kleingeschrieben"
             );
         }
@@ -377,7 +522,7 @@ zone = "miloo.at"
 records = [{ name = "@", type = "A", value = "192.168.1.5" }]
 "#,
         );
-        assert!(table.contains(&zone("miloo.at")));
+        assert!(table.entry(&zone("miloo.at")).is_some());
     }
 
     #[test]
@@ -455,8 +600,8 @@ records = [
 ]
 "#,
         );
-        assert!(table.contains(&zone("_https._tcp.miloo.at")));
-        assert!(table.contains(&zone("nas.example.com.miloo.at")));
+        assert!(table.entry(&zone("_https._tcp.miloo.at")).is_some());
+        assert!(table.entry(&zone("nas.example.com.miloo.at")).is_some());
     }
 
     #[test]
@@ -481,7 +626,7 @@ zone = "miloo.at"
 records = [{ name = "nas", type = "a", value = "192.168.1.5" }]
 "#,
         );
-        assert!(table.contains(&zone("nas.miloo.at")));
+        assert!(table.entry(&zone("nas.miloo.at")).is_some());
     }
 
     #[test]
@@ -635,5 +780,257 @@ records = [{ name = "_dmarc", type = "TXT", value = '"v=DMARC1; p=none"' }]
             RData::TXT(txt) => assert_eq!(txt.to_string(), "v=DMARC1; p=none"),
             other => panic!("kein TXT: {other:?}"),
         }
+    }
+
+    // --- Der Layer selbst -------------------------------------------------
+
+    /// Backend, das nur mitzählt — und damit beweist, dass eine Anfrage den
+    /// Upstream **nicht** erreicht hat.
+    #[derive(Debug, Default)]
+    struct Counter {
+        hits: AtomicUsize,
+    }
+
+    impl ResolveBackend for Arc<Counter> {
+        fn resolve(
+            &self,
+            request: &Message,
+            _ctx: &mut Ctx,
+        ) -> impl std::future::Future<Output = Result<Message, ResolveError>> + Send {
+            let id = request.metadata.id;
+            async move {
+                self.hits.fetch_add(1, Ordering::SeqCst);
+                let mut response = Message::response(id, request.metadata.op_code);
+                response.add_queries(request.queries.iter().cloned());
+                response.metadata.response_code = ResponseCode::NoError;
+                Ok(response)
+            }
+        }
+    }
+
+    fn ask(name: &str, qtype: RecordType, class: DNSClass) -> Message {
+        // Bewusst nicht `zone()`: das schreibt klein und würde die
+        // 0x20-Kodierung des Clients schon im Test wegnehmen.
+        let mut query = Query::query(Name::from_ascii(name).expect("gültiger Name"), qtype);
+        query.set_query_class(class);
+        let mut message = Message::new(0x1234, MessageType::Query, OpCode::Query);
+        message.metadata.recursion_desired = true;
+        message.add_query(query);
+        message
+    }
+
+    fn ctx() -> Ctx {
+        Ctx::new(std::net::SocketAddr::from(([127, 0, 0, 1], 5555)))
+    }
+
+    /// Fragt und gibt Antwort wie Zählerstand zurück.
+    async fn query_zones(text: &str, name: &str, qtype: RecordType) -> (Message, usize, Ctx) {
+        let inner = Arc::new(Counter::default());
+        let backend = LocalBackend::new(
+            build_zones(&[config(text)]).expect("gültige Zonen"),
+            Arc::clone(&inner),
+        );
+        let mut ctx = ctx();
+        let response = backend
+            .resolve(&ask(name, qtype, DNSClass::IN), &mut ctx)
+            .await
+            .expect("Antwort");
+        (response, inner.hits.load(Ordering::SeqCst), ctx)
+    }
+
+    const SPLIT_HORIZON: &str = r#"
+zone = "miloo.at"
+records = [
+  { name = "nas", type = "A", value = "192.168.1.5" },
+  { name = "nas", type = "AAAA", value = "fd00::5" },
+  { name = "drucker", type = "CNAME", value = "nas" },
+]
+"#;
+
+    #[tokio::test]
+    async fn an_entry_is_answered_locally_and_never_reaches_the_upstream() {
+        let (response, hits, ctx) =
+            query_zones(SPLIT_HORIZON, "nas.miloo.at.", RecordType::A).await;
+        assert_eq!(hits, 0, "der Upstream wurde gefragt");
+        assert_eq!(response.metadata.response_code, ResponseCode::NoError);
+        let record = response.answers.first().expect("ein Record");
+        assert_eq!(record.data, RData::A(A(Ipv4Addr::new(192, 168, 1, 5))));
+        assert_eq!(record.ttl, DEFAULT_TTL);
+        assert_eq!(record.name, zone("nas.miloo.at"));
+        assert!(
+            ctx.steps()
+                .iter()
+                .any(|step| matches!(step, Step::LocalAnswer { records: 1, .. })),
+            "der Trace nennt die Zone nicht"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_clients_spelling_of_the_name_is_kept() {
+        // 0x20-Kodierung: der Owner-Name kommt so zurück, wie gefragt wurde.
+        let (response, _, _) = query_zones(SPLIT_HORIZON, "NaS.MiLoO.aT.", RecordType::A).await;
+        assert_eq!(
+            response.answers.first().map(|r| r.name.to_ascii()),
+            Some("NaS.MiLoO.aT.".to_owned())
+        );
+    }
+
+    #[tokio::test]
+    async fn a_name_without_the_type_is_nodata_not_an_upstream_question() {
+        // Der Kern der Zusage: ein Name in der Tabelle hat *einen* Horizont.
+        // Sonst lieferte A lokal und MX von draußen.
+        let (response, hits, _) = query_zones(SPLIT_HORIZON, "nas.miloo.at.", RecordType::MX).await;
+        assert_eq!(hits, 0, "der Upstream wurde gefragt");
+        assert_eq!(response.metadata.response_code, ResponseCode::NoError);
+        assert!(response.answers.is_empty(), "NODATA heißt ohne Antwortsatz");
+    }
+
+    #[tokio::test]
+    async fn any_is_answered_with_nodata() {
+        let (response, hits, _) =
+            query_zones(SPLIT_HORIZON, "nas.miloo.at.", RecordType::ANY).await;
+        assert_eq!(hits, 0);
+        assert!(response.answers.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_cname_is_given_back_as_it_stands() {
+        // Kein Chasing: den Zielnamen fragt der Client selbst nach und trifft
+        // dieselbe Tabelle.
+        let (response, hits, _) =
+            query_zones(SPLIT_HORIZON, "drucker.miloo.at.", RecordType::A).await;
+        assert_eq!(hits, 0);
+        assert!(matches!(
+            response.answers.first().map(|r| &r.data),
+            Some(RData::CNAME(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_closed_zone_answers_nxdomain_without_asking_anyone() {
+        let (response, hits, _) = query_zones(
+            r#"
+zone = "miloo.at"
+fallback = "nxdomain"
+"#,
+            "www.miloo.at.",
+            RecordType::A,
+        )
+        .await;
+        assert_eq!(hits, 0, "aus einer geschlossenen Zone ging etwas hinaus");
+        assert_eq!(response.metadata.response_code, ResponseCode::NXDomain);
+        assert!(response.answers.is_empty());
+    }
+
+    #[tokio::test]
+    async fn an_entry_also_answers_inside_a_closed_zone() {
+        let (response, hits, _) = query_zones(
+            r#"
+zone = "miloo.at"
+fallback = "nxdomain"
+records = [{ name = "nas", type = "A", value = "192.168.1.5" }]
+"#,
+            "nas.miloo.at.",
+            RecordType::A,
+        )
+        .await;
+        assert_eq!(hits, 0);
+        assert_eq!(response.answers.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn split_horizon_lets_everything_else_through() {
+        let (_, hits, _) = query_zones(SPLIT_HORIZON, "www.miloo.at.", RecordType::A).await;
+        assert_eq!(hits, 1, "der Upstream wurde nicht gefragt");
+    }
+
+    #[tokio::test]
+    async fn the_most_specific_zone_decides_for_the_rest() {
+        // `sub.miloo.at` ist zu, `miloo.at` nicht: der Name geht nicht hinaus.
+        let zones = [
+            config(
+                r#"
+zone = "miloo.at"
+"#,
+            ),
+            config(
+                r#"
+zone = "sub.miloo.at"
+fallback = "nxdomain"
+"#,
+            ),
+        ];
+        let inner = Arc::new(Counter::default());
+        let backend = LocalBackend::new(
+            build_zones(&zones).expect("gültige Zonen"),
+            Arc::clone(&inner),
+        );
+        let response = backend
+            .resolve(
+                &ask("x.sub.miloo.at.", RecordType::A, DNSClass::IN),
+                &mut ctx(),
+            )
+            .await
+            .expect("Antwort");
+        assert_eq!(inner.hits.load(Ordering::SeqCst), 0);
+        assert_eq!(response.metadata.response_code, ResponseCode::NXDomain);
+    }
+
+    #[tokio::test]
+    async fn a_class_other_than_in_is_passed_through() {
+        // Die Tabelle sind IN-Zonen; für CH gibt es hier nichts zu sagen.
+        let inner = Arc::new(Counter::default());
+        let backend = LocalBackend::new(
+            build_zones(&[config(SPLIT_HORIZON)]).expect("gültige Zonen"),
+            Arc::clone(&inner),
+        );
+        let response = backend
+            .resolve(
+                &ask("nas.miloo.at.", RecordType::A, DNSClass::CH),
+                &mut ctx(),
+            )
+            .await
+            .expect("Antwort");
+        assert_eq!(inner.hits.load(Ordering::SeqCst), 1);
+        assert!(response.answers.is_empty());
+    }
+
+    #[test]
+    fn a_request_without_a_question_is_passed_through() {
+        // Ein Paket ohne Frage darf hier nicht panicken.
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .expect("Runtime");
+        runtime.block_on(async {
+            let inner = Arc::new(Counter::default());
+            let backend = LocalBackend::new(
+                build_zones(&[config(SPLIT_HORIZON)]).expect("gültige Zonen"),
+                Arc::clone(&inner),
+            );
+            let message = Message::new(1, MessageType::Query, OpCode::Query);
+            backend
+                .resolve(&message, &mut ctx())
+                .await
+                .expect("Antwort");
+            assert_eq!(inner.hits.load(Ordering::SeqCst), 1);
+        });
+    }
+
+    #[tokio::test]
+    async fn the_answer_mirrors_the_request_and_claims_no_authority() {
+        let (response, _, _) = query_zones(SPLIT_HORIZON, "nas.miloo.at.", RecordType::A).await;
+        assert_eq!(response.metadata.id, 0x1234);
+        assert_eq!(response.metadata.message_type, MessageType::Response);
+        assert!(response.metadata.recursion_available);
+        assert!(response.metadata.recursion_desired, "RD wird gespiegelt");
+        assert_eq!(
+            response.queries.first().map(|q| q.name().to_ascii()),
+            Some("nas.miloo.at.".to_owned()),
+            "die Frage gehört zurückgespiegelt"
+        );
+        assert!(
+            !response.metadata.authoritative,
+            "AA wäre eine Autorität, die wir nicht haben"
+        );
     }
 }
