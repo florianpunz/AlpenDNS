@@ -54,6 +54,43 @@ pub struct Loaded {
     pub origin: Origin,
 }
 
+/// Wie alt eine Liste ist.
+///
+/// Zwei Zeitpunkte, weil sie zwei verschiedene Fragen beantworten: eine Liste,
+/// die seit acht Monaten unverändert ist, ist ein anderes Problem als eine, die
+/// seit acht Monaten nicht geholt wurde. Der erste sagt, ob das Nachladen noch
+/// läuft; der zweite, ob die Quelle überhaupt noch etwas hergibt.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Age {
+    /// Wann diese Fassung geholt wurde — die Änderungszeit der Datei, aus der
+    /// sie kam.
+    ///
+    /// Bei einer heruntergeladenen Liste ist das die Cache-Datei, und sie wird
+    /// auch dann angefasst, wenn der Server mit 304 antwortet. Die Frage lautet
+    /// nicht "wann wurde zuletzt geschrieben", sondern "wann wurde diese Fassung
+    /// zuletzt bestätigt".
+    pub fetched_at: Option<std::time::SystemTime>,
+    /// Was der Herausgeber als letzten Änderungszeitpunkt nennt, aus dem
+    /// `last-modified`-Kopf. RFC 3339, weil ihn nur die Oberfläche liest.
+    pub published_at: Option<String>,
+}
+
+impl Age {
+    /// Der Holzeitpunkt als RFC 3339 — das Format, das die API ausliefert.
+    pub fn fetched_rfc3339(&self) -> Option<String> {
+        rfc3339(self.fetched_at?)
+    }
+
+    /// Wie viele Sekunden diese Fassung alt ist.
+    ///
+    /// `None`, wenn der Zeitpunkt unbekannt ist *oder* in der Zukunft liegt —
+    /// letzteres heißt, dass die Uhr gestellt wurde, und dann ist "unbekannt"
+    /// die ehrlichere Antwort als eine 0, die wie "gerade geholt" aussieht.
+    pub fn seconds_since_fetch(&self, now: std::time::SystemTime) -> Option<u64> {
+        Some(now.duration_since(self.fetched_at?).ok()?.as_secs())
+    }
+}
+
 /// Übersetzt die Listen aus der Konfiguration in das, was der Loader braucht.
 ///
 /// Abgeschaltete Listen fallen hier heraus; die Validierung hat schon
@@ -163,6 +200,38 @@ impl Loader {
         }
     }
 
+    /// Wie alt die Fassung ist, die gerade gilt.
+    ///
+    /// Bewusst **synchron** und bei jedem Aufruf neu von Platte gelesen: der
+    /// Listenbestand, den die API ausliefert, wird beim Start einmal gebaut und
+    /// vom Updater nicht angefasst. Ein dort abgelegtes Datum würde deshalb nur
+    /// messen, wie lange der Prozess läuft — genau der Fehler, den diese Anzeige
+    /// beheben soll. Ein `stat` je Anfrage ist dafür billig genug, und die
+    /// Antwort ist die, die jetzt gilt.
+    ///
+    /// Beide Zeitpunkte bleiben `None`, wenn es sie nicht gibt: eine Liste aus
+    /// der Konfiguration hat kein `last-modified`, eine noch nie geholte keine
+    /// Cache-Datei. Was daraus folgt, entscheidet der Aufrufer — hier wird
+    /// nichts erfunden.
+    pub fn age(&self, spec: &ListSpec) -> Age {
+        match &spec.source {
+            // Eine lokale Datei altert mit ihrer Änderungszeit. Wer sie
+            // bearbeitet, macht sie damit jünger, und das stimmt.
+            Source::File(path) => Age {
+                fetched_at: modified(path),
+                published_at: None,
+            },
+            Source::Url(_) => Age {
+                fetched_at: modified(&self.cache_path(&spec.name, "list")),
+                published_at: std::fs::read_to_string(self.cache_path(&spec.name, "meta"))
+                    .ok()
+                    .map(|text| parse_meta(&text))
+                    .and_then(|meta| meta.last_modified)
+                    .and_then(|http_date| http_date_as_rfc3339(&http_date)),
+            },
+        }
+    }
+
     async fn download(&self, spec: &ListSpec, url: &str) -> Result<Loaded, LoadError> {
         let body_path = self.cache_path(&spec.name, "list");
         let meta_path = self.cache_path(&spec.name, "meta");
@@ -188,6 +257,9 @@ impl Loader {
                     name: spec.name.clone(),
                     source,
                 })?;
+            // Erst nach dem Lesen: was nicht gelesen werden konnte, ist auch
+            // nicht bestätigt.
+            touch(&body_path);
             return Ok(Loaded {
                 text,
                 origin: Origin::NotModified,
@@ -333,6 +405,12 @@ async fn read_meta(path: &Path) -> Meta {
     let Ok(text) = tokio::fs::read_to_string(path).await else {
         return Meta::default();
     };
+    parse_meta(&text)
+}
+
+/// Das Format selbst — getrennt vom Lesen, weil [`Loader::age`] dieselbe Datei
+/// synchron liest und die Zeilen nicht zweimal auslegen soll.
+fn parse_meta(text: &str) -> Meta {
     let mut meta = Meta::default();
     for line in text.lines() {
         if let Some(value) = line.strip_prefix("etag:") {
@@ -342,6 +420,59 @@ async fn read_meta(path: &Path) -> Meta {
         }
     }
     meta
+}
+
+/// Setzt die Änderungszeit einer Datei auf jetzt.
+///
+/// „Der Server sagt, die Liste ist unverändert" heißt „diese Fassung ist
+/// bestätigt" — und das ist die Frage, die das Alter beantwortet. Ohne diesen
+/// Handgriff zeigte eine Liste, die seit einem Jahr täglich mit 304 bestätigt
+/// wird, das Datum ihres einzigen Downloads.
+///
+/// Fehler bleiben still: wer die Zeit nicht setzen darf, soll deswegen keine
+/// Liste verlieren. Dann steht das Alter eben auf dem letzten Schreibvorgang.
+/// `write(true)` ohne `truncate`, weil `futimens` einen Schreibzugriff auf die
+/// Datei verlangt — abgeschnitten wird nichts.
+fn touch(path: &Path) {
+    let Ok(file) = std::fs::File::options().write(true).open(path) else {
+        return;
+    };
+    let _ = file.set_modified(std::time::SystemTime::now());
+}
+
+/// Die Änderungszeit einer Datei, wenn es sie gibt.
+fn modified(path: &Path) -> Option<std::time::SystemTime> {
+    std::fs::metadata(path).ok()?.modified().ok()
+}
+
+/// Ein Zeitpunkt als RFC 3339 — das eine Format, in dem die API Zeiten
+/// ausliefert. Die Oberfläche muss dadurch nicht drei Formate kennen.
+fn rfc3339(at: std::time::SystemTime) -> Option<String> {
+    Some(jiff::Timestamp::try_from(at).ok()?.to_string())
+}
+
+/// Übersetzt einen HTTP-Datumsstempel (`Mon, 02 Jan 2006 15:04:05 GMT`) in
+/// RFC 3339.
+///
+/// Ein unlesbarer Stempel wird zu `None` und nicht zu einem Fehler: er steht in
+/// der `.meta`, die von einem fremden Server stammt, und ein fehlendes
+/// Herausgeberdatum ist kein Grund, gar kein Alter anzuzeigen.
+fn http_date_as_rfc3339(http_date: &str) -> Option<String> {
+    if let Ok(zoned) = jiff::fmt::rfc2822::parse(http_date) {
+        return Some(zoned.timestamp().to_string());
+    }
+    // Ein zweiter Versuch ohne den Wochentag. RFC 2822 nennt ihn redundant, und
+    // der Parser prüft ihn gegen das Datum: "Wed, 02 Jan 2006" ist für ihn ein
+    // Fehler, weil der 2. Januar ein Montag war. Ein Server, der sich im
+    // Wochentag vertut, hat trotzdem ein richtiges Datum geschrieben. Alles
+    // andere bleibt ein Fehler — ein kaputtes Datum wird nicht geraten.
+    let (_, rest) = http_date.split_once(',')?;
+    Some(
+        jiff::fmt::rfc2822::parse(rest.trim_start())
+            .ok()?
+            .timestamp()
+            .to_string(),
+    )
 }
 
 async fn write_cache(

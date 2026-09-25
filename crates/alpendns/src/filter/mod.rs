@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use matcher::Matcher;
-use source::{ListSpec, LoadError, Loader};
+use source::{Age, ListSpec, LoadError, Loader};
 
 /// Alle geladenen Listen, nach Namen.
 ///
@@ -58,6 +58,21 @@ pub struct Lists {
 impl Lists {
     pub const fn new(loader: Loader, specs: Vec<ListSpec>) -> Self {
         Self { loader, specs }
+    }
+
+    /// Name und Alter jeder konfigurierten Liste, in Konfigurationsreihenfolge.
+    ///
+    /// Gefragt wird der Loader, nicht der Bestand im Speicher: die Liste lebt
+    /// auf Platte, und ihr Datum ändert sich, ohne dass sich hier etwas rührt.
+    ///
+    /// Hier und nicht beim Aufrufer, weil nur diese Struktur Loader und Specs
+    /// zusammen hat — und weil ein `SIGHUP` sie als Ganzes austauscht, sodass
+    /// eine mitgeführte Kopie veralten würde.
+    pub fn ages(&self) -> Vec<(String, Age)> {
+        self.specs
+            .iter()
+            .map(|spec| (spec.name.clone(), self.loader.age(spec)))
+            .collect()
     }
 
     /// Lädt alle Listen.

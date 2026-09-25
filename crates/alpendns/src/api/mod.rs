@@ -73,6 +73,23 @@ pub struct ListInfo {
     /// In welchem Format sie gelesen wurde. Steht hier, damit die Metrik
     /// belegen kann, welche Formate im Feld tatsächlich vorkommen.
     pub format: String,
+    /// Wann diese Fassung zuletzt geholt oder vom Server als unverändert
+    /// bestätigt wurde (RFC 3339). `null`, wenn die Liste noch nie auf Platte
+    /// lag.
+    ///
+    /// Absolut und nicht als "vor 3 Stunden": eine relative Angabe ist schon
+    /// veraltet, während sie noch auf dem Schirm steht. Umrechnen kann nur der,
+    /// der die Uhr kennt, die gerade gilt — der Browser.
+    pub fetched_at: Option<String>,
+    /// Was der Herausgeber als letzten Änderungszeitpunkt nennt, aus dem
+    /// `last-modified`-Kopf (RFC 3339). `null` bei Listen aus einer
+    /// Konfigurationsdatei und bei Servern, die den Kopf nicht schicken.
+    ///
+    /// Das zweite Feld hat einen eigenen Grund: eine Liste, die seit acht
+    /// Monaten *unverändert* ist, ist ein anderes Problem als eine, die seit
+    /// acht Monaten nicht *geholt* wurde. Das erste heißt, dass die Quelle
+    /// nichts mehr hergibt; das zweite, dass bei uns etwas klemmt.
+    pub published_at: Option<String>,
 }
 
 /// Eine konfigurierte Policy mit den Clients, für die sie gilt.

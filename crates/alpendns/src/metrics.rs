@@ -35,6 +35,13 @@ pub struct Snapshot {
     pub logging_mode: LogMode,
     /// Wie viele geladene Listen je Format, absteigend nach Häufigkeit.
     pub list_formats: Vec<(String, u64)>,
+    /// Wie viele Sekunden die geltende Fassung jeder Liste alt ist.
+    ///
+    /// Eine Liste fehlt hier, wenn ihr Alter unbekannt ist — eine noch nie
+    /// geholte Liste hat keine Datei, die ein Datum trüge. Eine 0 würde in einer
+    /// Zeitreihe wie "gerade geholt" aussehen und das stille Scheitern des
+    /// Nachladens genau verdecken, das diese Zahl sichtbar machen soll.
+    pub list_ages: Vec<(String, u64)>,
     /// Wie oft die Privacy-Mechanismen tatsächlich gegriffen haben.
     pub privacy: PrivacyCounters,
     /// Die k-Schwelle aus der Konfiguration.
@@ -353,6 +360,23 @@ pub fn render(snapshot: &Snapshot) -> String {
         );
     }
 
+    // Eine steigende Zahl ist hier das Alarmsignal — deshalb eine eigene
+    // Zeitreihe je Liste und nicht nur ein Gesamtwert. Der Listenname kommt aus
+    // der Konfiguration, nicht aus einer Anfrage; das Label verrät also niemandem,
+    // wonach jemand gesucht hat.
+    let _ = writeln!(
+        out,
+        "# HELP alpendns_blocklist_age_seconds Alter der geltenden Fassung je Liste"
+    );
+    let _ = writeln!(out, "# TYPE alpendns_blocklist_age_seconds gauge");
+    for (name, seconds) in &snapshot.list_ages {
+        let _ = writeln!(
+            out,
+            "alpendns_blocklist_age_seconds{{list=\"{}\"}} {seconds}",
+            escape(name)
+        );
+    }
+
     let _ = writeln!(
         out,
         "# HELP alpendns_upstream_queries_total Erfolgreiche Anfragen je Upstream"
@@ -538,6 +562,7 @@ mod tests {
             blocking_mode: BlockMode::Nxdomain,
             logging_mode: LogMode::Aggregate,
             list_formats: vec![("hosts".to_owned(), 2), ("wildcard".to_owned(), 1)],
+            list_ages: vec![("ads".to_owned(), 3_600)],
             privacy: PrivacyCounters {
                 ecs_stripped: 7,
                 padded: 38,
@@ -667,6 +692,7 @@ mod tests {
             "alpendns_logging_mode{mode=\"full\"} 0",
             "alpendns_lists{format=\"hosts\"} 2",
             "alpendns_lists{format=\"wildcard\"} 1",
+            "alpendns_blocklist_age_seconds{list=\"ads\"} 3600",
             "alpendns_blocked_by_reason_total{reason=\"blocklist\"} 9",
             "alpendns_blocked_by_reason_total{reason=\"other\"} 0",
             "alpendns_privacy_ecs_stripped_total 7",
@@ -775,13 +801,14 @@ mod tests {
     /// Label-Schlüssel auftauchen, egal wer was fragt.
     #[test]
     fn every_label_key_comes_from_a_closed_set() {
-        const ALLOWED: [&str; 10] = [
+        const ALLOWED: [&str; 11] = [
             "version",   // Konstante aus dem Build
             "rcode",     // Aufzählung des Protokolls
             "mode",      // Aufzählung aus der Konfiguration
             "format",    // Aufzählung der Listenformate
             "reason",    // BlockReason::ALL
             "resolver",  // Name aus der Konfiguration
+            "list",      // Name aus der Konfiguration
             "transport", // Aufzählung der Transporte
             "result",    // dnssec::Verdict::ALL
             "detector",  // detect::Detector::ALL

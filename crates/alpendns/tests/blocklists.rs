@@ -297,6 +297,251 @@ async fn the_second_load_gets_a_304_and_uses_the_cached_copy() {
     );
 }
 
+/// Der Kern der Altersanzeige: ein 304 heißt "diese Fassung ist bestätigt".
+///
+/// Ohne den Handgriff zeigte eine Liste, die seit einem Jahr täglich mit 304
+/// beantwortet wird, das Datum ihres einzigen Downloads — und die Anzeige wäre
+/// genau an der Stelle falsch, an der sie etwas wert ist.
+#[tokio::test]
+async fn a_304_makes_the_list_younger() {
+    let fake = http_fake(LIST_BODY, "\"v1\"").await;
+    let cache = TempDir::new("age304");
+    let loader = Loader::new(cache.path()).expect("Loader");
+    let list = spec(
+        "test",
+        Source::Url(format!("http://{}/liste", fake.addr)),
+        Format::Hosts,
+    );
+
+    loader.load(&list).await.expect("erster Abruf");
+    let fresh = loader.age(&list);
+    assert!(
+        fresh.fetched_at.is_some(),
+        "nach dem Download muss die Liste ein Datum haben"
+    );
+
+    // Zurückdatieren auf einen Tag vorher, damit der Unterschied sichtbar wird.
+    let body = cache.path().join("test.list");
+    let old = std::time::SystemTime::now() - Duration::from_secs(24 * 60 * 60);
+    std::fs::File::options()
+        .write(true)
+        .open(&body)
+        .expect("Cache-Datei")
+        .set_modified(old)
+        .expect("mtime setzen");
+    assert_eq!(
+        loader
+            .age(&list)
+            .seconds_since_fetch(std::time::SystemTime::now()),
+        Some(24 * 60 * 60),
+        "das Zurückdatieren hat nicht gegriffen"
+    );
+
+    let second = loader.load(&list).await.expect("zweiter Abruf");
+    assert_eq!(second.origin, Origin::NotModified);
+    assert_eq!(fake.not_modified.load(Ordering::SeqCst), 1, "kein 304");
+
+    let seconds = loader
+        .age(&list)
+        .seconds_since_fetch(std::time::SystemTime::now())
+        .expect("Alter nach dem 304");
+    assert!(
+        seconds < 60,
+        "der 304 hat die Liste nicht bestätigt: sie ist {seconds} s alt"
+    );
+}
+
+/// Eine lokale Liste altert mit ihrer Datei, und sie hat keinen Herausgeber.
+#[tokio::test]
+async fn the_age_of_a_local_list_is_the_age_of_its_file() {
+    let dir = TempDir::new("agelocal");
+    let path = dir.path().join("ads.list");
+    std::fs::write(&path, "ads.example.com\n").expect("Liste schreiben");
+    let loader = Loader::new(dir.path()).expect("Loader");
+    let list = spec("ads", Source::File(path.clone()), Format::Wildcard);
+
+    let age = loader.age(&list);
+    let expected = std::fs::metadata(&path)
+        .expect("Datei")
+        .modified()
+        .expect("mtime");
+    assert_eq!(age.fetched_at, Some(expected));
+    assert_eq!(
+        age.published_at, None,
+        "eine Datei aus der Konfiguration hat keinen Herausgeber"
+    );
+    // RFC 3339, damit die Oberfläche nur ein Format kennen muss.
+    let rendered = age.fetched_rfc3339().expect("RFC 3339");
+    assert!(
+        rendered.contains('T') && rendered.ends_with('Z'),
+        "{rendered}"
+    );
+}
+
+/// Alle Listen einer Sammlung, in der Reihenfolge der Konfiguration.
+#[tokio::test]
+async fn every_configured_list_reports_its_age() {
+    let dir = TempDir::new("agelist");
+    std::fs::write(dir.path().join("a.list"), "a.example\n").expect("a");
+    std::fs::write(dir.path().join("b.list"), "b.example\n").expect("b");
+    let lists = Lists::new(
+        Loader::new(dir.path()).expect("Loader"),
+        vec![
+            spec(
+                "a",
+                Source::File(dir.path().join("a.list")),
+                Format::Wildcard,
+            ),
+            spec(
+                "b",
+                Source::File(dir.path().join("b.list")),
+                Format::Wildcard,
+            ),
+        ],
+    );
+
+    let ages = lists.ages();
+    assert_eq!(
+        ages.iter()
+            .map(|(name, _)| name.as_str())
+            .collect::<Vec<_>>(),
+        ["a", "b"]
+    );
+    assert!(ages.iter().all(|(_, age)| age.fetched_at.is_some()));
+}
+
+/// Eine Liste, die noch nie auf Platte lag, hat kein Alter — und keine 0.
+///
+/// Der Unterschied ist der ganze Punkt: eine 0 sähe in einer Zeitreihe aus wie
+/// "gerade geholt" und verdeckte genau das stille Scheitern, das diese Zahl
+/// sichtbar machen soll.
+#[tokio::test]
+async fn a_list_that_was_never_stored_has_no_age() {
+    let cache = TempDir::new("agenone");
+    let loader = Loader::new(cache.path()).expect("Loader");
+    let list = spec(
+        "test",
+        Source::Url("http://127.0.0.1:1/liste".to_owned()),
+        Format::Hosts,
+    );
+
+    let age = loader.age(&list);
+    assert_eq!(age.fetched_at, None);
+    assert_eq!(age.fetched_rfc3339(), None);
+    assert_eq!(age.seconds_since_fetch(std::time::SystemTime::now()), None);
+    assert_eq!(age.published_at, None);
+}
+
+/// Ein Alter in der Zukunft ist kein Alter, sondern eine gestellte Uhr.
+#[test]
+fn an_age_in_the_future_is_unknown_not_zero() {
+    use alpendns::filter::source::Age;
+
+    let now = std::time::SystemTime::now();
+    let later = Age {
+        fetched_at: Some(now + Duration::from_secs(3600)),
+        published_at: None,
+    };
+    assert_eq!(later.seconds_since_fetch(now), None);
+
+    let past = Age {
+        fetched_at: Some(now - Duration::from_secs(90)),
+        published_at: None,
+    };
+    assert_eq!(past.seconds_since_fetch(now), Some(90));
+}
+
+/// Das Herausgeberdatum kommt aus der `.meta` und wird zu RFC 3339.
+#[tokio::test]
+async fn the_publisher_date_becomes_rfc3339() {
+    let fake = http_fake(LIST_BODY, "\"v1\"").await;
+    let cache = TempDir::new("agemeta");
+    // Von Hand hingelegt: der Fake antwortet auf das passende ETag mit 304,
+    // `write_cache` läuft also nie — und die Datei bleibt, wie sie hier steht.
+    std::fs::write(cache.path().join("test.list"), LIST_BODY).expect("Cache");
+    std::fs::write(
+        cache.path().join("test.meta"),
+        "etag: \"v1\"\nlast-modified: Mon, 02 Jan 2006 15:04:05 GMT\n",
+    )
+    .expect("Meta");
+    let loader = Loader::new(cache.path()).expect("Loader");
+    let list = spec(
+        "test",
+        Source::Url(format!("http://{}/liste", fake.addr)),
+        Format::Hosts,
+    );
+
+    let loaded = loader.load(&list).await.expect("Abruf");
+    assert_eq!(loaded.origin, Origin::NotModified);
+    assert_eq!(
+        loader.age(&list).published_at.as_deref(),
+        Some("2006-01-02T15:04:05Z")
+    );
+}
+
+/// Ein kaputtes Herausgeberdatum kostet das Datum, nicht die Liste.
+///
+/// Der Stempel steht in der `.meta`, die von einem fremden Server stammt. Ein
+/// `last-modified`, das dieser Server nicht versteht, darf nicht dazu führen,
+/// dass gar kein Alter mehr angezeigt wird.
+#[tokio::test]
+async fn a_broken_publisher_date_is_no_date_not_an_error() {
+    let fake = http_fake(LIST_BODY, "\"v1\"").await;
+    let cache = TempDir::new("agebroken");
+    std::fs::write(cache.path().join("test.list"), LIST_BODY).expect("Cache");
+    std::fs::write(
+        cache.path().join("test.meta"),
+        "etag: \"v1\"\nlast-modified: irgendwann im Januar\n",
+    )
+    .expect("Meta");
+    let loader = Loader::new(cache.path()).expect("Loader");
+    let list = spec(
+        "test",
+        Source::Url(format!("http://{}/liste", fake.addr)),
+        Format::Hosts,
+    );
+
+    loader.load(&list).await.expect("Abruf");
+    let age = loader.age(&list);
+    assert_eq!(age.published_at, None);
+    assert!(
+        age.fetched_at.is_some(),
+        "das Hol-Datum darf daran nicht mitsterben"
+    );
+
+    // Ein falscher Wochentag ist dagegen ein richtiges Datum: RFC 2822 nennt
+    // ihn redundant, und der 2. Januar 2006 war ein Montag.
+    std::fs::write(
+        cache.path().join("test.meta"),
+        "etag: \"v1\"\nlast-modified: Wed, 02 Jan 2006 15:04:05 GMT\n",
+    )
+    .expect("Meta");
+    assert_eq!(
+        loader.age(&list).published_at.as_deref(),
+        Some("2006-01-02T15:04:05Z")
+    );
+}
+
+/// Ohne `.meta` gibt es kein Herausgeberdatum — und keinen Fehler.
+#[tokio::test]
+async fn a_missing_meta_file_yields_no_publisher_date() {
+    let fake = http_fake(LIST_BODY, "\"v1\"").await;
+    let cache = TempDir::new("agenometa");
+    let loader = Loader::new(cache.path()).expect("Loader");
+    let list = spec(
+        "test",
+        Source::Url(format!("http://{}/liste", fake.addr)),
+        Format::Hosts,
+    );
+
+    loader.load(&list).await.expect("Download");
+    std::fs::remove_file(cache.path().join("test.meta")).expect("Meta löschen");
+
+    let age = loader.age(&list);
+    assert_eq!(age.published_at, None);
+    assert!(age.fetched_at.is_some(), "die Liste selbst liegt ja da");
+}
+
 #[tokio::test]
 async fn an_unreachable_server_falls_back_to_the_cached_copy() {
     // B.1 Regel 6: ein späterer Ausfall darf nicht ungefiltert machen.

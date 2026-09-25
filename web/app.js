@@ -97,6 +97,41 @@ function clockTime(at) {
   return at.includes("T") ? at.slice(11, 19) : at;
 }
 
+/** Teil der Plattform, keine Bibliothek: die Liste der Sprachen, die ein
+ *  Browser mitbringt, ist genau die, die er auch formatiert. */
+const RELATIVE = new Intl.RelativeTimeFormat(LOCALE, { numeric: "auto" });
+
+/** "2 days ago" aus einem absoluten Zeitpunkt.
+ *
+ *  Der Server liefert absolute Zeitpunkte, die relative Aussage entsteht hier.
+ *  Der Grund ist nicht Sparsamkeit, sondern Haltbarkeit: "vor 3 Stunden" ist
+ *  eine Aussage über den Moment, in dem sie gelesen wird, und der Server weiß
+ *  nicht, wann das ist. Als absolute Zahl kommt sie an, als relative steht sie
+ *  da — und altert mit der Seite mit, statt auf einer Antwort von gestern zu
+ *  beruhen.
+ *
+ *  Die Einheit ist die größte passende: "90 minutes ago" liest niemand,
+ *  "2 hours ago" schon. */
+function relativeTime(iso, now = Date.now()) {
+  const then = Date.parse(iso);
+  if (Number.isNaN(then)) return null;
+  const seconds = (then - now) / 1000;
+  const units = [
+    ["year", 31_536_000],
+    ["month", 2_592_000],
+    ["week", 604_800],
+    ["day", 86_400],
+    ["hour", 3_600],
+    ["minute", 60],
+  ];
+  for (const [unit, size] of units) {
+    if (Math.abs(seconds) >= size) {
+      return RELATIVE.format(Math.round(seconds / size), unit);
+    }
+  }
+  return RELATIVE.format(Math.round(seconds), "second");
+}
+
 /** Die Farbklasse für eine Latenz — oder keine, wenn sie nichts zu sagen hat.
  *  Dieselben Schwellen für Upstreams und Protokoll, sonst hieße dieselbe Farbe
  *  an zwei Stellen zweierlei. */
@@ -132,6 +167,7 @@ function syncEmptyStates() {
   $("log-table").hidden = !hasRows;
   $("top-empty").hidden = $("top").childElementCount > 0;
   $("flagged-empty").hidden = $("flagged").childElementCount > 0;
+  $("lists-empty").hidden = $("lists").childElementCount > 0;
 }
 
 /** Setzt den Pfad eines eingebetteten Diagramms.
@@ -687,6 +723,50 @@ async function refreshTop() {
   syncEmptyStates();
 }
 
+/** Eine Zeile je Liste: Name, Einträge, Alter.
+ *
+ *  Das Alter ist die eigentliche Aussage dieses Panels. Eine Blockliste, die
+ *  seit Monaten nicht mehr geholt wurde, filtert noch — nur nach einem Stand,
+ *  den niemand mehr pflegt. Das sieht in jeder anderen Kachel gesund aus, weil
+ *  die Upstreams antworten und die Anfragen laufen. */
+async function refreshLists() {
+  const infos = await api("/api/lists");
+  const box = $("lists");
+  box.replaceChildren();
+  for (const info of infos) {
+    const item = document.createElement("li");
+
+    const name = document.createElement("span");
+    name.className = "list-name";
+    name.textContent = info.name;
+
+    const entries = document.createElement("span");
+    entries.className = "list-entries";
+    entries.textContent = thousands(info.entries);
+
+    const age = document.createElement("span");
+    age.className = "list-age";
+    // "never" heißt: es gibt keine Datei, aus der diese Liste käme — ein
+    // Download, der nicht zwischengespeichert werden konnte, oder eine
+    // Konfigurationsdatei, die inzwischen weg ist. Beim Start wäre beides ein
+    // Fehler und der Server startete nicht; hier steht es trotzdem, weil ein
+    // `null` sonst als leere Zelle erschiene und wie ein Darstellungsfehler
+    // aussähe.
+    age.textContent = (info.fetched_at && relativeTime(info.fetched_at)) || "never";
+    if (info.published_at) {
+      // Der zweite Zeitpunkt, den der Server kennt, gehört nicht in die Zeile:
+      // er beantwortet die Gegenfrage ("gibt die Quelle noch etwas her?") und
+      // die stellt man sich selten. Als Titel steht er trotzdem da.
+      const published = relativeTime(info.published_at);
+      if (published) age.title = `Publisher's last change: ${published}`;
+    }
+
+    item.append(name, entries, age);
+    box.append(item);
+  }
+  syncEmptyStates();
+}
+
 /**
  * Die auffälligen Anfragen.
  *
@@ -825,6 +905,7 @@ async function start() {
     refreshTop(),
     refreshHistory(),
     refreshFlagged(),
+    refreshLists(),
   ]);
   if (started) return;
   started = true;
@@ -851,6 +932,11 @@ async function start() {
     try {
       await refreshStatus();
       await refreshTop();
+      // Mit jedem Takt neu geholt, obwohl sich das Datum selten ändert: die
+      // Zeile ist relativ formuliert, und "2 days ago" muss zu "3 days ago"
+      // werden, ohne dass jemand die Seite neu lädt. Teuer ist das nicht — es
+      // ist ein `stat` je Liste auf der anderen Seite der Loopback-Verbindung.
+      await refreshLists();
     } catch {
       setReachable(false);
     }

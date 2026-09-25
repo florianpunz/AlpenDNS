@@ -255,13 +255,38 @@ mod tests {
     #[test]
     fn empty_areas_explain_themselves() {
         // Kein leeres Rechteck: Zeichen plus ein Satz, warum hier nichts steht.
-        // Sechs Flächen seit Phase 8 — dazugekommen ist "Auffällig".
+        // Seit Phase 8 waren es sechs — die siebte Fläche ist "Listen".
         assert_eq!(
             INDEX.matches("class=\"empty\"").count(),
-            6,
+            7,
             "nicht jede leere Fläche erklärt sich"
         );
-        assert_eq!(INDEX.matches("class=\"empty-icon\"").count(), 6);
+        assert_eq!(INDEX.matches("class=\"empty-icon\"").count(), 7);
+    }
+
+    /// Das Alter einer Liste ist Text, keine Farbe.
+    ///
+    /// Eine Liste, die seit Monaten nicht geholt wurde, ist die wichtigste
+    /// Aussage dieses Panels — und die naheliegendste Art, sie zu zeigen, wäre
+    /// Rot. Genau das ist verboten: `--danger` heißt "geblockt" oder
+    /// "gescheitert", `--warn` gehört der Latenz, und beide stehen als Regel
+    /// über dem Stylesheet. "34 days ago" trägt die Aussage vollständig; die
+    /// Zahl daneben einzufärben würde sie nur wiederholen.
+    #[test]
+    fn the_age_of_a_list_is_written_not_coloured() {
+        assert!(INDEX.contains("id=\"lists\""), "das Listen-Panel fehlt");
+        assert!(
+            SCRIPT.contains("function relativeTime"),
+            "das Alter wird nicht relativ formatiert"
+        );
+        // RelativeTimeFormat ist Teil jeder Browser-Plattform; geladen wird
+        // nichts (B.6: keine CDN-Ressourcen).
+        assert!(SCRIPT.contains("Intl.RelativeTimeFormat"));
+        let age = rule(".list-age");
+        assert!(
+            !age.contains("--danger") && !age.contains("--success") && !age.contains("--warn"),
+            "das Alter einer Liste trägt eine Bedeutung, die es nicht hat: {age}"
+        );
     }
 
     /// Der Leertext bei "Auffällig" nennt die Ursache, nicht nur die Leere.

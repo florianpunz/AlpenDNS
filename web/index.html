@@ -267,6 +267,28 @@ try {
             </div>
           </section>
 
+          <!-- Wie alt die Fassung jeder Liste ist. Ein nie aktualisierter
+               Filter ist das stille Scheitern des Kernversprechens: die
+               Upstreams sind gesund, die Anfragen laufen, und gefiltert wird
+               nach einem Stand von letztem Jahr. Genau deshalb steht die Zahl
+               auf der Startseite und nicht eine Ebene tiefer — sie beantwortet
+               "tut es noch, was es soll" und nicht "wie ist es eingestellt".
+
+               Keine Farbe für eine alte Liste: "34 days ago" sagt alles, was
+               Rot auch sagen würde, und --warn ist für hohe Latenz reserviert
+               (B.6, geprüft in api/ui.rs). Wer eine Zahl betonen will, nimmt
+               ihr Gewicht, nicht ihren Ton. -->
+          <section class="panel" aria-labelledby="h-lists">
+            <div class="panel-head"><h2 id="h-lists">Lists</h2></div>
+            <ul class="lists" id="lists" aria-labelledby="h-lists"></ul>
+            <div class="empty" id="lists-empty">
+              <svg class="empty-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 7h16M4 12h16M4 17h10"/>
+              </svg>
+              <p>No list is loaded. Without one, nothing is filtered.</p>
+            </div>
+          </section>
+
           <!-- Was die Heuristiken gefunden haben. Steht neben den
                Block-Gründen und nicht in einer eigenen Ansicht: im
                Auslieferungszustand blockt keiner von ihnen, und was nur meldet,

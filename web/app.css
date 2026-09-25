@@ -804,9 +804,39 @@ td.c-time { color: var(--muted); }
 .up-dot.is-up { background: var(--success); }
 .up-dot.is-down { background: var(--danger); }
 
+/* ── Listen ────────────────────────────────────────────────────────────── */
+
+.lists { margin: 0; padding: 0 var(--s-16) var(--s-16); list-style: none; }
+.lists li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-8);
+  font-size: var(--t-small);
+  line-height: 1.9;
+}
+/* Der Listenname ist ein Bezeichner aus der Konfiguration, keine Prosa —
+   dieselbe Monospace wie die Domänennamen, aus demselben Grund. */
+.list-name {
+  font-family: var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Die Einträge sind eine Menge, keine Aussage: zurückhaltend und in voller
+   Breite nach rechts geschoben, damit das Alter außen steht. */
+.list-entries {
+  margin-left: auto;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+/* Das Alter trägt die Aussage der Zeile, steht also in Textfarbe — aber in
+   keiner anderen. "34 days ago" sagt alles, was Rot auch sagen würde, und
+   --warn gehört der Latenz (B.6). Kein Umbruch: die Zeile ist schmal. */
+.list-age { flex: none; white-space: nowrap; }
+
 /* ── Häufigste Namen ───────────────────────────────────────────────────── */
 
-/* Rechts fünf Panels. Auf einem üblichen Bildschirm passen sie; sonst bekommt
+/* Rechts sechs Panels. Auf einem üblichen Bildschirm passen sie; sonst bekommt
    die Spalte einen eigenen Rollbalken, statt das Layout zu sprengen. Die Seite
    selbst scrollt weiterhin nicht. Es rollt also die Spalte als Ganzes — auch
    die Häufigsten Namen, deren Liste damit vollständig lesbar ist: sie ist
@@ -817,7 +847,7 @@ td.c-time { color: var(--muted); }
 .side {
   display: grid;
   grid-column: span 1;
-  grid-template-rows: auto auto auto auto minmax(max-content, 1fr);
+  grid-template-rows: auto auto auto auto auto minmax(max-content, 1fr);
   gap: var(--s-16);
   min-height: 0;
   overflow-y: auto;

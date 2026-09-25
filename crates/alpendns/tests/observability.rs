@@ -315,6 +315,7 @@ impl StatusSource for Fake {
             blocking_mode: alpendns::filter::block::BlockMode::Nxdomain,
             logging_mode: self.log.mode(),
             list_formats: vec![("hosts".to_owned(), 1)],
+            list_ages: vec![("stevenblack".to_owned(), 120)],
             privacy: alpendns::privacy::counters(),
             aggregate_k: self.log.aggregate_k(),
             below_threshold_queries: self.log.top(0).below_threshold_queries,
@@ -333,6 +334,8 @@ impl StatusSource for Fake {
             name: "stevenblack".to_owned(),
             entries: 79_747,
             format: "hosts".to_owned(),
+            fetched_at: Some("2026-09-23T06:00:00Z".to_owned()),
+            published_at: None,
         }]
     }
     fn policies(&self) -> Vec<PolicyInfo> {
@@ -533,6 +536,26 @@ async fn every_api_endpoint_answers_with_a_token() {
     }
 }
 
+/// Das Alter einer Liste geht als absoluter Zeitpunkt über die Leitung.
+///
+/// Nicht als "vor 3 Stunden": eine relative Angabe ist eine Aussage über den
+/// Moment, in dem sie gelesen wird, und den kennt der Server nicht. Er liefert
+/// den Zeitpunkt, die Oberfläche rechnet ihn um — und die Angabe altert dadurch
+/// mit der Seite mit, statt auf einer Antwort von gestern zu beruhen.
+#[tokio::test]
+async fn the_lists_endpoint_delivers_absolute_times() {
+    let (api, _dir) = start_api(Mode::Aggregate).await;
+    let body: serde_json::Value = api.get("/api/lists").await.json().await.expect("JSON");
+
+    let list = &body[0];
+    assert_eq!(list["name"], "stevenblack");
+    assert_eq!(list["entries"], 79_747);
+    assert_eq!(list["fetched_at"], "2026-09-23T06:00:00Z");
+    // Eine Liste aus einer Konfigurationsdatei hat keinen Herausgeber; das Feld
+    // ist dann null und nicht etwa ein erfundenes Datum.
+    assert!(list["published_at"].is_null(), "{list}");
+}
+
 #[tokio::test]
 async fn the_status_endpoint_reports_the_logging_mode() {
     // ADR-0004: der aktive Modus wird dauerhaft angezeigt, nicht versteckt.
@@ -685,6 +708,10 @@ async fn the_metrics_endpoint_needs_no_token_and_names_nothing() {
         .expect("Text");
 
     assert!(text.contains("alpendns_queries_total 1"), "{text}");
+    assert!(
+        text.contains("alpendns_blocklist_age_seconds{list=\"stevenblack\"} 120"),
+        "das Alter der Listen fehlt:\n{text}"
+    );
     assert!(
         !text.contains(SECRET),
         "der Metrik-Endpunkt nennt einen Query-Namen:\n{text}"

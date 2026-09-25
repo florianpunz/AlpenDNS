@@ -10,7 +10,7 @@ use alpendns::caching::CachingBackend;
 use alpendns::clock::{SystemClock, SystemWallClock};
 use alpendns::config::Config;
 use alpendns::filter::Lists;
-use alpendns::filter::source::Loader;
+use alpendns::filter::source::{Age, Loader};
 use alpendns::history::{History, Sample};
 use alpendns::local::LocalBackend;
 use alpendns::logging::QueryLog;
@@ -355,16 +355,25 @@ fn run() -> anyhow::Result<()> {
             .await
             .context("Blocklisten konnten beim Start nicht geladen werden")?;
         let entries = loaded.total_entries();
+        let ages = list_ages(&policy_source);
         let list_infos: Vec<ListInfo> = loaded
             .names()
-            .map(|name| ListInfo {
-                name: name.to_string(),
-                entries: loaded.get(name).map_or(0, |matcher| matcher.len()),
-                // Nur *geladene* Listen zählen; eine, die nicht erreichbar war,
-                // steht in der Konfiguration, aber nicht in der Metrik.
-                format: list_formats
-                    .get(name.as_ref())
-                    .map_or_else(|| "?".to_owned(), ToString::to_string),
+            .map(|name| {
+                with_age(
+                    &ListInfo {
+                        name: name.to_string(),
+                        entries: loaded.get(name).map_or(0, |matcher| matcher.len()),
+                        // Nur *geladene* Listen zählen; eine, die nicht erreichbar
+                        // war, steht in der Konfiguration, aber nicht in der Metrik.
+                        format: list_formats
+                            .get(name.as_ref())
+                            .map_or_else(|| "?".to_owned(), ToString::to_string),
+                        // Wird gleich aus `ages` gefüllt.
+                        fetched_at: None,
+                        published_at: None,
+                    },
+                    &ages,
+                )
             })
             .collect();
         let engine = Arc::new(
@@ -477,6 +486,7 @@ fn run() -> anyhow::Result<()> {
             engine: Arc::clone(&engine),
             log: Arc::clone(&query_log),
             lists: list_infos.clone(),
+            source: Arc::clone(&policy_source),
             policies: policy_infos.clone(),
             blocking_mode: blocking_config.mode,
             seed_rotation,
@@ -594,6 +604,27 @@ fn count_formats(lists: &[ListInfo]) -> Vec<(String, u64)> {
     counted
 }
 
+/// Das Alter jeder Liste, nach Namen.
+///
+/// Bei jeder Abfrage neu bestimmt und nicht beim Start einmal: die Listen werden
+/// zur Laufzeit nachgeladen, und ein `SIGHUP` tauscht sie aus. Ein eingefrorenes
+/// Datum würde nur die Laufzeit des Prozesses messen — eine Anzeige, die immer
+/// "gerade geholt" sagt und genau das stille Scheitern verdeckt, das sie
+/// aufdecken soll.
+fn list_ages(source: &PolicySource) -> std::collections::HashMap<String, Age> {
+    source.lists().ages().into_iter().collect()
+}
+
+/// Ergänzt eine Liste um ihr Alter. Siehe [`list_ages`].
+fn with_age(info: &ListInfo, ages: &std::collections::HashMap<String, Age>) -> ListInfo {
+    let age = ages.get(&info.name);
+    ListInfo {
+        fetched_at: age.and_then(Age::fetched_rfc3339),
+        published_at: age.and_then(|age| age.published_at.clone()),
+        ..info.clone()
+    }
+}
+
 async fn report_stats<C: alpendns::clock::Clock>(
     cache: Arc<alpendns::cache::Cache<C>>,
     pool: Arc<Pool<Encrypted, SystemClock>>,
@@ -665,6 +696,13 @@ struct Runtime {
     engine: Arc<PolicyEngine>,
     log: Arc<QueryLog>,
     lists: Vec<ListInfo>,
+    /// Die Listenquellen in ihrem *aktuellen* Stand — nicht der Stand vom Start.
+    ///
+    /// Ein `SIGHUP` tauscht sie aus, und das Alter einer Liste hängt an der
+    /// Quelle, aus der sie kommt. Über den `PolicySource` zu gehen heißt: die
+    /// Altersangabe folgt einem Reload. Welche Listen überhaupt aufgeführt
+    /// werden, entscheidet weiterhin `lists` — und das ist der Stand vom Start.
+    source: Arc<PolicySource>,
     policies: Vec<PolicyInfo>,
     blocking_mode: alpendns::filter::block::BlockMode,
     /// Abstand der Seed-Rotation aus der Konfiguration.
@@ -696,6 +734,12 @@ impl StatusSource for Runtime {
             blocking_mode: self.blocking_mode,
             logging_mode: self.log.mode(),
             list_formats: count_formats(&self.lists),
+            list_ages: list_ages(&self.source)
+                .into_iter()
+                .filter_map(|(name, age)| {
+                    Some((name, age.seconds_since_fetch(std::time::SystemTime::now())?))
+                })
+                .collect(),
             privacy: alpendns::privacy::counters(),
             aggregate_k: self.log.aggregate_k(),
             zone_seed_rotation: self.seed_rotation,
@@ -719,7 +763,13 @@ impl StatusSource for Runtime {
     }
 
     fn lists(&self) -> Vec<ListInfo> {
-        self.lists.clone()
+        // Das Alter kommt bei jeder Abfrage frisch von Platte: nur so altert die
+        // Anzeige mit, statt die Laufzeit des Prozesses zu messen.
+        let ages = list_ages(&self.source);
+        self.lists
+            .iter()
+            .map(|info| with_age(info, &ages))
+            .collect()
     }
 
     fn policies(&self) -> Vec<PolicyInfo> {
