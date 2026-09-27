@@ -41,13 +41,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Demo bauen
+      - name: Build the demo
         run: sh web/demo/build.sh
 
       # Pages erwartet eine index.html an der Wurzel des Artefakts. Statt sie
       # umzubenennen wird kopiert: der Build-Ausgabename bleibt die einzige
       # Stelle, an der er steht.
-      - name: Als index.html bereitlegen
+      - name: Put it in place as index.html
         run: |
           mkdir -p publish
           cp web/dist/alpendns-demo.html publish/index.html

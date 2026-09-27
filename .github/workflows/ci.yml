@@ -52,34 +52,34 @@ jobs:
       # Nur auf main, nicht auf Pull Requests: aus einem Fork heraus darf
       # GITHUB_TOKEN keine Issues schreiben, und ein roter PR ist ohnehin
       # Sache des Autors.
-      - name: Advisory melden
+      - name: Report the advisory
         if: steps.deny.outcome == 'failure' && github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
-          title="cargo deny schlägt fehl — neue Advisory?"
+          title="cargo deny fails — new advisory?"
           body=$(cat <<TEXT
-          Der Lauf "cargo deny check" ist fehlgeschlagen: $RUN_URL
+          The run of "cargo deny check" failed: $RUN_URL
 
-          In diesem Repo muss sich dafür nichts geändert haben — die
-          Advisory-Datenbank bewegt sich ohne Commit. Der Ablauf steht in
-          CONTRIBUTING.md unter "Dependencies and advisories": erst prüfen, ob
-          der verwundbare Pfad von hier aus erreichbar ist; dann beheben oder
-          eine Ausnahme in deny.toml eintragen, mit Begründung und
-          Umkehrbedingung.
+          Nothing in this repo has to have changed for that to happen — the
+          advisory database moves without a commit. The procedure is in
+          CONTRIBUTING.md under "Dependencies and advisories": first check
+          whether the vulnerable path is reachable from here, then fix it or
+          enter an exception in deny.toml, with a reason and a condition under
+          which it can be removed.
           TEXT
           )
           number=$(gh issue list --state open --limit 200 --json number,title \
             --jq "[.[] | select(.title == \"$title\")][0].number // empty")
           if [ -n "$number" ]; then
-            echo "bestehendes Issue #$number aktualisiert"
+            echo "existing issue #$number updated"
             gh issue comment "$number" --body "$body"
           else
             gh issue create --title "$title" --body "$body"
           fi
-      - name: Ergebnis
+      - name: Result
         if: steps.deny.outcome == 'failure'
         run: exit 1
 
