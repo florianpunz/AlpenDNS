@@ -832,6 +832,47 @@
     };
   }
 
+  /** Die geladenen Listen mit ihrem Alter.
+   *
+   *  Die Aussage dieses Panels steht in der letzten Spalte, und sie ist die
+   *  einzige Stelle, an der diese Anlage krank aussieht: eine Liste, die seit
+   *  Wochen nicht mehr geholt wurde, filtert weiter — nur nach einem Stand, den
+   *  niemand mehr pflegt. Das ist kein Fehler, sondern das Alter; deshalb steht
+   *  es hier unbemerkt zwischen zwei gesunden Zeilen.
+   *
+   *  Die Summe der Einträge ist dieselbe wie `list_entries` in /api/status. Eine
+   *  Anlage, die es nicht gibt, darf sich trotzdem nicht selbst widersprechen:
+   *  wer beide Zahlen nebeneinanderlegt, sieht es sonst sofort.
+   *
+   *  `local-allow` kommt aus einer Datei statt von einer Adresse und hat deshalb
+   *  keinen Herausgeber — `published_at` bleibt null, der Titel entfällt. */
+  function lists() {
+    const now = nowSec();
+    return [
+      {
+        name: "stevenblack-unified",
+        entries: 186020,
+        format: "hosts",
+        fetched_at: isoLocal(now - (3 * 3600 + 12 * 60)),
+        published_at: isoLocal(now - 26 * 3600),
+      },
+      {
+        name: "oisd-big",
+        entries: 296061,
+        format: "wildcard",
+        fetched_at: isoLocal(now - (3 * 3600 + 14 * 60)),
+        published_at: isoLocal(now - 4 * 86400),
+      },
+      {
+        name: "local-allow",
+        entries: 38,
+        format: "domains",
+        fetched_at: isoLocal(now - 19 * 86400),
+        published_at: null,
+      },
+    ];
+  }
+
   /** Die jüngsten Anfragen, neueste zuerst. Die letzte volle Sekunde ist die
    *  Grenze: was danach kommt, liefert der Live-Strom — sonst stünde jede
    *  Zeile zweimal im Protokoll. */
@@ -971,6 +1012,8 @@
     switch (method + " " + path) {
       case "GET /api/status":
         return status();
+      case "GET /api/lists":
+        return lists();
       case "GET /api/history":
         return history();
       case "GET /api/top":
@@ -1152,6 +1195,7 @@
   // lässt sie sich von außen befragen, ohne dass eine Seite gezeichnet wird.
   window.__demoWorld = {
     status,
+    lists,
     history,
     top,
     recent,
