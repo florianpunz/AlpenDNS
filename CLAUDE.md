@@ -375,6 +375,17 @@ The design language itself is in the header comment section of `web/app.css`
   Formatting noise does not go into a feature commit.
 * Conventional Commits (`feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`).
 * The commit message explains the *why*. The *what* is in the diff.
+* **The version is raised once per release, not per commit.** Before the push,
+  with `scripts/bump-version.sh major|minor|patch`: `major` when something new
+  arrives or something existing breaks, `minor` when something existing is
+  repaired or changed, `patch` for typos and small corrections in the docs. The
+  heaviest kind among the commits since the last tag decides, so the published
+  number describes the release and not the last commit. The release workflow
+  publishes the version standing in `Cargo.toml` at the tip of the push and
+  stops on the tag if that version was released already: an unbumped push stays
+  red and publishes nothing. CI cannot do it instead — a bot commit back to
+  `main` would race every hand-push. Table and examples: `docs/OPERATIONS.md`,
+  "Releases and versions".
 * **No Claude attribution — anywhere.** No `Co-Authored-By`, no "Generated with",
   no mention in the text, neither in the commit nor in the PR nor in a tag. The
   agent writes nothing about itself into the history of the repo. This is

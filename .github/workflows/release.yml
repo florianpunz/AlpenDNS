@@ -2,9 +2,10 @@ name: Release
 
 # Baut bei jedem Push auf main das .deb (amd64 + arm64) und veröffentlicht es
 # als GitHub Release. Die Versionsnummer kommt aus Cargo.toml — sie wurde bereits
-# VOR dem Commit erhöht (scripts/bump-version.sh), siehe docs/OPERATIONS.md.
-# Deshalb gibt es hier keinen Bot-Commit zurück nach main: der würde den
-# Hand-Push-Workflow (CLAUDE.md B.7) mit non-fast-forward-Ablehnungen stören.
+# VOR dem Push erhöht (scripts/bump-version.sh major|minor|patch, einmal je
+# Release), siehe docs/OPERATIONS.md. Deshalb gibt es hier keinen Bot-Commit
+# zurück nach main: der würde den Hand-Push-Workflow (CLAUDE.md B.7) mit
+# non-fast-forward-Ablehnungen stören.
 #
 # Auf Pull Requests läuft dieses Workflow nicht; dort prüft nur ci.yml.
 on:

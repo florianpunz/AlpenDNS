@@ -38,13 +38,30 @@ system does not matter.
 ### Releases and versions
 
 The `push` to `main` builds the package in GitHub Actions and publishes it as a
-GitHub release — for `amd64` and `arm64`. The version number is bumped **before
-the commit**, not by CI: `scripts/bump-version.sh major|minor` before committing
-(`major` for a breaking change, otherwise `minor`; there is no patch — every
-commit is a new version). The coding agent does this automatically on every
-commit; anyone committing by hand calls the script themselves. If the rule is
-broken and the version already exists as a tag in the repo, CI aborts with a
-clear message rather than publishing the same number a second time.
+GitHub release — for `amd64` and `arm64`. The version number is raised **before
+the push**, not by CI: `scripts/bump-version.sh major|minor|patch`. Which of the
+three it is follows from what has come together since the last tag — the
+heaviest kind wins:
+
+| Call | What it means | Example |
+|---|---|---|
+| `major` | something new has arrived, or something existing breaks | `1.4.2` → `2.0.0` |
+| `minor` | something existing is repaired or changed: a bugfix, a change in behaviour, documentation that adds or changes content | `1.4.2` → `1.5.0` |
+| `patch` | typos, spelling, a few corrected sentences in the docs | `1.4.2` → `1.4.3` |
+
+Raised once per release, not once per commit — that is what makes the number a
+statement about the release: what has changed since the previous one, rather
+than what the last commit happened to be. `git describe --tags --abbrev=0` names
+the last tag, `git log <tag>..HEAD --oneline` what has come together since.
+
+That a new feature already moves the first position is a deliberate departure
+from SemVer, where it is a `minor` and only a break is a `major`. Here the kind
+of change decides, and "something is new" is the heaviest kind there is.
+
+The coding agent raises the version itself before the push; anyone pushing by
+hand calls the script themselves. If the rule is broken and the version already
+exists as a tag in the repo, CI aborts with a clear message rather than
+publishing the same number a second time.
 
 The package can still be built locally, as described above.
 
