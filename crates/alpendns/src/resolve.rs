@@ -15,33 +15,33 @@ use crate::trace::Ctx;
 /// Warum eine Auflösung fehlgeschlagen ist.
 #[derive(Debug, thiserror::Error)]
 pub enum ResolveError {
-    #[error("Upstream hat nicht innerhalb des Zeitbudgets geantwortet")]
+    #[error("Upstream did not answer within the time budget")]
     Timeout,
-    #[error("Netzwerkfehler zum Upstream: {0}")]
+    #[error("Network error to the upstream: {0}")]
     Io(#[from] std::io::Error),
-    #[error("Anfrage konnte nicht kodiert werden: {0}")]
+    #[error("Query could not be encoded: {0}")]
     Encode(String),
-    #[error("Antwort des Upstreams war nicht dekodierbar: {0}")]
+    #[error("Answer from the upstream could not be decoded: {0}")]
     Malformed(String),
-    #[error("Antwort des Upstreams passt nicht zur Frage: {0:?}")]
+    #[error("Answer from the upstream does not match the question: {0:?}")]
     Mismatch(crate::dns::Mismatch),
-    #[error("die zusammengefasste Anfrage an den Upstream ist fehlgeschlagen")]
+    #[error("The coalesced query to the upstream failed")]
     Coalesced,
-    #[error("Verbindung zum Upstream nicht möglich: {0}")]
+    #[error("Cannot connect to the upstream: {0}")]
     Connect(String),
-    #[error("Upstream-Fehler: {0}")]
+    #[error("Upstream error: {0}")]
     Upstream(String),
-    #[error("kein Upstream im Pool konnte antworten")]
+    #[error("No upstream in the pool could answer")]
     NoUpstreamLeft,
     /// Die Signaturkette schließt nicht. Terminal: es wird kein weiterer
     /// Upstream gefragt (Begründung in `upstream::pool::Pool::resolve`).
-    #[error("DNSSEC-Prüfung fehlgeschlagen, die Antwort wurde verworfen")]
+    #[error("DNSSEC validation failed, the answer was dropped")]
     Bogus,
     /// Der Upstream hat nichts geliefert, worüber sich urteilen ließe — eine
     /// leere Fehlerantwort. Das ist **kein** DNSSEC-Befund, sondern ein
     /// Ausfall: der nächste Upstream wird gefragt, ohne dass diesem hier ein
     /// Fehlversuch angerechnet wird (Begründung in `crate::dnssec::from_error`).
-    #[error("Upstream lieferte keine prüfbare Antwort")]
+    #[error("Upstream delivered no verifiable answer")]
     Unproven,
 }
 

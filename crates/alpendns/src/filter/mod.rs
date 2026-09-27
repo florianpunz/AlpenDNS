@@ -93,14 +93,14 @@ impl Lists {
                             list = %spec.name,
                             skipped = parsed.skipped,
                             entries,
-                            "Zeilen in der Liste nicht verstanden"
+                            "lines in the list not understood"
                         );
                     }
                     tracing::info!(
                         list = %spec.name,
                         entries,
                         origin = ?loaded.origin,
-                        "Liste geladen"
+                        "list loaded"
                     );
                     let mut builder = matcher::Builder::new();
                     builder.add(&spec.name, &parsed);
@@ -108,7 +108,7 @@ impl Lists {
                 }
                 Err(error) if strict => return Err(error),
                 Err(error) => {
-                    tracing::error!(list = %spec.name, %error, "Liste nicht geladen");
+                    tracing::error!(list = %spec.name, %error, "list not loaded");
                 }
             }
         }

@@ -95,7 +95,7 @@ pub fn explain<C: Clock + Clone, W: WallClock>(
     peer: IpAddr,
 ) -> Result<Explanation, String> {
     let name = Name::from_str_relaxed(domain)
-        .map_err(|error| format!("'{domain}' ist kein gültiger Domainname: {error}"))?;
+        .map_err(|error| format!("'{domain}' is not a valid domain name: {error}"))?;
     let mut ctx = Ctx::new(std::net::SocketAddr::new(peer, 0));
     let decision = engine.evaluate(&name, peer, &mut ctx);
     let client = ctx
@@ -396,7 +396,7 @@ pub struct PolicyBlueprint {
 }
 
 #[derive(Debug, thiserror::Error)]
-#[error("Policy '{policy}' verweist auf die Liste '{list}', die es nicht gibt")]
+#[error("Policy '{policy}' refers to list '{list}', which does not exist")]
 pub struct UnknownList {
     pub policy: String,
     pub list: String,
@@ -450,7 +450,7 @@ impl Blueprint {
             clients: Clients::new(self.clients.clone(), Arc::clone(&self.default_policy)),
             policies,
             fallback: Arc::new(Policy {
-                name: Arc::from("(keine)"),
+                name: Arc::from("(none)"),
                 blocklists: Vec::new(),
                 allowlists: Vec::new(),
                 regex: Arc::new(RegexRules::default()),
@@ -537,19 +537,19 @@ impl Blueprint {
 }
 
 fn build_schedule(entry: &crate::config::ScheduleEntry) -> Result<Schedule, ConfigError> {
-    let invalid = |what: &str| ConfigError::Invalid(format!("Zeitplan '{}': {what}", entry.name));
+    let invalid = |what: &str| ConfigError::Invalid(format!("Schedule '{}': {what}", entry.name));
     let days = entry
         .days
         .iter()
-        .map(|day| crate::config::parse_weekday(day).ok_or_else(|| invalid("unbekannter Tag")))
+        .map(|day| crate::config::parse_weekday(day).ok_or_else(|| invalid("unknown day")))
         .collect::<Result<Vec<_>, _>>()?;
     Ok(Schedule {
         name: Arc::from(entry.name.as_str()),
         days,
         from: crate::config::parse_clock_time(&entry.from)
-            .ok_or_else(|| invalid("from ist keine Uhrzeit"))?,
+            .ok_or_else(|| invalid("from is not a time"))?,
         to: crate::config::parse_clock_time(&entry.to)
-            .ok_or_else(|| invalid("to ist keine Uhrzeit"))?,
+            .ok_or_else(|| invalid("to is not a time"))?,
         effect: match entry.action {
             crate::config::ScheduleAction::BlockAllExceptAllowlist => {
                 crate::trace::ScheduleEffect::BlockAllExceptAllowlist
@@ -588,11 +588,16 @@ pub async fn run_updater<C: Clock + Clone, W: WallClock>(
                 Ok(set) => {
                     let entries = loaded.total_entries();
                     engine.replace(set, entries);
-                    tracing::info!(entries, "Listen aktualisiert");
+                    tracing::info!(entries, "lists updated");
                 }
-                Err(error) => tracing::error!(%error, "Regelstand nicht baubar, alter gilt weiter"),
+                Err(error) => {
+                    tracing::error!(
+                        %error,
+                        "rule set cannot be built, the old one stays in effect"
+                    );
+                }
             },
-            Err(error) => tracing::error!(%error, "Aktualisierung fehlgeschlagen"),
+            Err(error) => tracing::error!(%error, "update failed"),
         }
     }
 }
@@ -633,7 +638,7 @@ impl<B: ResolveBackend, C: Clock + Clone, W: WallClock> ResolveBackend for Polic
                 // Kein Query-Name im Log (B.1 Regel 3). Die vollständige
                 // Begründung steht im Trace; was damit geschieht, entscheidet
                 // die Logging-Schicht in Phase 6.
-                tracing::debug!("geblockt");
+                tracing::debug!("blocked");
                 return Ok(self.engine.block_response(request));
             }
 
@@ -644,7 +649,7 @@ impl<B: ResolveBackend, C: Clock + Clone, W: WallClock> ResolveBackend for Polic
             if let Some(name) = asked
                 && self.engine.inspect_answer(&name, &response, ctx) == Decision::Block
             {
-                tracing::debug!("Antwort verworfen: private Adresse für einen öffentlichen Namen");
+                tracing::debug!("answer dropped: private address for a public name");
                 return Ok(self.engine.block_response(request));
             }
             Ok(response)

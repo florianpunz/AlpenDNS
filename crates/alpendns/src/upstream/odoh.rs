@@ -137,7 +137,7 @@ impl OdohTransport {
             .timeout(timeout)
             .resolve(target_host, target_addr)
             .build()
-            .map_err(|e| ResolveError::Connect(format!("HTTP-Client für ODoH: {e}")))?;
+            .map_err(|e| ResolveError::Connect(format!("HTTP client for ODoH: {e}")))?;
         Ok(Self {
             proxy,
             config_url,
@@ -169,17 +169,17 @@ impl OdohTransport {
             .timeout(self.timeout)
             .send()
             .await
-            .map_err(|e| ResolveError::Connect(format!("ODoH-Konfiguration von {url}: {e}")))?;
+            .map_err(|e| ResolveError::Connect(format!("ODoH configuration from {url}: {e}")))?;
         if !response.status().is_success() {
             return Err(ResolveError::Connect(format!(
-                "ODoH-Konfiguration von {url}: HTTP {}",
+                "ODoH configuration from {url}: HTTP {}",
                 response.status()
             )));
         }
         let body = response
             .bytes()
             .await
-            .map_err(|e| ResolveError::Connect(format!("ODoH-Konfiguration von {url}: {e}")))?;
+            .map_err(|e| ResolveError::Connect(format!("ODoH configuration from {url}: {e}")))?;
         parse_config(&body)
     }
 
@@ -207,7 +207,7 @@ impl OdohTransport {
         }
         if self.privacy.padding {
             if let Err(error) = privacy::pad_to_block(&mut outbound, privacy::PADDING_BLOCK) {
-                tracing::debug!(%error, "Padding nicht möglich");
+                tracing::debug!(%error, "padding not possible");
             }
         }
 
@@ -218,7 +218,7 @@ impl OdohTransport {
         // es nur einen Mechanismus dafür gibt und nur einen Zähler.
         let plaintext = ObliviousDoHMessagePlaintext::new(&wire, 0);
         let (encrypted, secret) = odoh_rs::encrypt_query(&plaintext, &config, &mut Random)
-            .map_err(|e| ResolveError::Encode(format!("ODoH-Verschlüsselung: {e}")))?;
+            .map_err(|e| ResolveError::Encode(format!("ODoH encryption: {e}")))?;
 
         let answer = self.post(&encrypted).await?;
         let response = decrypt(&plaintext, &answer, secret)?;
@@ -236,7 +236,7 @@ impl OdohTransport {
 
     async fn post(&self, message: &ObliviousDoHMessage) -> Result<Vec<u8>, ResolveError> {
         let body = odoh_rs::compose(message)
-            .map_err(|e| ResolveError::Encode(format!("ODoH-Nachricht: {e}")))?
+            .map_err(|e| ResolveError::Encode(format!("ODoH message: {e}")))?
             .freeze();
         let response = self
             .http
@@ -251,12 +251,12 @@ impl OdohTransport {
                 if e.is_timeout() {
                     ResolveError::Timeout
                 } else {
-                    ResolveError::Upstream(format!("ODoH-Proxy: {e}"))
+                    ResolveError::Upstream(format!("ODoH proxy: {e}"))
                 }
             })?;
         if !response.status().is_success() {
             return Err(ResolveError::Upstream(format!(
-                "ODoH-Proxy antwortete mit HTTP {}",
+                "ODoH proxy answered with HTTP {}",
                 response.status()
             )));
         }
@@ -264,7 +264,7 @@ impl OdohTransport {
             .bytes()
             .await
             .map(|bytes| bytes.to_vec())
-            .map_err(|e| ResolveError::Upstream(format!("ODoH-Antwort: {e}")))
+            .map_err(|e| ResolveError::Upstream(format!("ODoH answer: {e}")))
     }
 }
 
@@ -276,16 +276,14 @@ impl OdohTransport {
 fn parse_config(body: &[u8]) -> Result<ObliviousDoHConfigContents, ResolveError> {
     let mut cursor = body;
     let configs: ObliviousDoHConfigs = odoh_rs::parse(&mut cursor)
-        .map_err(|e| ResolveError::Connect(format!("ODoH-Konfiguration unlesbar: {e}")))?;
+        .map_err(|e| ResolveError::Connect(format!("ODoH configuration unreadable: {e}")))?;
     configs
         .supported()
         .into_iter()
         .next()
         .map(Into::into)
         .ok_or_else(|| {
-            ResolveError::Connect(
-                "das Ziel bietet kein von uns unterstütztes ODoH-Verfahren an".to_owned(),
-            )
+            ResolveError::Connect("the target offers no ODoH method that we support".to_owned())
         })
 }
 
@@ -297,11 +295,11 @@ fn decrypt(
 ) -> Result<Vec<u8>, ResolveError> {
     let mut cursor = body;
     let message: ObliviousDoHMessage = odoh_rs::parse(&mut cursor)
-        .map_err(|e| ResolveError::Malformed(format!("ODoH-Antwort unlesbar: {e}")))?;
+        .map_err(|e| ResolveError::Malformed(format!("ODoH answer unreadable: {e}")))?;
     let plaintext = odoh_rs::decrypt_response(query, &message, secret).map_err(|e| {
         // Das ist der interessante Fehlerfall: entweder hat der Proxy etwas
         // verändert, oder das Ziel hat mit einem anderen Schlüssel gearbeitet.
-        ResolveError::Malformed(format!("ODoH-Antwort nicht entschlüsselbar: {e}"))
+        ResolveError::Malformed(format!("ODoH answer could not be decrypted: {e}"))
     })?;
     Ok(plaintext.into_msg().to_vec())
 }

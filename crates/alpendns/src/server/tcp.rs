@@ -168,7 +168,7 @@ pub(crate) async fn serve<B: ResolveBackend>(
             result = listener.accept() => match result {
                 Ok(accepted) => accepted,
                 Err(error) => {
-                    tracing::warn!(%error, "accept fehlgeschlagen");
+                    tracing::warn!(%error, "accept failed");
                     continue;
                 }
             },
@@ -179,7 +179,7 @@ pub(crate) async fn serve<B: ResolveBackend>(
         // schließen ist der richtige Preis — der Client hat sein Kontingent
         // aufgebraucht, und ein Platz für ein anderes Gerät ist mehr wert.
         let Some(slot) = ClientSlot::take(Arc::clone(&open), peer.ip(), &stats) else {
-            tracing::debug!(%peer, "zu viele offene Verbindungen von dieser Adresse");
+            tracing::debug!(%peer, "too many open connections from this address");
             drop(permit);
             continue;
         };
@@ -204,7 +204,7 @@ pub(crate) async fn serve<B: ResolveBackend>(
             )
             .await
             {
-                tracing::debug!(%error, "TCP-Verbindung beendet");
+                tracing::debug!(%error, "TCP connection ended");
             }
         });
     }
@@ -269,14 +269,17 @@ where
         let bytes = match response.to_vec() {
             Ok(bytes) => bytes,
             Err(error) => {
-                tracing::warn!(%error, "Antwort nicht kodierbar");
+                tracing::warn!(%error, "answer not encodable");
                 continue;
             }
         };
         // Über TCP wird nicht gekürzt; die Längenangabe ist 16 Bit, größer geht
         // eine DNS-Nachricht ohnehin nicht.
         let Ok(len) = u16::try_from(bytes.len()) else {
-            tracing::warn!(len = bytes.len(), "Antwort passt nicht in das Längenpräfix");
+            tracing::warn!(
+                len = bytes.len(),
+                "answer does not fit into the length prefix"
+            );
             continue;
         };
         stream.write_all(&len.to_be_bytes()).await?;

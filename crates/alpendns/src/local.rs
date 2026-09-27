@@ -40,7 +40,7 @@ const DEFAULT_TTL: u32 = 300;
 /// Bewusst eine Liste und nicht „alles, was hickory parst": MX, NS, DS oder
 /// DNSKEY in einer Tabelle wären der erste Schritt zu einem autoritativen
 /// Server, der keiner werden soll.
-const ALLOWED_TYPES: &str = "A, AAAA, CNAME, TXT, PTR und SRV";
+const ALLOWED_TYPES: &str = "A, AAAA, CNAME, TXT, PTR and SRV";
 
 const fn default_ttl() -> u32 {
     DEFAULT_TTL
@@ -309,8 +309,8 @@ pub fn build_zone(config: &LocalZoneConfig) -> Result<LocalZone, ConfigError> {
     let zone = config.zone.0.clone();
     if zone.is_root() {
         return Err(ConfigError::Invalid(
-            "local_zone '.': die Wurzelzone fängt jede Anfrage ab. Gemeint ist vermutlich \
-             eine einzelne Zone, etwa \"miloo.at\"."
+            "local_zone '.': the root zone intercepts every query. What is probably \
+             meant is a single zone, such as \"miloo.at\"."
                 .to_owned(),
         ));
     }
@@ -319,26 +319,26 @@ pub fn build_zone(config: &LocalZoneConfig) -> Result<LocalZone, ConfigError> {
     for record in &config.records {
         let name = qualify(&record.name, &zone).map_err(|detail| {
             ConfigError::Invalid(format!(
-                "local_zone '{zone}', Eintrag '{}': {detail}",
+                "local_zone '{zone}', entry '{}': {detail}",
                 record.name
             ))
         })?;
         if !zone.zone_of(&name) {
             return Err(ConfigError::Invalid(format!(
-                "local_zone '{zone}', Eintrag '{}': der Name liegt außerhalb der Zone. \
-                 Erwartet wird '@' für die Zone selbst, ein Name relativ zu ihr ('nas', \
-                 '_https._tcp') oder ein absoluter, der auf '{zone}' endet. Ein Name ohne \
-                 Punkt am Ende wird relativ zur Zone gelesen — 'nas.example.com' wäre also \
-                 'nas.example.com.{zone}'.",
+                "local_zone '{zone}', entry '{}': the name lies outside the zone. \
+                 Expected is '@' for the zone itself, a name relative to it ('nas', \
+                 '_https._tcp') or an absolute one ending in '{zone}'. A name without a \
+                 trailing dot is read relative to the zone — so 'nas.example.com' would \
+                 be 'nas.example.com.{zone}'.",
                 record.name
             )));
         }
 
         let rtype = record_type_of(&record.rtype).ok_or_else(|| {
             ConfigError::Invalid(format!(
-                "local_zone '{zone}', Eintrag '{}': Typ '{}' wird nicht unterstützt. \
-                 Möglich sind {ALLOWED_TYPES}. Eine lokale Zone ist eine Tabelle, kein \
-                 Zonenfile.",
+                "local_zone '{zone}', entry '{}': type '{}' is not supported. \
+                 Available are {ALLOWED_TYPES}. A local zone is a table, not a \
+                 zone file.",
                 record.name, record.rtype
             ))
         })?;
@@ -346,15 +346,15 @@ pub fn build_zone(config: &LocalZoneConfig) -> Result<LocalZone, ConfigError> {
         let data = RData::try_from_str(rtype, value)
             .map_err(|error| {
                 ConfigError::Invalid(format!(
-                    "local_zone '{zone}', Eintrag '{}' ({rtype}): '{value}' ist kein gültiger \
-                     Wert: {error}",
+                    "local_zone '{zone}', entry '{}' ({rtype}): '{value}' is not a valid \
+                     value: {error}",
                     record.name
                 ))
             })
             .and_then(|data| {
                 qualify_target(data, &zone).map_err(|detail| {
                     ConfigError::Invalid(format!(
-                        "local_zone '{zone}', Eintrag '{}' ({rtype}): {detail}",
+                        "local_zone '{zone}', entry '{}' ({rtype}): {detail}",
                         record.name
                     ))
                 })
@@ -369,14 +369,14 @@ pub fn build_zone(config: &LocalZoneConfig) -> Result<LocalZone, ConfigError> {
         // vorhersagbar.
         if data.len() > 1 && data.iter().any(|d| matches!(d, RData::CNAME(_))) {
             return Err(ConfigError::Invalid(format!(
-                "local_zone '{zone}', Eintrag '{name}': zu einem CNAME gehört kein weiterer \
-                 Record. Entweder der CNAME oder die anderen Einträge."
+                "local_zone '{zone}', entry '{name}': a CNAME admits no further \
+                 record. Either the CNAME or the other entries."
             )));
         }
         if let Some(duplicate) = first_duplicate(data) {
             return Err(ConfigError::Invalid(format!(
-                "local_zone '{zone}', Eintrag '{name}': '{duplicate}' steht doppelt in der \
-                 Tabelle."
+                "local_zone '{zone}', entry '{name}': '{duplicate}' appears twice in the \
+                 table."
             )));
         }
     }
@@ -400,8 +400,8 @@ pub fn build_zones(configs: &[LocalZoneConfig]) -> Result<Vec<LocalZone>, Config
     for zone in &zones {
         if declared.insert(zone.zone(), ()).is_some() {
             return Err(ConfigError::Invalid(format!(
-                "local_zone '{}' steht zweimal in der Konfiguration. Fasse die Einträge in \
-                 einer Zone zusammen.",
+                "local_zone '{}' appears twice in the configuration. Combine the entries \
+                 into one zone.",
                 zone.zone()
             )));
         }
@@ -413,8 +413,8 @@ pub fn build_zones(configs: &[LocalZoneConfig]) -> Result<Vec<LocalZone>, Config
         for name in zone.names() {
             if let Some(first) = seen.insert(name, zone.zone()) {
                 return Err(ConfigError::Invalid(format!(
-                    "local_zone '{first}' und '{}': der Name '{name}' steht in beiden Zonen. \
-                     Ein Name gehört in eine Tabelle.",
+                    "local_zone '{first}' and '{}': the name '{name}' is in both zones. \
+                     A name belongs in one table.",
                     zone.zone()
                 )));
             }
@@ -464,13 +464,13 @@ fn qualify(raw: &str, zone: &Name) -> Result<Name, String> {
         return Ok(zone.clone());
     }
     let name = Name::from_str_relaxed(trimmed)
-        .map_err(|error| format!("'{trimmed}' ist kein Name: {error}"))?;
+        .map_err(|error| format!("'{trimmed}' is not a name: {error}"))?;
     let name = if name.is_fqdn() {
         name
     } else {
         // Setzt auch `is_fqdn` (hickory-proto, `name.rs`).
         name.append_domain(zone)
-            .map_err(|error| format!("'{trimmed}' ließ sich nicht ergänzen: {error}"))?
+            .map_err(|error| format!("'{trimmed}' could not be qualified: {error}"))?
     };
     Ok(name.to_lowercase())
 }
@@ -611,7 +611,7 @@ zone = "miloo.at"
 records = [{ name = "nas.example.com.", type = "A", value = "192.168.1.5" }]
 "#,
         );
-        assert!(message.contains("außerhalb der Zone"), "{message}");
+        assert!(message.contains("outside the zone"), "{message}");
     }
 
     #[test]
@@ -666,7 +666,7 @@ zone = "miloo.at"
 records = [{ name = "nas", type = "A", value = "192.168.1.999" }]
 "#,
         );
-        assert!(message.contains("kein gültiger Wert"), "{message}");
+        assert!(message.contains("not a valid value"), "{message}");
     }
 
     #[test]
@@ -680,7 +680,7 @@ records = [
 ]
 "#,
         );
-        assert!(message.contains("doppelt"), "{message}");
+        assert!(message.contains("twice"), "{message}");
     }
 
     #[test]
@@ -744,7 +744,7 @@ records = [{ name = "nas", type = "A", value = "192.168.1.6" }]
             ),
         ];
         let message = build_zones(&zones).expect_err("muss scheitern").to_string();
-        assert!(message.contains("in beiden Zonen"), "{message}");
+        assert!(message.contains("both zones"), "{message}");
     }
 
     #[test]

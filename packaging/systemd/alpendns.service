@@ -12,7 +12,7 @@
 # Nachrechnen: systemd-analyze security alpendns
 
 [Unit]
-Description=AlpenDNS — privacy-fokussierter DNS-Resolver
+Description=AlpenDNS — privacy-focused DNS resolver
 Documentation=file:///usr/share/doc/alpendns/OPERATIONS.md
 Documentation=https://github.com/florianpunz/alpendns
 # Blocklisten werden beim ersten Start heruntergeladen; ohne Netz bricht

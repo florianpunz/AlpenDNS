@@ -166,7 +166,7 @@ impl<B: ResolveBackend, C: Clock> Pool<B, C> {
             .saturating_add(1);
         tracing::info!(
             rotations = count,
-            "Zonen-Seed neu gezogen; die Zuordnung Domain → Upstream ist ab jetzt eine andere"
+            "zone seed redrawn; the domain → upstream mapping is a different one from now on"
         );
     }
 
@@ -229,7 +229,7 @@ impl<B: ResolveBackend, C: Clock> Pool<B, C> {
                 .down_until
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
-            tracing::info!(upstream = %upstream.name, "Upstream antwortet wieder");
+            tracing::info!(upstream = %upstream.name, "upstream answers again");
         }
 
         let micros = u64::try_from(rtt.as_micros()).unwrap_or(u64::MAX);
@@ -273,7 +273,7 @@ impl<B: ResolveBackend, C: Clock> Pool<B, C> {
             tracing::warn!(
                 upstream = %upstream.name,
                 failures,
-                "Upstream gilt als ausgefallen und wird vorerst übersprungen"
+                "upstream counts as down and is skipped for now"
             );
         }
     }
@@ -318,13 +318,13 @@ impl<B: ResolveBackend, C: Clock> Pool<B, C> {
             Err(ResolveError::Unproven) => {
                 tracing::debug!(
                     upstream = %upstream.name,
-                    "keine prüfbare Antwort; der nächste Upstream wird gefragt"
+                    "no verifiable answer; the next upstream is asked"
                 );
                 Err(ResolveError::Unproven)
             }
             Err(error) => {
                 self.record_failure(index);
-                tracing::debug!(upstream = %upstream.name, %error, "Upstream-Anfrage fehlgeschlagen");
+                tracing::debug!(upstream = %upstream.name, %error, "upstream query failed");
                 Err(error)
             }
         }
@@ -343,7 +343,7 @@ pub async fn run_seed_rotation<B: ResolveBackend, C: Clock>(
     shutdown: tokio_util::sync::CancellationToken,
 ) {
     if every.is_zero() {
-        tracing::info!("Zonen-Seed-Rotation ist abgeschaltet; die Zuordnung gilt bis zum Neustart");
+        tracing::info!("zone seed rotation is switched off; the mapping holds until restart");
         return;
     }
     let mut ticker = tokio::time::interval(every);

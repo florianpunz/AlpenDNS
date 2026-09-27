@@ -1,53 +1,53 @@
-# AlpenDNS — Beispielkonfiguration
+# AlpenDNS — example configuration
 #
-# Diese Datei ist die ZIEL-Konfiguration, nicht der Stand der Implementierung.
-# Sie dient als Spezifikation: jede Phase in docs/ROADMAP.md aktiviert einen Teil davon.
-# Abschnitte, die noch nicht implementiert sind, sind mit [PHASE n] markiert.
+# This file is the TARGET configuration, not the state of the implementation.
+# It serves as a specification: every phase in docs/ROADMAP.md activates part of it.
+# Sections that are not implemented yet are marked [PHASE n].
 #
-# Konvention: der Server startet nur, wenn die Konfiguration vollständig geparst werden
-# kann. Unbekannte Schlüssel sind ein Fehler, kein Warning (siehe CLAUDE.md).
+# Convention: the server only starts when the configuration can be parsed
+# completely. Unknown keys are an error, not a warning (see CLAUDE.md).
 
 [server]
-# Listener für unverschlüsseltes DNS im LAN.
+# Listeners for unencrypted DNS in the LAN.
 listen_udp = ["0.0.0.0:53", "[::]:53"]
 listen_tcp = ["0.0.0.0:53", "[::]:53"]
-# Maximale gleichzeitig in Bearbeitung befindliche Anfragen, bevor SERVFAIL/Drop.
+# Maximum queries in flight at the same time before SERVFAIL/drop.
 max_inflight = 4096
-# Timeout für eine komplette Client-Anfrage inkl. Upstream.
+# Timeout for one complete client query including the upstream.
 query_timeout = "3s"
 
 [server.edns]
-# Antwortgröße für UDP; darüber wird TC gesetzt und der Client auf TCP gezwungen.
+# Answer size for UDP; above it TC is set and the client is forced onto TCP.
 udp_payload_size = 1232
-# RFC 7830 / 8467: Padding für verschlüsselte Transporte.
+# RFC 7830 / 8467: padding for encrypted transports.
 padding = true
 
-# Drosselung pro Client. Per Default AN — ein Resolver ohne Limit ist ein
-# Amplification-Reflektor, sobald er nicht mehr nur sein eigenes LAN sieht
-# (CLAUDE.md B.5). Über dem Limit wird verworfen, nicht abgelehnt: eine
-# Antwort an eine womöglich gefälschte Absenderadresse wäre genau die
-# Reflexion, gegen die gedrosselt wird. docs/adr/0020-rate-limiting-verwirft.md
+# Rate limiting per client. ON by default — a resolver without a limit is an
+# amplification reflector as soon as it sees more than its own LAN
+# (CLAUDE.md B.5). Above the limit queries are dropped, not rejected: an answer
+# to a possibly forged sender address would be exactly the reflection the
+# limiting is meant to prevent. docs/adr/0020-rate-limiting-verwirft.md
 #
-# Gezählt wird je IPv4-Adresse und je IPv6-/64: ein Host hat dort nicht eine
-# Adresse, sondern beliebig viele aus demselben Präfix.
+# Counting is per IPv4 address and per IPv6 /64: a host does not have one
+# address there, but arbitrarily many from the same prefix.
 [server.rate_limit]
 enabled = true
-# Anfragen je Sekunde, die einem Client dauerhaft zustehen.
+# Queries per second a client is permanently entitled to.
 per_client_qps = 100
-# Guthaben, das ein stiller Client ansammeln darf. Eine Seite mit vielen
-# Einbettungen löst auf einen Schlag Dutzende Anfragen aus.
+# Credit a quiet client may accumulate. A page with many embeds triggers dozens
+# of queries at once.
 burst = 200
-# Obergrenze der Buchführung. Ohne sie wäre die Drosselung bei einer Flut
-# gefälschter Absender selbst der Speicherfresser, den sie verhindern soll.
+# Upper bound of the bookkeeping. Without it, under a flood of forged sender
+# addresses the limiting itself would be the memory hog it is meant to prevent.
 max_clients = 8192
 
-# [PHASE 3+] Verschlüsselte Listener für eigene *Clients* (Laptop unterwegs,
-# Handy). Nicht zu verwechseln mit den verschlüsselten Upstreams weiter unten:
-# die gibt es, diese Listener noch nicht.
+# [PHASE 3+] Encrypted listeners for your own *clients* (laptop on the road,
+# phone). Not to be confused with the encrypted upstreams further down: those
+# exist, these listeners do not yet.
 [server.doh]
 enabled = false
 listen = "0.0.0.0:443"
-# Pfad-Token identifiziert den Client, siehe [clients].
+# The path token identifies the client, see [clients].
 path = "/dns-query"
 cert = "/etc/alpendns/tls/fullchain.pem"
 key = "/etc/alpendns/tls/privkey.pem"
@@ -64,23 +64,23 @@ listen = "0.0.0.0:853"
 # Upstreams
 # ---------------------------------------------------------------------------
 
-# Upstream-Pools. Ein Pool ist eine Menge gleichwertiger Resolver
-# plus eine Auswahlstrategie.
+# Upstream pools. A pool is a set of equivalent resolvers
+# plus a selection strategy.
 [[upstream_pool]]
 name = "default"
-# split_by_zone — und sonst nichts. Die Registrable Domain wird gehasht und
-# immer demselben Upstream zugewiesen: kein Upstream sieht das ganze Profil,
-# der Cache bleibt trotzdem wirksam. Siehe docs/FEATURES.md P2.
+# split_by_zone — and nothing else. The registrable domain is hashed and always
+# assigned to the same upstream: no upstream sees the whole profile, and the
+# cache stays effective anyway. See docs/FEATURES.md P2.
 #
-# fastest und round_robin gab es einmal; bei beiden sah am Ende jeder Upstream
-# alles (docs/adr/0011-eine-upstream-strategie.md). Ebenso weg ist fanout: es
-# wird immer genau ein Resolver gefragt und erst beim Ausfall der nächste
-# (docs/adr/0012-fanout-entfaellt.md). Beide Schlüssel sind jetzt ein
-# Startfehler mit Begründung, kein stilles Ignorieren.
+# fastest and round_robin existed once; with both, every upstream ended up
+# seeing everything (docs/adr/0011-eine-upstream-strategie.md). fanout is gone
+# as well: exactly one resolver is always asked, and the next one only on
+# failure (docs/adr/0012-fanout-entfaellt.md). Both keys are now a startup error
+# with a reason, not a silent ignore.
 strategy = "split_by_zone"
-# Abstand, in dem der Seed neu gezogen wird. Bis Phase 7 galt er vom Start bis
-# zum Neustart — wer nie neu startet, gibt jedem Anbieter dauerhaft dasselbe
-# Drittel seiner Domains zu sehen. "0s" stellt das alte Verhalten wieder her.
+# Interval in which the seed is drawn anew. Until phase 7 it held from start to
+# restart — whoever never restarts permanently shows every provider the same
+# third of their domains. "0s" restores the old behaviour.
 seed_rotation = "24h"
 
 [[upstream_pool.resolver]]
@@ -98,8 +98,8 @@ name = "dnsforge"
 addr = "doh://176.9.93.198/dns-query"
 tls_name = "dnsforge.de"
 
-# Conditional Forwarding: interne Zonen gehen nie ins Internet. Der einzige Ort,
-# an dem Klartext-DNS erlaubt ist — und er verlässt das eigene Netz nicht.
+# Conditional forwarding: internal zones never go to the internet. The only
+# place where cleartext DNS is allowed — and it does not leave your own network.
 [[forward_zone]]
 zone = "home.arpa"
 upstream = "udp://10.0.0.1:53"
@@ -108,73 +108,71 @@ upstream = "udp://10.0.0.1:53"
 zone = "10.in-addr.arpa"
 upstream = "udp://10.0.0.1:53"
 
-# Lokale Zone: eigene Einträge, die AlpenDNS SELBST beantwortet.
+# Local zone: entries of your own that AlpenDNS answers ITSELF.
 #
-# Der Unterschied zu forward_zone oben: dort *fragt* AlpenDNS einen anderen
-# Nameserver, hier *antwortet* es. Deshalb schließen sich die beiden Wege aus —
-# eine Zone, die in beiden Sektionen steht (oder die andere enthält), ist ein
-# Startfehler und keine Frage des Vorrangs.
+# The difference to forward_zone above: there AlpenDNS *asks* another
+# nameserver, here it *answers*. That is why the two ways exclude each other —
+# a zone that stands in both sections (or contains the other) is a startup error
+# and not a question of precedence.
 #
-# Das ist eine TABELLE, kein Zonenfile: kein SOA, kein NS, kein AXFR/IXFR, kein
-# NOTIFY, kein Signieren, und das AA-Bit bleibt in der Antwort aus. AlpenDNS
-# wird davon nicht autoritativ — wer eine Zone wirklich hosten will, nimmt Knot
-# oder NSD. Der Preis dafür, dass es keine Zone ist: Änderungen an dieser
-# Tabelle brauchen einen Neustart.
+# This is a TABLE, not a zone file: no SOA, no NS, no AXFR/IXFR, no NOTIFY, no
+# signing, and the AA bit stays off in the answer. AlpenDNS does not become
+# authoritative through it — whoever really wants to host a zone takes Knot or
+# NSD. The price for it not being a zone: changes to this table need a restart.
 #
-# Der Rebinding-Schutz nimmt die eingetragenen Namen von selbst aus, sonst
-# stünde jede lokale Antwort als "auffällig" in der Oberfläche (siehe unten).
+# The rebinding protection exempts the names entered here by itself, otherwise
+# every local answer would stand in the UI as "Flagged" (see below).
 [[local_zone]]
 zone = "miloo.at"
-# Gültigkeitsdauer aller Antworten dieser Zone. 0 ist erlaubt und heißt "nicht
-# zwischenspeichern"; der Cache hebt es auf cache.min_ttl an.
+# Validity period of all answers of this zone. 0 is allowed and means "do not
+# cache"; the cache raises it to cache.min_ttl.
 ttl = 300
-# Was mit Namen geschieht, für die es hier KEINEN Eintrag gibt:
-#   "upstream"  sie werden wie gewohnt aufgelöst (Default, Split-Horizon)
-#   "nxdomain"  es gibt sie nicht; die Zone ist zu und nichts geht hinaus
+# What happens to names for which there is NO entry here:
+#   "upstream"  they are resolved as usual (default, split horizon)
+#   "nxdomain"  they do not exist; the zone is closed and nothing goes out
 #
-# Split-Horizon ist der Default, weil eine lokale Tabelle nur die Namen
-# festnagelt, die in ihr stehen — alles andere ist eine Zone wie jede andere.
-# Wer eine Zone vollständig ausnehmen will, schreibt "nxdomain" und lässt
-# records weg:
+# Split horizon is the default because a local table only pins down the names
+# that stand in it — everything else is a zone like any other.
+# Whoever wants to exempt a zone completely writes "nxdomain" and leaves out
+# records:
 #   [[local_zone]]
 #   zone = "miloo.at"
-#   fallback = "nxdomain"      # nichts aus miloo.at verlässt das Haus
-# `alpendns check` sagt den Zustand ausdrücklich hin, weil ein vergessener
-# fallback sonst genau die Zusage abschwächt, um die es geht.
+#   fallback = "nxdomain"      # nothing from miloo.at leaves the house
+# `alpendns check` says the state explicitly, because a forgotten fallback would
+# otherwise weaken exactly the promise this is about.
 records = [
-  # "@" ist die Zone selbst; ein Name ist relativ zur Zone, absolut wenn er auf
-  # "." endet. Normalisiert wird auf kleingeschrieben und absolut — "@", "NAS",
-  # "nas" und "nas.miloo.at." sind derselbe Eintrag.
+  # "@" is the zone itself; a name is relative to the zone, absolute if it ends
+  # in ".". Normalisation is to lowercase and absolute — "@", "NAS", "nas" and
+  # "nas.miloo.at." are the same entry.
   #
-  # Eine Falle: ein Name mit Punkt darin, aber ohne Punkt am Ende, wird wie in
-  # einem Zonenfile RELATIV gelesen. "nas.example.com" heißt hier also
-  # "nas.example.com.miloo.at". Für "_https._tcp" in einer SRV-Zone richtig,
-  # sonst ein Tippfehler, der nichts tut. Absolut schreibt man
-  # "nas.example.com."
+  # A trap: a name with a dot in it, but no dot at the end, is read RELATIVE as
+  # in a zone file. "nas.example.com" here means "nas.example.com.miloo.at".
+  # Right for "_https._tcp" in an SRV zone, otherwise a typo that does nothing.
+  # Absolute is written "nas.example.com."
   { name = "@",       type = "A",     value = "192.168.1.5" },
   { name = "nas",     type = "A",     value = "192.168.1.5" },
-  # Mehrere Adressen für denselben Namen sind der Normalfall (dual-stack,
-  # Round-Robin); doppelt heißt doppelt.
+  # Several addresses for the same name are the normal case (dual stack,
+  # round robin); double means double.
   { name = "nas",     type = "AAAA",  value = "fd00::5" },
-  # Ein CNAME wird beantwortet, wie er dasteht — AlpenDNS löst ihn nicht selbst
-  # auf. Den Zielnamen fragt der Client danach nach und trifft dieselbe Tabelle.
+  # A CNAME is answered as it stands — AlpenDNS does not resolve it itself. The
+  # client asks for the target name afterwards and hits the same table.
   { name = "drucker", type = "CNAME", value = "nas" },
-  # TXT-Werte mit Leerzeichen brauchen die Schreibweise aus dem Zonenfile,
-  # damit der Lexer sie als einen String liest:
+  # TXT values with spaces need the notation from the zone file, so that the
+  # lexer reads them as one string:
   { name = "_dmarc",  type = "TXT",   value = '"v=DMARC1; p=none"' },
 ]
 
-# v1 kennt genau sechs Typen: A, AAAA, CNAME, TXT, PTR und SRV. Alles andere
-# (MX, NS, SOA, DNSKEY …) ist ein Startfehler mit Begründung statt eines stillen
-# Ignorierens — eine Tabelle ist kein Zonenfile.
+# v1 knows exactly six types: A, AAAA, CNAME, TXT, PTR and SRV. Everything else
+# (MX, NS, SOA, DNSKEY …) is a startup error with a reason instead of a silent
+# ignore — a table is not a zone file.
 #
-# Ein fehlender Typ ist NODATA, auch bei fallback = "upstream": steht "nas" mit
-# A in der Tabelle und ein Client fragt AAAA, bekommt er "gibt es nicht" und
-# nicht die Antwort des Upstreams. Sonst hätte ein Name zwei Horizonte, und ein
-# fremder Typ wäre die Hintertür aus der Zone.
+# A missing type is NODATA, even with fallback = "upstream": if "nas" stands in
+# the table with A and a client asks for AAAA, it gets "does not exist" and not
+# the upstream's answer. Otherwise a name would have two horizons, and a foreign
+# type would be the back door out of the zone.
 #
-# Reverse-Zonen entstehen NICHT automatisch aus den A-Records. `dig -x
-# 192.168.1.5` braucht eine eigene Zone:
+# Reverse zones are NOT created automatically from the A records. `dig -x
+# 192.168.1.5` needs a zone of its own:
 #   [[local_zone]]
 #   zone = "1.168.192.in-addr.arpa"
 #   records = [{ name = "5", type = "PTR", value = "nas.miloo.at." }]
@@ -187,13 +185,13 @@ records = [
 max_entries = 100_000
 min_ttl = "10s"
 max_ttl = "24h"
-# Negative Antworten (NXDOMAIN/NODATA) eigener TTL-Deckel.
+# Negative answers (NXDOMAIN/NODATA) get their own TTL cap.
 max_negative_ttl = "15m"
-# Serve-stale (RFC 8767): abgelaufene Antworten ausliefern, wenn der Upstream
-# nicht erreichbar ist. Erhöht Verfügbarkeit, kann veraltete IPs liefern.
+# Serve stale (RFC 8767): hand out expired answers when the upstream is not
+# reachable. Raises availability, can deliver outdated IPs.
 serve_stale = true
 serve_stale_max = "1h"
-# Prefetch: Einträge, die oft abgefragt werden, kurz vor Ablauf erneuern.
+# Prefetch: renew entries that are queried often shortly before they expire.
 prefetch = true
 prefetch_threshold = 0.85
 
@@ -202,46 +200,46 @@ prefetch_threshold = 0.85
 # ---------------------------------------------------------------------------
 
 [privacy]
-# EDNS Client Subnet niemals an Upstreams weitergeben.
+# Never pass EDNS Client Subnet on to upstreams.
 strip_ecs = true
-# DNS Cookies (RFC 7873) gegen Off-Path-Spoofing.
+# DNS Cookies (RFC 7873) against off-path spoofing.
 cookies = true
-# 0x20 Encoding: zufällige Groß-/Kleinschreibung im QNAME zu Upstreams.
-# Manche Upstreams reagieren allergisch — deshalb per Pool abschaltbar.
+# 0x20 encoding: random upper/lower case in the QNAME towards upstreams.
+# Some upstreams react badly to it — that is why it can be switched off per pool.
 dns0x20 = true
-# Die Signaturkette selbst nachrechnen, statt dem AD-Bit des Upstreams zu
-# glauben. Eine Antwort, deren Zone sich als signiert ausgibt und deren Kette
-# nicht schließt, wird verworfen (SERVFAIL) — Standardverhalten nach RFC 4035.
-# Kostet je neuer Zone ein paar zusätzliche Anfragen an denselben Upstream.
-# Ausgeschaltet gilt wieder, was der Upstream behauptet.
+# Recompute the signature chain yourself instead of believing the upstream's AD
+# bit. An answer whose zone claims to be signed and whose chain does not close
+# is dropped (SERVFAIL) — standard behaviour per RFC 4035. Costs a few extra
+# queries to the same upstream per new zone. Switched off, what the upstream
+# claims holds again.
 dnssec = true
-# Oblivious DoH (RFC 9230): Der Proxy kennt deine Adresse, aber nicht die
-# Anfrage; das Ziel kennt die Anfrage, aber nicht deine Adresse.
+# Oblivious DoH (RFC 9230): the proxy knows your address but not the query; the
+# target knows the query but not your address.
 #
-# Zwei Bedingungen, sonst ist es Theater:
-#   1. Proxy und Ziel dürfen NICHT demselben Betreiber gehören. Das kann der
-#      Server nicht prüfen — das ist deine Auswahl.
-#   2. Alle Resolver im Pool müssen doh:// sprechen; ODoH gibt es nur über
-#      HTTP. Ein dot:// im Pool ist bei eingeschaltetem odoh ein Startfehler,
-#      statt für die Hälfte der Anfragen still nichts zu tun.
+# Two conditions, otherwise it is theatre:
+#   1. Proxy and target must NOT belong to the same operator. The server cannot
+#      check that — that is your choice.
+#   2. All resolvers in the pool must speak doh://; ODoH exists over HTTP only.
+#      A dot:// in the pool with odoh switched on is a startup error, instead of
+#      silently doing nothing for half the queries.
 #
-# Grenze, die bleibt: den öffentlichen Schlüssel des Ziels holt der Prozess
-# einmal je Start direkt von dessen /.well-known/odohconfigs. Diese eine
-# Verbindung geht nicht über den Proxy — das Ziel sieht dabei deine Adresse,
-# aber keine einzige Frage. Siehe docs/adr/0017-oblivious-doh.md.
+# A limit that remains: the process fetches the target's public key once per
+# start directly from its /.well-known/odohconfigs. That one connection does not
+# go through the proxy — the target sees your address while doing so, but not a
+# single question. See docs/adr/0017-oblivious-doh.md.
 odoh = { enabled = false, proxy = "https://odoh-proxy.example/proxy" }
 
 [privacy.logging]
-# none      — keine Query-Namen, weder auf Platte noch im RAM
-# aggregate — nur Zähler und Top-N über Schwellwert (k-Anonymität); gezählt wird
-#             exakt unter einem gesalzenen Hash, nicht unter dem Namen
-# ring      — letzte N Sekunden im RAM für Debugging, nie persistiert
-# full      — Query-Log auf Platte. Bewusste Entscheidung, nicht Default.
-#             Dann entscheidet /etc/logrotate.d/alpendns, wie lange die Namen
-#             dort liegen ("rotate 7" = sieben Tage). Siehe docs/OPERATIONS.md §6.
+# none      — no query names, neither on disk nor in RAM
+# aggregate — only counters and top-N above the threshold (k-anonymity); counted
+#             exactly, under a salted hash rather than under the name
+# ring      — the last N seconds in RAM for debugging, never persisted
+# full      — query log on disk. A deliberate decision, not the default.
+#             /etc/logrotate.d/alpendns then decides how long the names lie
+#             there ("rotate 7" = seven days). See docs/OPERATIONS.md §6.
 mode = "aggregate"
 ring_seconds = 300
-# Unter diesem Zählerstand taucht eine Domain in keiner Statistik auf.
+# Below this count a domain appears in no statistic.
 aggregate_k = 5
 
 # ---------------------------------------------------------------------------
@@ -250,11 +248,11 @@ aggregate_k = 5
 
 [blocking]
 # nxdomain | zero_ip | sinkhole
-# sinkhole zeigt für HTTP eine Erklärseite; für HTTPS bricht die Verbindung
-# unvermeidlich ab, deshalb nicht Default.
+# sinkhole shows an explanation page for HTTP; for HTTPS the connection
+# inevitably breaks, which is why it is not the default.
 #
-# refused gab es einmal. Es wies den Client an, den nächsten Resolver seiner
-# Liste zu fragen, und hob damit die Filterung auf
+# refused existed once. It told the client to ask the next resolver on its list
+# and thereby lifted the filtering
 # (docs/adr/0013-block-modus-refused-entfaellt.md).
 mode = "nxdomain"
 sinkhole_ipv4 = "127.0.0.1"
@@ -263,9 +261,9 @@ sinkhole_ipv6 = "::1"
 [[blocklist]]
 name = "stevenblack-unified"
 url = "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts"
-# hosts | domains | wildcard. adblock und rpz gab es einmal; beide Parser
-# übersprangen die Ausnahmeregeln ihres Formats und luden Listen damit schärfer
-# als gemeint (docs/adr/0014-adblock-und-rpz-parser-entfallen.md).
+# hosts | domains | wildcard. adblock and rpz existed once; both parsers skipped
+# the exception rules of their format and thereby loaded lists more strictly
+# than intended (docs/adr/0014-adblock-und-rpz-parser-entfallen.md).
 format = "hosts"
 refresh = "24h"
 enabled = true
@@ -277,25 +275,25 @@ format = "wildcard"
 refresh = "24h"
 enabled = true
 
-# Lokale Listen haben immer Vorrang vor entfernten.
+# Local lists always take precedence over remote ones.
 [[allowlist]]
 name = "local-allow"
 path = "/etc/alpendns/allow.txt"
 format = "domains"
 
 # ---------------------------------------------------------------------------
-# Clients und Policies
+# Clients and policies
 # ---------------------------------------------------------------------------
 
 [[client]]
 name = "kids-tablet"
-# Identifikation, in dieser Reihenfolge ausgewertet:
+# Identification, evaluated in this order:
 match = { ip = ["10.0.10.42"] }
 policy = "kids"
 
 [[client]]
 name = "florian-laptop"
-# Über DoH-Pfad-Token identifiziert, funktioniert auch unterwegs.
+# Identified via DoH path token, works on the road too.
 match = { doh_token = "REPLACE_WITH_RANDOM_32_BYTES" }
 policy = "default"
 
@@ -308,7 +306,7 @@ allowlists = ["local-allow"]
 name = "kids"
 blocklists = ["stevenblack-unified", "oisd-big"]
 allowlists = ["local-allow"]
-# Zeitfenster, in denen zusätzlich blockiert wird.
+# Time windows during which additional blocking applies.
 [[policy.schedule]]
 name = "bedtime"
 days = ["mon", "tue", "wed", "thu", "sun"]
@@ -317,73 +315,72 @@ to = "07:00"
 action = "block_all_except_allowlist"
 
 # ---------------------------------------------------------------------------
-# Heuristik / Detection
+# Heuristics / detection
 # ---------------------------------------------------------------------------
 
-# Jede Heuristik liefert einen Score 0.0–1.0 und eine Begründung. Vier Stufen:
+# Every heuristic delivers a score 0.0–1.0 and a reason. Four levels:
 #
-#   off    läuft nicht, kostet nichts
-#   log    läuft und zählt mit, sonst nichts
-#   flag   läuft, zählt mit, und die Anfrage steht in der Liste "Auffällig"
-#   block  die Anfrage wird geblockt wie ein Blocklisten-Treffer
+#   off    does not run, costs nothing
+#   log    runs and counts along, nothing else
+#   flag   runs, counts along, and the query stands in the "Flagged" list
+#   block  the query is blocked like a blocklist hit
 #
-# ALLE FÜNF STEHEN PER DEFAULT AUF `flag`, und das ist Absicht. Ein Detektor,
-# der Internet kaputtmacht, wird abgeschaltet — und mit ihm alle anderen.
-# Der Weg zu `block` führt über eine Woche Beobachtung: die Liste "Auffällig"
-# durchsehen, die Fehlalarme in `allow_zones` bzw. auf eine Allowlist nehmen,
-# und erst dann umstellen. Siehe docs/ROADMAP.md, Abnahme Phase 8.
+# ALL FIVE ARE ON `flag` BY DEFAULT, and that is deliberate. A detector that
+# breaks the internet is switched off — and all the others with it.
+# The way to `block` goes through a week of observation: review the "Flagged"
+# list, take the false positives into `allow_zones` or onto an allowlist, and
+# only then switch over. See docs/ROADMAP.md, phase 8 acceptance.
 #
-# Die Schwellen sind gemessen und nicht geraten; die Zahlen dahinter stehen in
-# docs/BENCHMARKS.md. Wer sie ändert, sollte dort nachsehen, was das kostet.
+# The thresholds are measured and not guessed; the numbers behind them are in
+# docs/BENCHMARKS.md. Whoever changes them should look there for what it costs.
 [detection]
 
-# Algorithmisch erzeugte Namen (kqxvbnzmrt.com). 3-Gramm-Modell im Binary.
-# Gemessen auf 100 000 echten Domains: 0,077 % Fehlalarme bei dieser Schwelle.
-# Erkennt zufällig aussehende Namen; wörterbuchbasierte DGAs und kurze Namen
-# ausdrücklich nicht — siehe docs/FEATURES.md D3.
+# Algorithmically generated names (kqxvbnzmrt.com). 3-gram model in the binary.
+# Measured on 100,000 real domains: 0.077% false positives at this threshold.
+# Detects randomly looking names; dictionary-based DGAs and short names
+# explicitly not — see docs/FEATURES.md D3.
 dga = { action = "flag", threshold = 0.75 }
 
-# Datenexfiltration über DNS. Bewertet wird die *Zone* über ein Zeitfenster,
-# nicht die einzelne Anfrage: eine lange zufällige Subdomain ist normal,
-# tausend davon unter derselben Zone nicht.
-# allow_zones ist für Reputationsdienste und Antivirus-Produkte, die per
-# Konstruktion wie ein Tunnel aussehen.
+# Data exfiltration over DNS. What is assessed is the *zone* over a time window,
+# not the individual query: one long random subdomain is normal, a thousand of
+# them under the same zone are not.
+# allow_zones is for reputation services and antivirus products that look like a
+# tunnel by construction.
 tunneling = { action = "flag", threshold = 0.75, window = "5m", allow_zones = [] }
 
-# Private IPs in Antworten für öffentliche Namen.
-# Die forward_zone-Einträge von oben kommen automatisch dazu — wer eine Zone
-# ins eigene Netz leitet, hat schon gesagt, dass private Adressen von dort in
-# Ordnung sind. Dasselbe gilt für die lokalen Zonen, aber je Name: `nas.miloo.at`
-# ist ausgenommen, `www.miloo.at` nicht — das kommt weiterhin von draußen, und
-# eine private Adresse darauf wäre genau der Angriff. Eine geschlossene Zone
-# (fallback = "nxdomain") ist als Ganzes ausgenommen, aus ihr kommt ohnehin
-# nichts mehr nach draußen.
-# Hier stehen nur die zusätzlichen Ausnahmen: Split-Horizon-DNS, Geräte-
-# Weboberflächen unter einem echten Namen.
+# Private IPs in answers for public names.
+# The forward_zone entries from above are added automatically — whoever routes a
+# zone into their own network has already said that private addresses from there
+# are fine. The same holds for the local zones, but per name: `nas.miloo.at` is
+# exempt, `www.miloo.at` is not — that one still comes from outside, and a
+# private address on it would be exactly the attack. A closed zone
+# (fallback = "nxdomain") is exempt as a whole, nothing comes out of it anyway.
+# Only the additional exceptions stand here: split-horizon DNS, device web
+# interfaces under a real name.
 rebinding = { action = "flag", allow_zones = [] }
 
-# Typosquatting relativ zu Domains, die DIR wichtig sind — nicht gegen eine
-# globale Phishing-Liste. Ohne Einträge tut der Detektor nichts; er hat dann
-# nichts, wogegen er vergleichen könnte, und erscheint im Status als `off`.
+# Typosquatting relative to domains that matter to YOU — not against a global
+# phishing list. Without entries the detector does nothing; it then has nothing
+# to compare against and appears in the status as `off`.
 typosquat = { action = "flag", threshold = 0.85, protect = [
   "sparkasse.at",
   "id.austria.gv.at",
   "hale.at",
 ] }
 
-# Neu registrierte Domains, Alter aus lokaler Datei (AlpenShield-Feed).
-# Fehlt die Datei, läuft der Detektor leer mit — der Resolver hängt nicht
-# davon ab, dass ein zweiter Dienst gelaufen ist. Ohne `source` bleibt er aus.
+# Newly registered domains, age from a local file (AlpenShield feed).
+# If the file is missing, the detector runs empty — the resolver does not depend
+# on a second service having run. Without `source` it stays off.
 nrd = { action = "flag", max_age = "30d", source = "/var/lib/alpendns/nrd.txt" }
 
 # ---------------------------------------------------------------------------
-# API, UI, Metriken
+# API, UI, metrics
 # ---------------------------------------------------------------------------
 
 [api]
 enabled = true
 listen = "127.0.0.1:8053"
-# Token-Auth; die UI wird vom selben Prozess ausgeliefert.
+# Token auth; the UI is served by the same process.
 token_file = "/etc/alpendns/api.token"
 
 [metrics]

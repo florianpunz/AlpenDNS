@@ -69,7 +69,7 @@ impl<W> std::fmt::Debug for Nrd<W> {
 /// Was beim Einlesen schiefgegangen ist.
 #[derive(Debug, thiserror::Error)]
 pub enum LoadError {
-    #[error("NRD-Datei {path} konnte nicht gelesen werden")]
+    #[error("NRD file {path} could not be read")]
     Read {
         path: String,
         #[source]
@@ -92,7 +92,7 @@ impl<W: crate::clock::WallClock> Nrd<W> {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 tracing::warn!(
                     path = %path.display(),
-                    "NRD-Datei nicht vorhanden; der Detektor läuft leer mit"
+                    "NRD file not present; the detector runs empty"
                 );
                 String::new()
             }
@@ -105,11 +105,7 @@ impl<W: crate::clock::WallClock> Nrd<W> {
         };
 
         let registered = parse(&text);
-        tracing::info!(
-            entries = registered.len(),
-            max_age_days,
-            "NRD-Liste geladen"
-        );
+        tracing::info!(entries = registered.len(), max_age_days, "NRD list loaded");
         Ok(Self {
             registered,
             max_age_days,

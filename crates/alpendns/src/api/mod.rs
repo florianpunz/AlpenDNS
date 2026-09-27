@@ -186,7 +186,7 @@ async fn authenticate(
             StatusCode::UNAUTHORIZED,
             [(axum::http::header::WWW_AUTHENTICATE, "Bearer")],
             Json(ApiError {
-                error: "Token fehlt oder ist falsch".to_owned(),
+                error: "Token missing or invalid".to_owned(),
             }),
         )
             .into_response();
@@ -470,7 +470,7 @@ fn parse_grant(request: &GrantRequest) -> Result<(String, Duration), (StatusCode
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ApiError {
-                error: format!("'{}' ist kein Domainname", request.domain),
+                error: format!("'{}' is not a domain name", request.domain),
             }),
         ));
     }
@@ -479,7 +479,7 @@ fn parse_grant(request: &GrantRequest) -> Result<(String, Duration), (StatusCode
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ApiError {
-                error: "seconds muss größer als null sein".to_owned(),
+                error: "seconds must be greater than zero".to_owned(),
             }),
         ));
     }
@@ -494,7 +494,7 @@ async fn grant(
     state.source.grant(&domain, ttl);
     // Kein Query-Name ins Log: eine Freigabe ist eine Konfigurationsänderung,
     // aber der Name darin ist derselbe, den B.1 Regel 3 schützt.
-    tracing::info!(seconds = ttl.as_secs(), "befristete Freigabe erteilt");
+    tracing::info!(seconds = ttl.as_secs(), "temporary grant issued");
     Ok(Json(GrantInfo {
         domain,
         remaining_seconds: ttl.as_secs(),
@@ -533,7 +533,7 @@ async fn deny(
     let (domain, ttl) = parse_grant(&request)?;
     state.source.deny(&domain, ttl);
     // Kein Query-Name im Log, aus demselben Grund wie bei der Freigabe.
-    tracing::info!(seconds = ttl.as_secs(), "befristete Sperre gesetzt");
+    tracing::info!(seconds = ttl.as_secs(), "temporary deny set");
     Ok(Json(GrantInfo {
         domain,
         remaining_seconds: ttl.as_secs(),

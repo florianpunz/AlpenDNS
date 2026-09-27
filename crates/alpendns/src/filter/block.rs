@@ -63,14 +63,13 @@ impl<'de> serde::Deserialize<'de> for BlockMode {
             "zero_ip" => Ok(Self::ZeroIp),
             "sinkhole" => Ok(Self::Sinkhole),
             "refused" => Err(serde::de::Error::custom(
-                "blocking.mode = \"refused\" gibt es nicht mehr. REFUSED heißt für einen \
-                 Client \"frag jemand anderen\": viele Auflöser gehen daraufhin zum nächsten \
-                 Resolver in ihrer Liste, und der antwortet ungefiltert. Ein Block-Modus, \
-                 der die Filterung aufhebt, ist keiner. Stattdessen: nxdomain (Default), \
-                 zero_ip oder sinkhole.",
+                "blocking.mode = \"refused\" no longer exists. For a client, REFUSED means \
+                 \"ask someone else\": many resolvers then go to the next resolver in their \
+                 list, and that one answers unfiltered. A block mode that lifts the filtering \
+                 is not one. Use instead: nxdomain (default), zero_ip or sinkhole.",
             )),
             other => Err(serde::de::Error::custom(format!(
-                "unbekannter Block-Modus '{other}' — erlaubt sind nxdomain, zero_ip, sinkhole"
+                "unknown block mode '{other}' — allowed are nxdomain, zero_ip, sinkhole"
             ))),
         }
     }

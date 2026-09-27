@@ -1,24 +1,23 @@
-# Rotation für das Query-Log. Wirksam nur bei privacy.logging.mode = "full" —
-# in jedem anderen Modus entsteht die Datei gar nicht, und `missingok` lässt die
-# Regel dann still durchlaufen.
+# Rotation for the query log. Only in effect with privacy.logging.mode = "full" —
+# in every other mode the file is not created at all, and `missingok` lets the
+# rule pass through silently.
 #
-# Die Zahl unten ist die Aufbewahrungsdauer der Namen, und sie ist die einzige
-# Privacy-Entscheidung, die dieses System nicht selbst trifft: "rotate 7" bei
-# "daily" heißt sieben Tage Namen auf Platte. Wer weniger will, ändert die Zahl
-# hier; die Datei ist ein conffile, ein Upgrade überschreibt sie also nicht.
+# The number below is the retention period of the names, and it is the only
+# privacy decision this system does not make itself: "rotate 7" with "daily"
+# means seven days of names on disk. Whoever wants less changes the number
+# here; the file is a conffile, so an upgrade will not overwrite it.
 #
-# copytruncate ist der Kern. AlpenDNS hält die Datei dauerhaft mit O_APPEND
-# offen und öffnet sie nie neu — der Normalfall (Datei verschieben, neue
-# anlegen) ließe den Dienst weiter in die verschobene Datei schreiben, bis
-# jemand ihn neu startet. copytruncate kopiert stattdessen und schneidet das
-# Original auf null zurück; mit O_APPEND landet der nächste Schreibvorgang
-# wieder am Anfang. Der Preis ist ein Fenster von Millisekunden, in dem Zeilen
-# verloren gehen können — bei einem Query-Log verschmerzbar, und der Preis
-# dafür, dass hier kein Reopen-Signal im Code nötig ist.
+# copytruncate is the heart of it. AlpenDNS keeps the file open with O_APPEND
+# permanently and never reopens it — the normal case (move the file, create a
+# new one) would leave the service writing into the moved file until someone
+# restarts it. copytruncate copies instead and truncates the original back to
+# zero; with O_APPEND the next write lands at the beginning again. The price is
+# a window of milliseconds in which lines can be lost — tolerable for a query
+# log, and the price for needing no reopen signal in the code.
 #
-# su steht bewusst nicht hier: die Vorgabe aus /etc/logrotate.conf (auf Debian
-# root) darf die Datei lesen und zurückschneiden, und ein fest eingetragener
-# Benutzername ginge kaputt, sobald jemand den Dienstuser umbenennt.
+# su stands here deliberately not: the default from /etc/logrotate.conf (root on
+# Debian) may read and truncate the file, and a hard-coded user name would break
+# as soon as someone renames the service user.
 
 /var/log/alpendns/queries.jsonl {
 	daily

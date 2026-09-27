@@ -110,7 +110,7 @@ impl Transport {
     /// gepflegten, und keine Überraschungen aus `/etc/ssl` ziehen.
     pub fn default_tls_config() -> Result<rustls::ClientConfig, ResolveError> {
         hickory_net::tls::client_config()
-            .map_err(|e| ResolveError::Connect(format!("TLS-Konfiguration ungültig: {e}")))
+            .map_err(|e| ResolveError::Connect(format!("TLS configuration invalid: {e}")))
     }
 
     pub const fn addr(&self) -> &UpstreamAddr {
@@ -146,7 +146,7 @@ impl Transport {
             // Scheitert das Kodieren, geht die Anfrage ungepolstert raus statt
             // gar nicht — Padding ist eine Härtung, kein Muss.
             if let Err(error) = privacy::pad_to_block(&mut outbound, privacy::PADDING_BLOCK) {
-                tracing::debug!(%error, "Padding nicht möglich");
+                tracing::debug!(%error, "padding not possible");
             }
         }
 
@@ -234,7 +234,7 @@ impl Transport {
         .inspect_err(|_| {
             tracing::warn!(
                 upstream = %self.addr.socket_addr(),
-                "Antwort verworfen: Signaturkette schließt nicht"
+                "answer dropped: signature chain does not close"
             );
         })?;
         Ok((response, Some(verdict)))
@@ -268,7 +268,7 @@ impl Transport {
 
     async fn connect(&self) -> Result<DnsExchange<TokioRuntimeProvider>, ResolveError> {
         let server_name = ServerName::try_from(self.server_name.as_ref())
-            .map_err(|e| ResolveError::Connect(format!("ungültiger tls_name: {e}")))?
+            .map_err(|e| ResolveError::Connect(format!("invalid tls_name: {e}")))?
             .to_owned();
 
         let exchange = match &self.addr {
@@ -299,7 +299,7 @@ impl Transport {
                 let socket = self
                     .provider
                     .quic_binder()
-                    .ok_or_else(|| ResolveError::Connect("Runtime kann kein QUIC".to_owned()))?
+                    .ok_or_else(|| ResolveError::Connect("runtime cannot do QUIC".to_owned()))?
                     .bind_quic(bind, *addr)
                     .map_err(|e| ResolveError::Connect(e.to_string()))?;
                 QuicClientStream::builder()
@@ -318,7 +318,7 @@ impl Transport {
             // Zweig existiert nur, damit das Match vollständig ist.
             UpstreamAddr::Udp(_) => {
                 return Err(ResolveError::Connect(
-                    "Klartext-UDP ist kein verschlüsselter Transport".to_owned(),
+                    "cleartext UDP is not an encrypted transport".to_owned(),
                 ));
             }
         };
@@ -326,7 +326,7 @@ impl Transport {
         tracing::debug!(
             transport = self.addr.scheme(),
             server = %self.addr.socket_addr(),
-            "Verbindung zum Upstream aufgebaut"
+            "connection to the upstream established"
         );
         Ok(exchange)
     }

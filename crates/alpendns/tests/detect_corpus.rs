@@ -181,11 +181,11 @@ fn train_the_dga_model() {
     assert_eq!(out.len(), dga::TABLE_SIZE * 2);
     std::fs::write(model_path(), &out).expect("Modell schreibbar");
 
-    println!("\n=== DGA-Modell trainiert ===");
-    println!("Korpus:            {} Domains", domains.len());
-    println!("verwertbare Labels: {labels}");
-    println!("Tabelle:           {} Byte", out.len());
-    println!("größte Überraschung: {max_bits:.2} Bit");
+    println!("\n=== DGA model trained ===");
+    println!("Corpus:             {} domains", domains.len());
+    println!("usable labels:      {labels}");
+    println!("Table:              {} bytes", out.len());
+    println!("largest surprise:   {max_bits:.2} bits");
 
     // Die Verteilung der gewachsenen Namen — daraus kommen NLL_FLOOR und
     // NLL_CEILING im Detektor.
@@ -196,20 +196,20 @@ fn train_the_dga_model() {
         .map(|label| dga::mean_surprise(&label))
         .collect();
     surprises.sort_by(|left, right| left.partial_cmp(right).unwrap_or(std::cmp::Ordering::Equal));
-    println!("\nÜberraschung gewachsener Namen (Bit je Tripel):");
+    println!("\nSurprise of grown names (bits per trigram):");
     for (label, quantile) in [
         ("Median", 0.50),
         ("90 %", 0.90),
         ("99 %", 0.99),
-        ("99,9 %", 0.999),
+        ("99.9 %", 0.999),
         ("Maximum", 1.0),
     ] {
         let index = ((surprises.len() - 1) as f64 * quantile) as usize;
         println!("  {label:>8}: {:.2}", surprises[index]);
     }
     println!(
-        "\nHINWEIS: Das Modell wurde neu geschrieben. Die Messungen darunter gelten \
-         erst nach einem erneuten `cargo build`."
+        "\nNOTE: The model was rewritten. The measurements below are only valid \
+         after another `cargo build`."
     );
 }
 
@@ -258,7 +258,7 @@ const VOWELS: &[u8] = b"aeiou";
 const FAMILIES: [Family; 5] = [
     // Gleichverteilte Kleinbuchstaben, 8–11 Zeichen.
     Family {
-        name: "conficker-artig",
+        name: "conficker-like",
         generate: |rng| {
             let length = rng.between(8, 11);
             (0..length).map(|_| rng.pick(LOWERCASE)).collect()
@@ -266,7 +266,7 @@ const FAMILIES: [Family; 5] = [
     },
     // Wie oben, aber deutlich länger — der Bereich, in dem `necurs` arbeitet.
     Family {
-        name: "necurs-artig",
+        name: "necurs-like",
         generate: |rng| {
             let length = rng.between(12, 20);
             (0..length).map(|_| rng.pick(LOWERCASE)).collect()
@@ -275,7 +275,7 @@ const FAMILIES: [Family; 5] = [
     // Abwechselnd Konsonant und Vokal: der Fall, der einem Zeichenmodell am
     // meisten zu schaffen macht, weil er aussprechbar aussieht.
     Family {
-        name: "kraken-artig (aussprechbar)",
+        name: "kraken-like (pronounceable)",
         generate: |rng| {
             let syllables = rng.between(4, 6);
             (0..syllables)
@@ -289,7 +289,7 @@ const FAMILIES: [Family; 5] = [
     },
     // Buchstaben und Ziffern gemischt, wie sie einige neuere Familien benutzen.
     Family {
-        name: "alphanumerisch",
+        name: "alphanumeric",
         generate: |rng| {
             let length = rng.between(10, 16);
             (0..length)
@@ -300,7 +300,7 @@ const FAMILIES: [Family; 5] = [
     // Zwei Wörterbuchwörter aneinander. Die dokumentierte Grenze: das Modell
     // soll das *nicht* erkennen, und die gemessene Quote belegt es.
     Family {
-        name: "suppobox-artig (Wörterbuch)",
+        name: "suppobox-like (dictionary)",
         generate: |rng| {
             const WORDS: [&str; 16] = [
                 "sandwich", "friend", "morning", "window", "silver", "forest", "yellow",
@@ -341,20 +341,20 @@ fn measure_dga_rates() {
     }
 
     let rate = flagged.len() as f64 / examined as f64;
-    println!("\n=== DGA: Falsch-Positive auf der Top-100k (nicht im Training) ===");
-    println!("Schwelle:  {} ({:.2})", threshold, dga::DEFAULT_THRESHOLD);
-    println!("geprüft:   {examined}");
-    println!("geflaggt:  {} ({:.4} %)", flagged.len(), rate * 100.0);
+    println!("\n=== DGA: false positives on the top 100k (not in training) ===");
+    println!("Threshold: {} ({:.2})", threshold, dga::DEFAULT_THRESHOLD);
+    println!("examined:  {examined}");
+    println!("flagged:   {} ({:.4} %)", flagged.len(), rate * 100.0);
     flagged.sort_by_key(|(_, score)| std::cmp::Reverse(*score));
-    println!("die zwanzig auffälligsten:");
+    println!("the twenty most conspicuous:");
     for (domain, score) in flagged.iter().take(20) {
         println!("  {score:>4}  {domain}");
     }
 
-    println!("\n=== DGA: Trefferquote je Familie (je 5000 Namen) ===");
+    println!("\n=== DGA: hit rate per family (5000 names each) ===");
     println!(
-        "  {:>30}  {:>7}  {:>9}  {:>9}",
-        "Familie", "Treffer", "Ø Bit", "Ø Score"
+        "  {:>30}  {:>7}  {:>9}  {:>10}",
+        "Family", "hits", "mean bits", "mean score"
     );
     for family in &FAMILIES {
         let mut rng = Rng(0x5eed_1234_abcd_ef01);
@@ -375,7 +375,7 @@ fn measure_dga_rates() {
             }
         }
         println!(
-            "  {:>30}  {:>6.1} %  {:>9.2}  {:>9.0}",
+            "  {:>30}  {:>6.1} %  {:>9.2}  {:>10.0}",
             family.name,
             f64::from(hits) / 50.0,
             bits / 5000.0,
@@ -419,14 +419,14 @@ fn measure_tunneling_false_positives() {
     }
 
     let rate = flagged.len() as f64 / examined as f64;
-    println!("\n=== Tunneling: Falsch-Positive auf dem Korpus ===");
+    println!("\n=== Tunneling: false positives on the corpus ===");
     println!(
-        "Schwelle:  {} ({:.2})",
+        "Threshold: {} ({:.2})",
         threshold,
         tunneling::DEFAULT_THRESHOLD
     );
-    println!("geprüft:   {examined}");
-    println!("geflaggt:  {} ({:.4} %)", flagged.len(), rate * 100.0);
+    println!("examined:  {examined}");
+    println!("flagged:   {} ({:.4} %)", flagged.len(), rate * 100.0);
     for (domain, score) in flagged.iter().take(20) {
         println!("  {score:>4}  {domain}");
     }
@@ -465,11 +465,11 @@ fn measure_typosquat_false_positives() {
         }
     }
 
-    println!("\n=== Typosquat: Meldungen auf dem Korpus ===");
-    println!("Schutzliste: {} Domains", protect.len());
-    println!("geprüft:     {}", domains.len());
+    println!("\n=== Typosquat: reports on the corpus ===");
+    println!("Protection list: {} domains", protect.len());
+    println!("examined:        {}", domains.len());
     println!(
-        "gemeldet:    {} ({:.4} %)",
+        "reported:        {} ({:.4} %)",
         flagged.len(),
         flagged.len() as f64 / domains.len() as f64 * 100.0
     );
@@ -507,7 +507,7 @@ fn measure_detector_agreement() {
         }
     }
 
-    println!("\n=== Meldungen je Detektor auf dem Korpus ===");
+    println!("\n=== Reports per detector on the corpus ===");
     for detector in Detector::ALL {
         println!(
             "  {:>12}: {}",

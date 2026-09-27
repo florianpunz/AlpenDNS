@@ -148,7 +148,7 @@ impl<'de> serde::Deserialize<'de> for Action {
             "flag" => Ok(Self::Flag),
             "block" => Ok(Self::Block),
             other => Err(serde::de::Error::custom(format!(
-                "unbekannte Aktion '{other}' — erlaubt sind off, log, flag, block"
+                "unknown action '{other}' — allowed are off, log, flag, block"
             ))),
         }
     }
@@ -464,8 +464,8 @@ where
     if typosquat.is_empty() {
         if !config.typosquat.action.is_off() {
             tracing::info!(
-                "Typosquat-Wächter bleibt aus: detection.typosquat.protect ist leer, es gibt \
-                 nichts zu schützen"
+                "typosquat guard stays off: detection.typosquat.protect is empty, there is \
+                 nothing to protect"
             );
         }
     } else {
@@ -482,17 +482,17 @@ where
                 detectors = detectors.with_name(nrd, config.nrd.action, 0);
             }
             Ok(_) => {
-                tracing::info!("NRD-Detektor bleibt aus: die Liste ist leer");
+                tracing::info!("NRD detector stays off: the list is empty");
             }
             Err(error) => {
                 // Kein Startfehler: der Resolver hängt nicht davon ab, dass ein
                 // zweiter Dienst gelaufen ist (B.1 Regel 6).
-                tracing::warn!(%error, "NRD-Liste nicht lesbar; der Detektor bleibt aus");
+                tracing::warn!(%error, "NRD list not readable; the detector stays off");
             }
         },
         None => {
             if !config.nrd.action.is_off() {
-                tracing::info!("NRD-Detektor bleibt aus: detection.nrd.source ist nicht gesetzt");
+                tracing::info!("NRD detector stays off: detection.nrd.source is not set");
             }
         }
     }

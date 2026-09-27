@@ -63,19 +63,19 @@ jobs:
           lock_version="$(sed -nE '/^name = "alpendns"$/,/^$/ s/^version = "([0-9]+\.[0-9]+\.[0-9]+)"$/\1/p' Cargo.lock)"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           if [ -z "$version" ]; then
-            echo "keine version in Cargo.toml gefunden" >&2
+            echo "no version found in Cargo.toml" >&2
             exit 1
           fi
           # Beide Dateien müssen dieselbe Version führen, sonst churned das
           # Lockfile beim nächsten lokalen Build still nach.
           if [ "$lock_version" != "$version" ]; then
-            echo "Cargo.lock (alpendns: $lock_version) und Cargo.toml ($version) laufen auseinander — scripts/bump-version.sh wendet beide an." >&2
+            echo "Cargo.lock (alpendns: $lock_version) and Cargo.toml ($version) have diverged — scripts/bump-version.sh applies both." >&2
             exit 1
           fi
           # Fail closed statt Doppel-Veröffentlichung: existiert der Tag schon,
           # wurde die Version vor dem Commit nicht erhöht.
           if git ls-remote --tags origin "refs/tags/v$version" | grep -q .; then
-            echo "Tag v$version existiert schon — Version in Cargo.toml wurde nicht erhöht (scripts/bump-version.sh)." >&2
+            echo "Tag v$version already exists — the version in Cargo.toml was not raised (scripts/bump-version.sh)." >&2
             exit 1
           fi
       - name: GitHub Release anlegen

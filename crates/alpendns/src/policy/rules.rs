@@ -25,7 +25,7 @@ const COMPILED_SIZE_LIMIT: usize = 1024 * 1024;
 const MAX_NAME_LEN: usize = 253;
 
 #[derive(Debug, thiserror::Error)]
-#[error("Regex '{pattern}' in Policy '{policy}' ist ungültig: {reason}")]
+#[error("Regex '{pattern}' in policy '{policy}' is invalid: {reason}")]
 pub struct RegexError {
     pub policy: String,
     pub pattern: String,

@@ -264,7 +264,7 @@ async fn broken_reload_keeps_the_old_policy_and_the_server_keeps_answering() {
     hangup(server.pid());
 
     // Der Reload wurde versucht und abgelehnt …
-    wait_for_log(&server.log, "Reload abgelehnt").await;
+    wait_for_log(&server.log, "reload rejected").await;
     // … und der alte Stand gilt unverändert weiter.
     query_until(port, "blocked.example.", ResponseCode::NXDomain).await;
 
@@ -304,7 +304,7 @@ async fn valid_reload_blocks_a_newly_added_list() {
     hangup(server.pid());
 
     // Sobald der Reload durch ist, ist auch die zweite Liste aktiv.
-    wait_for_log(&server.log, "Konfiguration neu geladen").await;
+    wait_for_log(&server.log, "configuration reloaded").await;
     query_until(port, "banned.example.", ResponseCode::NXDomain).await;
     // Die erste Liste gilt weiter.
     query_until(port, "ads.example.", ResponseCode::NXDomain).await;

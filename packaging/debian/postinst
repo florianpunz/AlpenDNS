@@ -31,29 +31,29 @@ if [ "$1" = "configure" ] && [ -z "$2" ] && [ -d /run/systemd/system ]; then
     if systemctl start alpendns.service; then
         cat <<'MSG'
 
-AlpenDNS läuft — vorerst nur auf diesem Rechner (127.0.0.1:53).
+AlpenDNS is running — on this machine only, for now (127.0.0.1:53).
 
-  Prüfen:      dig @127.0.0.1 example.com
-  Für das LAN: /etc/alpendns/alpendns.toml, erster Block, dann
+  Check:       dig @127.0.0.1 example.com
+  For the LAN: /etc/alpendns/alpendns.toml, first block, then
                sudo alpendns -c /etc/alpendns/alpendns.toml check
                sudo systemctl restart alpendns
-  Oberfläche:  ssh -L 8053:127.0.0.1:8053 <dieser-host>, dann
-               http://127.0.0.1:8053 im Browser
-  Handbuch:    /usr/share/doc/alpendns/OPERATIONS.md
+  Interface:   ssh -L 8053:127.0.0.1:8053 <this-host>, then
+               http://127.0.0.1:8053 in the browser
+  Manual:      /usr/share/doc/alpendns/OPERATIONS.md
 
 MSG
     else
         cat >&2 <<'MSG'
 
-AlpenDNS ist installiert, aber nicht gestartet. Die häufigsten zwei Gründe:
+AlpenDNS is installed but not started. The two most common reasons:
 
-  * Kein Internet. Der erste Start lädt die Blockliste und bricht ohne sie ab —
-    lieber kein DNS als ungefiltertes DNS. Nach dem Verbinden:
+  * No internet. The first start downloads the blocklist and gives up without
+    it — better no DNS than unfiltered DNS. Once connected:
     sudo systemctl start alpendns
-  * Port 53 ist belegt, meist von systemd-resolved. Was dagegen zu tun ist,
-    steht in /usr/share/doc/alpendns/OPERATIONS.md unter "Port 53 ist belegt".
+  * Port 53 is taken, usually by systemd-resolved. What to do about it is in
+    /usr/share/doc/alpendns/OPERATIONS.md under "Port 53 is taken".
 
-  Genauer:  systemctl status alpendns  und  journalctl -u alpendns -n 50
+  Details:  systemctl status alpendns  and  journalctl -u alpendns -n 50
 
 MSG
     fi

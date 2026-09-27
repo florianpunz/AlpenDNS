@@ -151,12 +151,12 @@ pub fn time_sync_hint(dnssec: bool, marker: &std::path::Path) -> Option<String> 
     // Umbrochen auf die Länge des echten Pfades (34 Zeichen), damit die Zeilen
     // samt "Hinweis: " auf einem 80er-Terminal stehen bleiben.
     Some(format!(
-        "DNSSEC ist an (privacy.dnssec), aber die Systemuhr ist nicht \n\
-         synchronisiert: {} existiert nicht. \n\
-         Die Signaturkette wird gegen die Systemuhr gerechnet (ADR-0016) — steht \n\
-         sie falsch, ist jede signierte Zone bogus und jede Anfrage SERVFAIL. \n\
-         Läuft hier chrony oder ntpd statt systemd-timesyncd, kann der Hinweis \n\
-         falsch sein; timedatectl zeigt, wie es steht.",
+        "DNSSEC is on (privacy.dnssec), but the system clock is not \n\
+         synchronized: {} does not exist. \n\
+         Signatures are checked against the system clock (ADR-0016) — if that \n\
+         clock is wrong, every signed zone is bogus and every query SERVFAIL. \n\
+         If chrony or ntpd runs here instead of systemd-timesyncd this note \n\
+         may be wrong; timedatectl shows where things stand.",
         marker.display()
     ))
 }

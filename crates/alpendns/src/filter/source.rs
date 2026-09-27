@@ -122,17 +122,17 @@ pub fn specs_from_config(
 
 #[derive(Debug, thiserror::Error)]
 pub enum LoadError {
-    #[error("Liste '{name}' konnte nicht gelesen werden: {source}")]
+    #[error("List '{name}' could not be read: {source}")]
     Io {
         name: String,
         #[source]
         source: std::io::Error,
     },
-    #[error("Liste '{name}' konnte nicht geladen werden und liegt auch nicht im Cache: {reason}")]
+    #[error("List '{name}' could not be loaded and is not in the cache either: {reason}")]
     Unavailable { name: String, reason: String },
-    #[error("Liste '{name}' ist größer als {MAX_LIST_BYTES} Byte")]
+    #[error("List '{name}' is larger than {MAX_LIST_BYTES} bytes")]
     TooLarge { name: String },
-    #[error("HTTP-Client konnte nicht gebaut werden: {0}")]
+    #[error("HTTP client could not be built: {0}")]
     Client(String),
 }
 
@@ -319,7 +319,7 @@ impl Loader {
         if let Err(error) =
             write_cache(&self.cache_dir, &body_path, &meta_path, &text, &new_meta).await
         {
-            tracing::warn!(list = %spec.name, %error, "Liste konnte nicht zwischengespeichert werden");
+            tracing::warn!(list = %spec.name, %error, "list could not be cached");
         }
 
         Ok(Loaded {
@@ -343,7 +343,7 @@ impl Loader {
                 tracing::warn!(
                     list = %spec.name,
                     reason,
-                    "Liste nicht erreichbar, es gilt die zwischengespeicherte Fassung"
+                    "list unreachable, the cached version stays in effect"
                 );
                 Ok(Loaded {
                     text,
@@ -370,7 +370,7 @@ impl Loader {
                 tracing::warn!(
                     list = %spec.name,
                     limit = MAX_LIST_BYTES,
-                    "Liste über der Größengrenze, es gilt die zwischengespeicherte Fassung"
+                    "list above the size limit, the cached version stays in effect"
                 );
                 Ok(Loaded {
                     text,
@@ -504,7 +504,7 @@ async fn read_limited(path: &Path) -> std::io::Result<String> {
     let metadata = tokio::fs::metadata(path).await?;
     if metadata.len() > MAX_LIST_BYTES {
         return Err(std::io::Error::other(format!(
-            "{} ist größer als {MAX_LIST_BYTES} Byte",
+            "{} is larger than {MAX_LIST_BYTES} bytes",
             path.display()
         )));
     }

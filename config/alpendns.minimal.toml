@@ -1,23 +1,23 @@
-# AlpenDNS — lauffähige Minimalkonfiguration.
+# AlpenDNS — a minimal configuration that runs.
 #
-# Die vollständige Ziel-Konfiguration steht in alpendns.example.toml. Diese Datei
-# enthält nur die Schlüssel, die schon umgesetzt sind (Stand: Phase 7) — mehr
-# akzeptiert der Server auch nicht: unbekannte Schlüssel sind ein Startfehler,
-# kein Warning.
+# The full target configuration is in alpendns.example.toml. This file contains
+# only the keys that are implemented already (as of phase 7) — the server does
+# not accept more than that either: unknown keys are a startup error, not a
+# warning.
 #
 
 [server]
-# 5353 statt 53, damit der Server ohne besondere Rechte startet.
+# 5353 instead of 53, so that the server starts without special privileges.
 listen_udp = ["127.0.0.1:5353"]
 listen_tcp = ["127.0.0.1:5353"]
 query_timeout = "3s"
 
 [server.edns]
-# Ab dieser Antwortgröße wird über UDP das TC-Flag gesetzt (DNS Flag Day 2020).
+# From this answer size on, the TC flag is set over UDP (DNS Flag Day 2020).
 udp_payload_size = 1232
 
-# Alle Werte hier sind auch die Defaults; die Drosselung ist an, ohne dass man
-# sie hinschreiben müsste. Über dem Limit wird verworfen, nicht abgelehnt —
+# All values here are also the defaults; the rate limiting is on without having
+# to write it down. Above the limit queries are dropped, not rejected —
 # docs/adr/0020-rate-limiting-verwirft.md
 [server.rate_limit]
 enabled = true
@@ -25,49 +25,48 @@ per_client_qps = 100
 burst = 200
 max_clients = 8192
 
-# Alle Werte hier sind auch die Defaults; sie stehen nur da, um sichtbar zu sein.
+# All values here are also the defaults; they stand here only to be visible.
 [cache]
 max_entries = 100_000
 min_ttl = "10s"
 max_ttl = "24h"
 max_negative_ttl = "15m"
-# Abgelaufene Antworten weiter ausliefern und parallel auffrischen (RFC 8767).
+# Keep handing out expired answers and refresh them in parallel (RFC 8767).
 serve_stale = true
 serve_stale_max = "1h"
-# Oft gefragte Einträge bei 85 % der TTL im Hintergrund erneuern.
+# Renew frequently queried entries in the background at 85% of the TTL.
 prefetch = true
 prefetch_threshold = 0.85
 
 [privacy]
-# EDNS Client Subnet niemals an Upstreams weitergeben.
+# Never pass EDNS Client Subnet on to upstreams.
 strip_ecs = true
-# EDNS-Padding auf verschlüsselten Transporten: sonst verrät die Länge der
-# Nachricht, wie lang der angefragte Name ist.
+# EDNS padding on encrypted transports: otherwise the length of the message
+# reveals how long the queried name is.
 padding = true
-# DNS Cookies (RFC 7873) gegen Off-Path-Spoofing, wie 0x20 nur im Klartext.
+# DNS Cookies (RFC 7873) against off-path spoofing, like 0x20 only in cleartext.
 cookies = true
-# 0x20: zufällige Groß-/Kleinschreibung im QNAME. Wirkt auf dem Klartext-Weg
-# (forward_zone) gegen Off-Path-Spoofing; auf TLS ist es überflüssig und wird
-# dort nicht angewendet. Spiegelt ein Server die Schreibweise nicht, wird es
-# für ihn automatisch abgeschaltet, statt Anfragen scheitern zu lassen.
+# 0x20: random upper/lower case in the QNAME. Works on the cleartext path
+# (forward_zone) against off-path spoofing; over TLS it is superfluous and is
+# not applied there. If a server does not mirror the case, it is switched off
+# for that server automatically, instead of letting queries fail.
 dns0x20 = true
 
 [[upstream_pool]]
 name = "default"
-# split_by_zone ist die einzige Strategie und der Default; die Zeile steht nur
-# da, um sichtbar zu sein. Domains werden über einen beim Start zufällig
-# gezogenen Seed verteilt: derselbe Name geht immer zum selben Resolver, aber
-# jeder sieht nur einen Bruchteil — und nach einem Neustart einen anderen.
-# Siehe docs/FEATURES.md P2.
+# split_by_zone is the only strategy and the default; the line stands here only
+# to be visible. Domains are spread via a seed drawn at random at startup: the
+# same name always goes to the same resolver, but each one sees only a fraction
+# — and after a restart a different one. See docs/FEATURES.md P2.
 #
-# fastest, round_robin und fanout gab es einmal. Sie sind entfernt, weil bei
-# allen dreien am Ende jeder Upstream alles sieht; wer sie noch in seiner
-# Konfiguration stehen hat, bekommt beim Start eine Meldung mit Begründung.
+# fastest, round_robin and fanout existed once. They are removed because with
+# all three every upstream ends up seeing everything; whoever still has them in
+# their configuration gets a message with a reason at startup.
 # docs/adr/0011-eine-upstream-strategie.md, docs/adr/0012-fanout-entfaellt.md
 strategy = "split_by_zone"
 
-# Klartext (udp://) ist hier nicht erlaubt und wird beim Start abgelehnt.
-# tls_name ist Pflicht: ohne ihn wird das Zertifikat gegen nichts geprüft.
+# Cleartext (udp://) is not allowed here and is rejected at startup.
+# tls_name is mandatory: without it the certificate is checked against nothing.
 [[upstream_pool.resolver]]
 name = "quad9"
 addr = "dot://9.9.9.9:853"
@@ -78,76 +77,76 @@ name = "mullvad"
 addr = "doh://194.242.2.4/dns-query"
 tls_name = "dns.mullvad.net"
 
-# Zonen im eigenen Netz. Der einzige Ort, an dem Klartext erlaubt ist — und die
-# Anfrage verlässt dabei das eigene Netz nicht.
+# Zones in your own network. The only place where cleartext is allowed — and the
+# query does not leave your own network doing so.
 # [[forward_zone]]
 # zone = "home.arpa"
 # upstream = "udp://10.0.0.1:53"
 
-# Eigene Einträge, die AlpenDNS selbst beantwortet. Eine Tabelle, kein
-# Zonenfile — kein SOA, kein AXFR, keine Autorität. Form und Einzelheiten:
-# alpendns.example.toml.
+# Entries of your own that AlpenDNS answers itself. A table, not a zone file —
+# no SOA, no AXFR, no authority. Shape and details: alpendns.example.toml.
 # [[local_zone]]
 # zone = "meinedomain.at"
 # records = [{ name = "nas", type = "A", value = "192.168.1.5" }]
 
 # ---------------------------------------------------------------------------
-# Blocken
+# Blocking
 # ---------------------------------------------------------------------------
 
 [blocking]
 # nxdomain | zero_ip | sinkhole
 #
-# nxdomain ist der ruhigste Default: der Client gibt sofort auf, statt in einen
-# Timeout zu laufen (zero_ip) oder am Zertifikat zu scheitern (sinkhole).
+# nxdomain is the quietest default: the client gives up at once, instead of
+# running into a timeout (zero_ip) or failing on the certificate (sinkhole).
 #
-# refused ist entfernt — es schickte den Client zum nächsten Resolver seiner
-# Liste und hob damit die Filterung auf, während der Blockzähler weiter stieg.
+# refused is removed — it sent the client to the next resolver on its list and
+# thereby lifted the filtering, while the block counter kept rising.
 # docs/adr/0013-block-modus-refused-entfaellt.md
 mode = "nxdomain"
 sinkhole_ipv4 = "127.0.0.1"
 sinkhole_ipv6 = "::1"
-# Heruntergeladene Listen landen hier, damit ein Neustart ohne Internet
-# gefiltert startet. Im Betrieb ist /var/cache/alpendns/lists der Default;
-# hier relativ, damit es ohne root läuft.
+# Downloaded lists land here, so that a restart without internet starts
+# filtered. In operation /var/cache/alpendns/lists is the default; here
+# relative, so that it runs without root.
 cache_dir = "./lists"
 
-# ACHTUNG: Ohne erreichbare Liste bricht der *erste* Start ab — lieber kein DNS
-# als ungefiltertes DNS. Ein späterer Ausfall ist dagegen unkritisch, dann gilt
-# die zwischengespeicherte Fassung weiter.
+# ATTENTION: Without a reachable list the *first* start aborts — better no DNS
+# than unfiltered DNS. A later outage, by contrast, is not critical: the cached
+# version then stays in force.
 [[blocklist]]
 name = "stevenblack-unified"
 url = "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts"
 # hosts | domains | wildcard
 #
-# adblock und rpz sind entfernt: beide Parser verstanden nur den Blockteil ihres
-# Formats und übersprangen dessen Ausnahmeregeln, luden eine Liste also schärfer
-# als gemeint. Eine Adblock-Zeile `||name^` entspricht in einer wildcard-Liste
-# der Zeile `name`. docs/adr/0014-adblock-und-rpz-parser-entfallen.md
+# adblock and rpz are removed: both parsers understood only the blocking part of
+# their format and skipped its exception rules, thus loading a list more
+# strictly than intended. An adblock line `||name^` corresponds in a wildcard
+# list to the line `name`. docs/adr/0014-adblock-und-rpz-parser-entfallen.md
 format = "hosts"
 refresh = "24h"
 enabled = true
 
-# Lokale Ausnahmen. Die Allowlist schlägt jede Blockliste.
+# Local exceptions. The allowlist beats every blocklist.
 # [[allowlist]]
 # name = "lokal"
 # path = "./allow.txt"
 # format = "wildcard"
 
 # ---------------------------------------------------------------------------
-# Clients und Policies
+# Clients and policies
 # ---------------------------------------------------------------------------
 #
-# Ohne diesen Abschnitt gilt eine Regel für alle: eine Policy namens "default",
-# die alle konfigurierten Listen benutzt. Sobald hier ein [[client]] steht,
-# muss es auch eine [[policy]] namens "default" geben — für alles, was keinem
-# Client-Eintrag entspricht.
+# Without this section one rule holds for everyone: a policy named "default"
+# that uses all configured lists. As soon as a [[client]] stands here, there
+# must also be a [[policy]] named "default" — for everything that corresponds to
+# no client entry.
 #
-# Reihenfolge der Auswertung: befristete Freigabe → Allowlist → Blocklisten →
-# Regex → Zeitplan. Die Allowlist steht vorn, weil sie sonst keinen Zweck hätte.
+# Order of evaluation: temporary release → allowlist → blocklists → regex →
+# schedule. The allowlist stands first, because otherwise it would serve no
+# purpose.
 #
-# Prüfen, ohne den Server zu starten:
-#   alpendns -c <datei> policy test <domain> [--client <name>]
+# Checking without starting the server:
+#   alpendns -c <file> policy test <domain> [--client <name>]
 
 # [[client]]
 # name = "kids-tablet"
@@ -171,44 +170,44 @@ enabled = true
 # action = "block_all_except_allowlist"
 
 # ---------------------------------------------------------------------------
-# Sichtbarkeit
+# Visibility
 # ---------------------------------------------------------------------------
 
 [privacy.logging]
-# none      — nur Zähler, keine Namen
-# aggregate — zusätzlich Häufigkeiten; eine Domain erscheint erst ab
-#             aggregate_k Treffern in irgendeiner Ausgabe (Default). Gezählt
-#             wird exakt, unter einem gesalzenen Hash statt unter dem Namen —
-#             darunter steht der Name nirgends.
-# ring      — zusätzlich die letzten ring_seconds im Arbeitsspeicher, nie auf
-#             Platte. Das ist der Modus, in dem die UI Namen zeigen kann.
-# full      — zusätzlich als Datei. Bewusste Entscheidung, kein Default.
+# none      — counters only, no names
+# aggregate — frequencies in addition; a domain appears only from
+#             aggregate_k hits on in any output (default). Counting is exact,
+#             under a salted hash instead of under the name — below it the name
+#             stands nowhere.
+# ring      — the last ring_seconds in RAM in addition, never on disk. That is
+#             the mode in which the UI can show names.
+# full      — as a file in addition. A deliberate decision, not the default.
 #
-# Begründung der vier Modi: docs/adr/0004-logging-default-aggregiert.md
+# The reasoning behind the four modes: docs/adr/0004-logging-default-aggregiert.md
 mode = "aggregate"
 ring_seconds = "5m"
 aggregate_k = 5
-# Nur im Modus full:
+# Only in full mode:
 # path = "/var/log/alpendns/queries.jsonl"
 
-# Beide Endpunkte sind per Default aus und gehören auf localhost. Wer sie von
-# außen erreichbar macht, veröffentlicht sein Query-Log, sobald der Token
-# bekannt wird — der Weg dafür ist ein SSH-Tunnel oder ein Reverse Proxy.
+# Both endpoints are off by default and belong on localhost. Whoever makes them
+# reachable from outside publishes their query log as soon as the token becomes
+# known — the way to do that is an SSH tunnel or a reverse proxy.
 [api]
 enabled = true
 listen = "127.0.0.1:8053"
-# Fehlt die Datei, wird beim Start ein Token erzeugt und mit Rechten 0600
-# abgelegt. Die UI fragt ihn beim ersten Aufruf ab.
+# If the file is missing, a token is created at startup and stored with mode
+# 0600. The UI asks for it on the first load.
 #
-# Hier relativ, damit diese Datei ohne root läuft. Im Betrieb liegt der Token
-# unter /var/lib/alpendns — und nicht unter /etc, weil die systemd-Unit
-# ProtectSystem=strict setzt und /etc für den Dienst schreibgeschützt ist.
+# Relative here, so that this file runs without root. In operation the token
+# lies under /var/lib/alpendns — and not under /etc, because the systemd unit
+# sets ProtectSystem=strict and /etc is read-only for the service.
 token_file = "./alpendns-api.token"
 
 [metrics]
-# Ohne Token — ein Prometheus-Scraper schickt keinen Bearer-Header, und die
-# Ausgabe enthält per Konstruktion keine Namen. Deshalb muss dieser Port ein
-# anderer sein als der der API; die Konfigurationsprüfung besteht darauf.
+# Without a token — a Prometheus scraper sends no bearer header, and the output
+# contains no names by construction. That is why this port must be a different
+# one from the API's; the configuration check insists on it.
 enabled = false
 listen = "127.0.0.1:9153"
 path = "/metrics"

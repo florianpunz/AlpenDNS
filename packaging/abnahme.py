@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
-"""Wertet das Query-Log einer Beobachtungswoche aus.
+"""Evaluates the query log of an observation week.
 
-Liest die JSON-Zeilen aus `[privacy.logging]` und zählt je Detektor, wie oft er
-angeschlagen hat — mit den Namen, weil sich ein Fehlalarm nur am Namen beurteilen
-lässt und nicht an seiner Zahl.
+Reads the JSON lines from `[privacy.logging]` and counts per detector how often
+it fired — with the names, because a false positive can only be judged by its
+name and not by its number.
 
     abnahme.py [AB] [LOG]
 
-`AB` ist ein Zeitstempel im Format des Logs (`2026-09-16T16:24`); gezählt wird ab
-dort. Ohne Argument wird die ganze Datei gelesen. `LOG` überschreibt den Pfad,
-damit sich auch eine gesicherte Kopie auswerten lässt.
+`AB` is a timestamp in the log's format (`2026-09-16T16:24`); counting starts
+there. Without an argument the whole file is read. `LOG` overrides the path, so
+that a saved copy can be evaluated as well.
 
-Warum es das gibt: `/api/flagged` liest den Ringpuffer, und der ist nur
-`ring_seconds` tief. Für die Auswertung einer Woche braucht es `mode = "full"`
-und dieses Skript. Siehe docs/OPERATIONS.md §6.
+Why this exists: `/api/flagged` reads the ring buffer, and that is only
+`ring_seconds` deep. Evaluating a week needs `mode = "full"` and this script.
+See docs/OPERATIONS.md §6.
 """
 
 import collections
@@ -52,19 +52,19 @@ with open(LOG, encoding="utf-8", errors="replace") as handle:
             per_detector[detector] += 1
             by_detector[detector][(entry.get("name"), finding.get("score"))] += 1
 
-print(f"Quelle:  {LOG}")
-print(f"Periode: ab {CUT}")
-print(f"  {total} Anfragen, {len(names)} verschiedene Namen")
-print(f"  von {first} bis {last}\n")
+print(f"Source:  {LOG}")
+print(f"Period:  from {CUT}")
+print(f"  {total} queries, {len(names)} distinct names")
+print(f"  {first} to {last}\n")
 
-print("Funde je Detektor:")
+print("Findings per detector:")
 if not per_detector:
-    print("  keine")
+    print("  none")
 for detector, count in per_detector.most_common():
     print(f"  {str(detector):<12} {count:>7}")
 
-print("\nHäufigste Namen je Detektor:")
+print("\nMost frequent names per detector:")
 for detector, counter in sorted(by_detector.items()):
-    print(f"\n--- {detector} — {sum(counter.values())} Funde, {len(counter)} Namen ---")
+    print(f"\n--- {detector} — {sum(counter.values())} findings, {len(counter)} names ---")
     for (name, score), count in counter.most_common(25):
         print(f"  {count:>5}x  {str(score):<6} {name}")

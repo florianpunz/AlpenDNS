@@ -45,20 +45,20 @@ impl<'de> serde::Deserialize<'de> for Format {
             "domains" => Ok(Self::Domains),
             "wildcard" => Ok(Self::Wildcard),
             "adblock" => Err(serde::de::Error::custom(
-                "format = \"adblock\" gibt es nicht mehr. Unterstützt war nur `||name^`; \
-                 die Ausnahmeregeln (`@@||name^`), mit denen solche Listen ihre eigenen \
-                 Fehlalarme zurücknehmen, wurden übersprungen — die Liste blockte also \
-                 mehr, als sie sollte. Viele Listen gibt es auch als `wildcard`; `||name^` \
-                 entspricht dort einer Zeile `name`.",
+                "format = \"adblock\" no longer exists. Only `||name^` was supported; \
+                 the exception rules (`@@||name^`) with which such lists take back their own \
+                 false positives were skipped — so the list blocked more than it should. \
+                 Many lists are also available as `wildcard`; `||name^` \
+                 corresponds to a line `name` there.",
             )),
             "rpz" => Err(serde::de::Error::custom(
-                "format = \"rpz\" gibt es nicht mehr. Erkannt war nur die NXDOMAIN-Regel \
-                 (`CNAME .`); `rpz-passthru` — die Ausnahme — und alle Trigger außer dem \
-                 Namen wurden übersprungen. RPZ wird zudem per Zonentransfer verteilt, \
-                 nicht als Datei über HTTPS. Stattdessen: hosts, domains oder wildcard.",
+                "format = \"rpz\" no longer exists. Only the NXDOMAIN rule was recognized \
+                 (`CNAME .`); `rpz-passthru` — the exception — and all triggers other than the \
+                 name were skipped. RPZ is also distributed by zone transfer, \
+                 not as a file over HTTPS. Use instead: hosts, domains or wildcard.",
             )),
             other => Err(serde::de::Error::custom(format!(
-                "unbekanntes Listenformat '{other}' — erlaubt sind hosts, domains, wildcard"
+                "unknown list format '{other}' — allowed are hosts, domains, wildcard"
             ))),
         }
     }

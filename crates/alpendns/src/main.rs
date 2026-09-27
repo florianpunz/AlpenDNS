@@ -46,25 +46,25 @@ const LOGROTATE_DIR: &str = "/etc/logrotate.d";
 /// sie liegt deshalb auch dann da, wenn jenes gar nicht läuft.
 const TIME_SYNC_MARKER: &str = "/run/systemd/timesync/synchronized";
 
-const USAGE: &str = "alpendns — privacy-fokussierter DNS-Server
+const USAGE: &str = "alpendns — privacy-focused DNS server
 
-Aufruf:
-  alpendns -c <datei>
-      Server mit dieser Konfiguration starten
+Usage:
+  alpendns -c <file>
+      Start the server with this configuration
 
-  alpendns -c <datei> check
-      Prüft die Konfiguration und die Verzeichnisse, ohne den Server zu
-      starten. Exit 0 heißt: dieser Start wird nicht an der Konfiguration
-      scheitern. Läuft als ExecStartPre in der systemd-Unit.
+  alpendns -c <file> check
+      Checks the configuration and the directories without starting the
+      server. Exit 0 means: this start will not fail on the configuration.
+      Runs as ExecStartPre in the systemd unit.
 
-  alpendns -c <datei> policy test <domain> [--client <name>]
-      Zeigt, wie diese Domain für diesen Client entschieden würde, samt
-      vollständiger Begründung. Ohne --client gilt die Default-Policy.
+  alpendns -c <file> policy test <domain> [--client <name>]
+      Shows how this domain would be decided for this client, with the
+      full reasoning. Without --client the default policy applies.
 
-Optionen:
-  -c, --config <datei>   Pfad zur Konfigurationsdatei (Pflicht)
-  -h, --help             Diese Hilfe
-  -V, --version          Version ausgeben
+Options:
+  -c, --config <file>    Path to the configuration file (required)
+  -h, --help             This help
+  -V, --version          Print the version
 ";
 
 enum Args {
@@ -96,23 +96,20 @@ fn parse_args() -> anyhow::Result<Args> {
             "-c" | "--config" => {
                 config = Some(PathBuf::from(
                     args.next()
-                        .context("-c/--config erwartet einen Pfad als Argument")?,
+                        .context("-c/--config expects a path as its argument")?,
                 ));
             }
             "--client" => {
-                client = Some(
-                    args.next()
-                        .context("--client erwartet einen Client-Namen")?,
-                );
+                client = Some(args.next().context("--client expects a client name")?);
             }
             other if other.starts_with('-') => {
-                anyhow::bail!("unbekannte Option '{other}'\n\n{USAGE}")
+                anyhow::bail!("unknown option '{other}'\n\n{USAGE}")
             }
             other => rest.push(other.to_owned()),
         }
     }
 
-    let config = config.context(format!("keine Konfiguration angegeben\n\n{USAGE}"))?;
+    let config = config.context(format!("no configuration given\n\n{USAGE}"))?;
     match rest.as_slice() {
         [] => Ok(Args::Run(config)),
         [command] if command == "check" => Ok(Args::Check(config)),
@@ -123,7 +120,7 @@ fn parse_args() -> anyhow::Result<Args> {
                 client,
             })
         }
-        _ => anyhow::bail!("unbekanntes Unterkommando\n\n{USAGE}"),
+        _ => anyhow::bail!("unknown subcommand\n\n{USAGE}"),
     }
 }
 
@@ -133,7 +130,7 @@ fn main() -> ExitCode {
         Err(error) => {
             // Vor dem Start steht der Logger womöglich noch nicht, deshalb hier
             // bewusst auf stderr statt über `tracing`.
-            eprintln!("Fehler: {error:#}");
+            eprintln!("Error: {error:#}");
             ExitCode::FAILURE
         }
     }
@@ -221,7 +218,7 @@ fn run() -> anyhow::Result<()> {
         .upstream_pool
         .into_iter()
         .next()
-        .context("Konfiguration ohne Upstream-Pool")?;
+        .context("configuration without an upstream pool")?;
     let tls = Arc::new(Transport::default_tls_config()?);
     let upstream_names: Vec<String> = pool_config
         .resolver
@@ -254,7 +251,7 @@ fn run() -> anyhow::Result<()> {
                             privacy,
                         )
                         .with_context(|| {
-                            format!("ODoH-Transport für Resolver '{}'", resolver.name)
+                            format!("ODoH transport for resolver '{}'", resolver.name)
                         })?,
                     ))
                 }
@@ -301,7 +298,7 @@ fn run() -> anyhow::Result<()> {
         .iter()
         .map(|zone| {
             format!(
-                "{} ({} Einträge, fallback {})",
+                "{} ({} entries, fallback {})",
                 zone.label(),
                 zone.names().count(),
                 zone.fallback().as_str()
@@ -337,14 +334,15 @@ fn run() -> anyhow::Result<()> {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
-        .context("tokio-Runtime konnte nicht gestartet werden")?;
+        .context("tokio runtime could not be started")?;
 
     runtime.block_on(async move {
         // Von außen nach innen: Cache → Zonen-Weiche → Pool bzw. LAN-Server.
         // Jede Schicht ist ein ResolveBackend, keine kennt die anderen.
         let pool = Arc::new(Pool::new(upstreams, strategy, SystemClock));
         let query_log = Arc::new(
-            QueryLog::new(&privacy_config.logging).context("Query-Log konnte nicht geöffnet werden")?,
+            QueryLog::new(&privacy_config.logging)
+                .context("query log could not be opened")?,
         );
 
         // Erststart ist strikt: lieber gar kein DNS als ungefiltertes DNS
@@ -353,7 +351,7 @@ fn run() -> anyhow::Result<()> {
             .lists()
             .load(true)
             .await
-            .context("Blocklisten konnten beim Start nicht geladen werden")?;
+            .context("blocklists could not be loaded at startup")?;
         let entries = loaded.total_entries();
         let ages = list_ages(&policy_source);
         let list_infos: Vec<ListInfo> = loaded
@@ -420,7 +418,7 @@ fn run() -> anyhow::Result<()> {
             .with_tcp_stats(Arc::clone(&tcp_stats))
             .bind(&server_config)
             .await
-            .context("Listener konnten nicht geöffnet werden")?;
+            .context("listeners could not be opened")?;
 
         tracing::info!(
             udp = ?bound.udp_addrs(),
@@ -444,13 +442,13 @@ fn run() -> anyhow::Result<()> {
                 .map(|(detector, action)| format!("{}={}", detector.as_str(), action.as_str()))
                 .collect::<Vec<_>>(),
             rate_limit = limiter.as_ref().map_or_else(
-                || "aus".to_owned(),
+                || "off".to_owned(),
                 |limiter| {
                     let (rate, burst) = limiter.limits();
-                    format!("{rate:.0}/s, Burst {burst:.0}")
+                    format!("{rate:.0}/s, burst {burst:.0}")
                 }
             ),
-            "AlpenDNS gestartet"
+            "AlpenDNS started"
         );
 
         let shutdown = CancellationToken::new();
@@ -512,8 +510,8 @@ fn run() -> anyhow::Result<()> {
             );
             let listener = tokio::net::TcpListener::bind(api_config.listen)
                 .await
-                .with_context(|| format!("API-Listener auf {} ", api_config.listen))?;
-            tracing::info!(listen = %api_config.listen, token_file = %api_config.token_file.display(), "API und Web-UI");
+                .with_context(|| format!("API listener on {}", api_config.listen))?;
+            tracing::info!(listen = %api_config.listen, token_file = %api_config.token_file.display(), "API and web UI");
             let router = alpendns::api::router(state);
             let signal = shutdown.clone();
             tokio::spawn(async move {
@@ -531,8 +529,8 @@ fn run() -> anyhow::Result<()> {
             );
             let listener = tokio::net::TcpListener::bind(metrics_config.listen)
                 .await
-                .with_context(|| format!("Metrik-Listener auf {}", metrics_config.listen))?;
-            tracing::info!(listen = %metrics_config.listen, path = %metrics_config.path, "Metriken");
+                .with_context(|| format!("metrics listener on {}", metrics_config.listen))?;
+            tracing::info!(listen = %metrics_config.listen, path = %metrics_config.path, "metrics");
             let router = alpendns::api::metrics_router(state, &metrics_config.path);
             let signal = shutdown.clone();
             tokio::spawn(async move {
@@ -567,7 +565,7 @@ fn run() -> anyhow::Result<()> {
         let signals = shutdown.clone();
         tokio::spawn(async move {
             wait_for_signal().await;
-            tracing::info!("Signal empfangen, laufende Anfragen werden noch beantwortet");
+            tracing::info!("signal received, running queries are still being answered");
             signals.cancel();
         });
 
@@ -576,8 +574,8 @@ fn run() -> anyhow::Result<()> {
         // abgebrochen und nicht abgewartet, und was im Puffer steht, wäre mit
         // dem Prozess weg.
         query_log.flush();
-        log_stats(&cache, &pool, &engine, "Cache-Bilanz");
-        tracing::info!("beendet");
+        log_stats(&cache, &pool, &engine, "cache balance");
+        tracing::info!("stopped");
         Ok(())
     })
 }
@@ -815,7 +813,7 @@ impl StatusSource for Runtime {
             Some(name) => *self
                 .client_addrs
                 .get(name)
-                .ok_or_else(|| format!("kein Client namens '{name}'"))?,
+                .ok_or_else(|| format!("no client named '{name}'"))?,
         };
         alpendns::policy::explain(&self.engine, domain, peer)
     }
@@ -889,17 +887,17 @@ fn read_or_create_token(path: &std::path::Path) -> anyhow::Result<String> {
 
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
-            .with_context(|| format!("Verzeichnis für {} anlegen", path.display()))?;
+            .with_context(|| format!("creating the directory for {}", path.display()))?;
     }
     std::fs::write(path, format!("{token}\n"))
-        .with_context(|| format!("Token nach {} schreiben", path.display()))?;
+        .with_context(|| format!("writing the token to {}", path.display()))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt as _;
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
-            .with_context(|| format!("Rechte für {} setzen", path.display()))?;
+            .with_context(|| format!("setting the permissions on {}", path.display()))?;
     }
-    tracing::info!(path = %path.display(), "neuen API-Token erzeugt");
+    tracing::info!(path = %path.display(), "created a new API token");
     Ok(token)
 }
 
@@ -919,9 +917,9 @@ fn check(path: &std::path::Path) -> anyhow::Result<()> {
     // fiele ein Verweis auf eine unbekannte Liste erst beim Start auf.
     Blueprint::from_config(&config)?;
 
-    println!("Konfiguration: {}", path.display());
+    println!("Configuration: {}", path.display());
     println!(
-        "  Listener:    UDP {:?}, TCP {:?}",
+        "  Listeners:   UDP {:?}, TCP {:?}",
         config.server.listen_udp, config.server.listen_tcp
     );
     println!(
@@ -935,17 +933,17 @@ fn check(path: &std::path::Path) -> anyhow::Result<()> {
             .join(", ")
     );
     println!(
-        "  Listen:      {} Blocklisten, {} Allowlisten",
+        "  Lists:       {} blocklists, {} allowlists",
         config.blocklist.iter().filter(|list| list.enabled).count(),
         config.allowlist.iter().filter(|list| list.enabled).count()
     );
     println!(
-        "  Policies:    {} für {} Clients",
+        "  Policies:    {} for {} clients",
         config.policy.len(),
         config.client.len()
     );
     println!(
-        "  Blocken:     {:?}, Logging: {:?}",
+        "  Blocking:    {:?}, Logging: {:?}",
         config.blocking.mode, config.privacy.logging.mode
     );
     for zone in &config.local_zone {
@@ -955,7 +953,7 @@ fn check(path: &std::path::Path) -> anyhow::Result<()> {
             continue;
         };
         println!(
-            "  Lokal:       {} — {} Einträge, fallback {}",
+            "  Local:       {} — {} entries, fallback {}",
             built.label(),
             built.names().count(),
             built.fallback().as_str()
@@ -964,24 +962,24 @@ fn check(path: &std::path::Path) -> anyhow::Result<()> {
         // Default ist Split-Horizon, also geht alles Unbenannte weiter hinaus.
         // Wer "miloo.at komplett ausschließen" gemeint hat, sieht es hier.
         if !built.is_closed() {
-            println!("               Namen ohne Eintrag gehen weiter zum Upstream.");
-            println!("               Zum vollständigen Ausschließen: fallback = \"nxdomain\".");
+            println!("               Names without an entry go on to the upstream.");
+            println!("               To exclude the zone completely: fallback = \"nxdomain\".");
         }
     }
     let limit = &config.server.rate_limit;
     if limit.enabled {
         println!(
-            "  Drosselung:  {} Anfragen/s je Client, Burst {}",
+            "  Rate limit:  {} queries/s per client, burst {}",
             limit.per_client_qps, limit.burst
         );
     } else {
-        println!("  Drosselung:  aus");
+        println!("  Rate limit:  off");
     }
     // Die Detektoren stehen in der Konfiguration wie eine Ein/Aus-Angabe und
     // sind in Wahrheit mehr: zwei von ihnen können eingeschaltet sein und
     // trotzdem nichts finden. Nach einer Woche Beobachtung sähe das aus wie
     // "keine Fehlalarme". Wo das der Fall ist, steht es hier.
-    println!("  Detektoren:  {}", config.detection.check_line());
+    println!("  Detectors:   {}", config.detection.check_line());
 
     // Verzeichnisse: die häufigste Ursache für einen Start, der an der
     // Konfiguration nicht scheitert und trotzdem nicht funktioniert. Nach einem
@@ -995,17 +993,13 @@ fn check(path: &std::path::Path) -> anyhow::Result<()> {
     if config.api.enabled
         && let Some(parent) = config.api.token_file.parent()
     {
-        writable(parent, "Verzeichnis von api.token_file", &mut problems);
+        writable(parent, "directory of api.token_file", &mut problems);
     }
     // Nur im Modus `full` wird überhaupt eine Datei geschrieben.
     if config.privacy.logging.mode == alpendns::logging::Mode::Full
         && let Some(parent) = config.privacy.logging.path.parent()
     {
-        writable(
-            parent,
-            "Verzeichnis von privacy.logging.path",
-            &mut problems,
-        );
+        writable(parent, "directory of privacy.logging.path", &mut problems);
     }
     if !problems.is_empty() {
         anyhow::bail!("{}", problems.join("\n"));
@@ -1020,7 +1014,7 @@ fn check(path: &std::path::Path) -> anyhow::Result<()> {
         &config.privacy.logging.path,
         std::path::Path::new(LOGROTATE_DIR),
     ) {
-        println!("\nHinweis: {hint}");
+        println!("\nNote: {hint}");
     }
 
     // Derselbe Ton, derselbe Grund: kein Fehler, aber der eine Zustand, in dem
@@ -1029,7 +1023,7 @@ fn check(path: &std::path::Path) -> anyhow::Result<()> {
         config.privacy.dnssec,
         std::path::Path::new(TIME_SYNC_MARKER),
     ) {
-        println!("\nHinweis: {hint}");
+        println!("\nNote: {hint}");
     }
 
     // Kein Fehler, sondern ein Hinweis: wer bewusst öffentlich lauscht, hat
@@ -1037,19 +1031,19 @@ fn check(path: &std::path::Path) -> anyhow::Result<()> {
     // (ROADMAP Phase 9, Schritt 6).
     let public = config.public_listeners();
     if public.is_empty() {
-        println!("\nOK — erreichbar nur aus dem eigenen Netz.");
+        println!("\nOK — reachable only from your own network.");
     } else {
-        println!("\nOK — mit einem Hinweis:");
+        println!("\nOK — with one note:");
         for addr in &public {
             println!(
-                "  {addr} ist nicht auf eine private Adresse beschränkt. Wenn dieser Port \n\
-                 aus dem Internet erreichbar ist, ist der Server ein offener Resolver."
+                "  {addr} is not restricted to a private address. If this port is \n\
+                 reachable from the internet, the server is an open resolver."
             );
         }
         if !config.server.rate_limit.enabled {
             println!(
-                "  Dazu steht server.rate_limit.enabled auf false. Ein offener Resolver \n\
-                 ohne Drosselung ist ein Amplification-Reflektor (CLAUDE.md B.5)."
+                "  On top of that server.rate_limit.enabled is false. An open resolver \n\
+                 without rate limiting is an amplification reflector (CLAUDE.md B.5)."
             );
         }
     }
@@ -1064,7 +1058,7 @@ fn check(path: &std::path::Path) -> anyhow::Result<()> {
 fn writable(dir: &std::path::Path, label: &str, problems: &mut Vec<String>) {
     if !dir.is_dir() {
         problems.push(format!(
-            "{label}: {} gibt es nicht (oder ist kein Verzeichnis)",
+            "{label}: {} does not exist (or is not a directory)",
             dir.display()
         ));
         return;
@@ -1075,7 +1069,7 @@ fn writable(dir: &std::path::Path, label: &str, problems: &mut Vec<String>) {
             let _ = std::fs::remove_file(&probe);
         }
         Err(error) => problems.push(format!(
-            "{label}: in {} kann nicht geschrieben werden ({error})",
+            "{label}: cannot write in {} ({error})",
             dir.display()
         )),
     }
@@ -1102,9 +1096,9 @@ fn policy_test(path: &std::path::Path, domain: &str, client: Option<&str>) -> an
                 .with_context(|| {
                     let known: Vec<&str> = config.client.iter().map(|c| c.name.as_str()).collect();
                     format!(
-                        "kein Client namens '{name}'; konfiguriert sind: {}",
+                        "no client named '{name}'; configured are: {}",
                         if known.is_empty() {
-                            "keine".to_owned()
+                            "none".to_owned()
                         } else {
                             known.join(", ")
                         }
@@ -1114,7 +1108,7 @@ fn policy_test(path: &std::path::Path, domain: &str, client: Option<&str>) -> an
                 .matches
                 .ip
                 .first()
-                .context("dieser Client hat keine Adresse")?;
+                .context("this client has no address")?;
             alpendns::config::parse_net(address)
                 .map_err(anyhow::Error::msg)?
                 .addr()
@@ -1124,7 +1118,7 @@ fn policy_test(path: &std::path::Path, domain: &str, client: Option<&str>) -> an
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .context("tokio-Runtime konnte nicht gestartet werden")?;
+        .context("tokio runtime could not be started")?;
     let loaded = runtime.block_on(async {
         let lists = Lists::new(
             Loader::new(config.blocking.cache_dir.clone())?,
@@ -1152,14 +1146,14 @@ fn policy_test(path: &std::path::Path, domain: &str, client: Option<&str>) -> an
     println!("Domain:   {domain}");
     println!("Client:   {} ({peer})", client.unwrap_or("(default)"));
     println!(
-        "Verdikt:  {}",
+        "Verdict:  {}",
         if explanation.blocked {
-            "GEBLOCKT"
+            "BLOCKED"
         } else {
-            "durchgelassen"
+            "allowed"
         }
     );
-    println!("\nBegründung:");
+    println!("\nReasoning:");
     for (index, step) in explanation.steps.iter().enumerate() {
         println!("  {}. {step}", index.saturating_add(1));
     }
@@ -1173,7 +1167,7 @@ async fn wait_for_signal() {
     let mut terminate = match signal(SignalKind::terminate()) {
         Ok(stream) => stream,
         Err(error) => {
-            tracing::warn!(%error, "SIGTERM nicht abonnierbar, es zählt nur SIGINT");
+            tracing::warn!(%error, "SIGTERM cannot be subscribed to, only SIGINT counts");
             let _ = tokio::signal::ctrl_c().await;
             return;
         }
@@ -1202,7 +1196,7 @@ async fn reload_on_hangup(
     let mut hangup = match signal(SignalKind::hangup()) {
         Ok(stream) => stream,
         Err(error) => {
-            tracing::warn!(%error, "SIGHUP nicht abonnierbar, Reload steht nicht zur Verfügung");
+            tracing::warn!(%error, "SIGHUP cannot be subscribed to, reload is unavailable");
             return;
         }
     };
@@ -1215,20 +1209,20 @@ async fn reload_on_hangup(
         match Config::load(&path) {
             Err(error) => tracing::error!(
                 %error,
-                "Reload abgelehnt, alte Konfiguration bleibt aktiv"
+                "reload rejected, the old configuration stays active"
             ),
             Ok(config) => match policy_source.reload(&config, &loader) {
                 Ok(()) => {
                     tracing::info!(
                         clients = config.client.len(),
                         policies = config.policy.len(),
-                        "Konfiguration neu geladen; Listener, TLS, Cache, Drosselung, lokale Zonen und Block-Modus erfordern einen Neustart"
+                        "configuration reloaded; listeners, TLS, cache, rate limiting, local zones and block mode require a restart"
                     );
                     wake.notify_one();
                 }
                 Err(error) => tracing::error!(
                     %error,
-                    "Reload abgelehnt, alte Konfiguration bleibt aktiv"
+                    "reload rejected, the old configuration stays active"
                 ),
             },
         }

@@ -7,10 +7,11 @@ criterion of phase 9, step 8.
 Everything here applies to Debian 12/13 and Ubuntu 24.04 and up. AlpenDNS is a
 Linux program; other systems are not a target.
 
-> **A note on languages.** The prose is English, but the program's own output is
-> not: log messages and `alpendns check` output are German. Wherever this
-> document quotes such output or greps for it, the string is reproduced
-> verbatim and must stay German to match.
+> **A note on languages.** Prose and program output are English; only the code
+> comments and the commit messages are still German. Wherever this document
+> quotes output or greps for it, the string is reproduced verbatim — if you
+> change it in the source, change it here too. The test
+> `crates/alpendns/tests/language.rs` holds the output to English.
 
 ---
 
@@ -308,9 +309,9 @@ not writable for the service.
 | Message | Meaning |
 |---|---|
 | `unknown field ...` | Typo in a key. Unknown keys are a startup error, not a warning — otherwise someone would sit unfiltered on the internet and not notice. |
-| `Blocklisten konnten beim Start nicht geladen werden` | No network on the very first start, and nothing in the cache yet. Later, an outage is not critical: the cached version stays in force. |
-| `Listener konnten nicht geöffnet werden` | Port 53 is taken — see below. |
-| `... kann nicht geschrieben werden` | Permissions under `/var` are off. `systemctl restart alpendns` resets them, because systemd manages the directories. |
+| `blocklists could not be loaded at startup` | No network on the very first start, and nothing in the cache yet. Later, an outage is not critical: the cached version stays in force. |
+| `listeners could not be opened` | Port 53 is taken — see below. |
+| `... cannot write in ...` | Permissions under `/var` are off. `systemctl restart alpendns` resets them, because systemd manages the directories. |
 
 ### Port 53 is taken
 
@@ -386,8 +387,8 @@ Every name, from every client, and the upstreams look healthy in the UI. If
 
 ```bash
 timedatectl                                    # "System clock synchronized: yes"?
-journalctl -u alpendns | grep -i "Auflösung fehlgeschlagen"
-# → DNSSEC-Prüfung fehlgeschlagen, die Antwort wurde verworfen
+journalctl -u alpendns | grep -i "resolution failed"
+# → DNSSEC validation failed, the answer was dropped
 alpendns -c /etc/alpendns/alpendns.toml check  # prints a note about the clock
 ```
 
@@ -433,7 +434,7 @@ Possibly the rate limiter. The counter is in the log and in the metrics:
 
 ```bash
 # The message is at debug level — see "More in the log" below.
-journalctl -u alpendns | grep -i "Überschreitung des Limits"
+journalctl -u alpendns | grep -i "exceeding the rate limit"
 curl -s localhost:9153/metrics | grep rate_limit   # only if [metrics] is on
 ```
 
@@ -531,7 +532,7 @@ cannot be replaced by a test, and it has an order.
 
 **Preparation.** Observation needs names, and those only survive the week if
 they go to disk. The `ring` mode is **not** enough for that: it holds the last
-`ring_seconds` in RAM, nothing more. The "Auffällig" panel in the UI reads
+`ring_seconds` in RAM, nothing more. The "Flagged" panel in the UI reads
 exactly that buffer — a false positive nobody notes down the same day is gone
 afterwards. For a run lasting a week, that is the wrong basis.
 
@@ -565,13 +566,13 @@ typosquat = { action = "flag", threshold = 0.85, protect = ["meine-bank.at"] }
 
 Whether a detector can find anything *at all* is answered beforehand by a look
 into `alpendns check`: behind an enabled detector that lacks its basis, the
-reason appears in parentheses — `typosquat flag (ohne protect: findet nichts)`,
-`nrd flag (/var/lib/alpendns/nrd.txt fehlt: läuft leer)`.
+reason appears in parentheses — `typosquat flag (no protect: finds nothing)`,
+`nrd flag (/var/lib/alpendns/nrd.txt is missing: runs empty)`.
 
 All five detectors are on `flag`. **They stay on `flag` the whole week.** They
 report, they do not block.
 
-**During the week.** Look into the UI once a day, "Auffällig" panel:
+**During the week.** Look into the UI once a day, "Flagged" panel:
 
 * What is in there that is obviously harmless? That is a false positive. Note it
   down — domain, detector, score, what the device was doing at the time.

@@ -178,14 +178,14 @@ pub(crate) async fn handle_request<B: ResolveBackend>(
         // im Betrieb genügt der Zähler, bei der Fehlersuche braucht man das
         // Gerät. Ein Query-Name taucht hier auch dann nicht auf — die Anfrage
         // ist zu diesem Zeitpunkt noch nicht einmal geparst.
-        tracing::debug!(%peer, "Anfrage wegen Überschreitung des Limits verworfen");
+        tracing::debug!(%peer, "query dropped for exceeding the rate limit");
         return None;
     }
 
     let request = match Message::from_vec(raw) {
         Ok(request) => request,
         Err(_) => {
-            tracing::debug!(bytes = raw.len(), "Anfrage nicht dekodierbar");
+            tracing::debug!(bytes = raw.len(), "query not decodable");
             return dns::format_error(raw);
         }
     };
@@ -208,7 +208,7 @@ pub(crate) async fn handle_request<B: ResolveBackend>(
             response
         }
         Err(error) => {
-            tracing::warn!(%error, "Auflösung fehlgeschlagen");
+            tracing::warn!(%error, "resolution failed");
             dns::error_response(&request, ResponseCode::ServFail)
         }
     };

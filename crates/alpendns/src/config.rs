@@ -25,19 +25,19 @@ pub enum ConfigError {
     // hängt die Kette selbst an. Stünde sie zusätzlich hier, käme jede
     // Parse-Meldung doppelt — bei den mehrzeiligen Meldungen zu entfernten
     // Schlüsseln fällt das auf.
-    #[error("Konfigurationsdatei {path} konnte nicht gelesen werden")]
+    #[error("configuration file {path} could not be read")]
     Read {
         path: String,
         #[source]
         source: std::io::Error,
     },
-    #[error("Konfigurationsdatei {path} ist ungültig")]
+    #[error("configuration file {path} is invalid")]
     Parse {
         path: String,
         #[source]
         source: toml::de::Error,
     },
-    #[error("Konfiguration unvollständig: {0}")]
+    #[error("configuration incomplete: {0}")]
     Invalid(String),
 }
 
@@ -207,7 +207,7 @@ impl DetectionConfig {
         if self.typosquat.action.is_off() || !self.typosquat.protect.is_empty() {
             return None;
         }
-        Some("ohne protect: findet nichts".to_owned())
+        Some("no protect: finds nothing".to_owned())
     }
 
     /// `None`, wenn die Quelldatei da ist.
@@ -216,12 +216,12 @@ impl DetectionConfig {
             return None;
         }
         let Some(source) = &self.nrd.source else {
-            return Some("keine Quelle: läuft leer".to_owned());
+            return Some("no source: runs empty".to_owned());
         };
         match std::fs::metadata(source) {
             Ok(meta) if meta.len() > 0 => None,
-            Ok(_) => Some(format!("{} ist leer: läuft leer", source.display())),
-            Err(_) => Some(format!("{} fehlt: läuft leer", source.display())),
+            Ok(_) => Some(format!("{} is empty: runs empty", source.display())),
+            Err(_) => Some(format!("{} is missing: runs empty", source.display())),
         }
     }
 }
@@ -451,14 +451,14 @@ impl ListConfig {
         let name = &self.name;
         match (&self.url, &self.path) {
             (Some(_), Some(_)) => Err(ConfigError::Invalid(format!(
-                "{kind} '{name}': url und path zugleich — es kann nur eine Quelle geben"
+                "{kind} '{name}': url and path at once — there can only be one source"
             ))),
             (None, None) => Err(ConfigError::Invalid(format!(
-                "{kind} '{name}': weder url noch path angegeben"
+                "{kind} '{name}': neither url nor path given"
             ))),
             (Some(url), None) if !url.starts_with("https://") && !url.starts_with("http://") => {
                 Err(ConfigError::Invalid(format!(
-                    "{kind} '{name}': '{url}' ist keine http(s)-URL"
+                    "{kind} '{name}': '{url}' is not an http(s) URL"
                 )))
             }
             _ => Ok(()),
@@ -471,29 +471,29 @@ impl ScheduleEntry {
         let name = &self.name;
         if self.days.is_empty() {
             return Err(ConfigError::Invalid(format!(
-                "Policy '{policy}', Zeitplan '{name}': keine Tage angegeben"
+                "Policy '{policy}', schedule '{name}': no days given"
             )));
         }
         for day in &self.days {
             parse_weekday(day).ok_or_else(|| {
                 ConfigError::Invalid(format!(
-                    "Policy '{policy}', Zeitplan '{name}': '{day}' ist kein Wochentag \
-                     (erwartet: mon, tue, wed, thu, fri, sat, sun)"
+                    "Policy '{policy}', schedule '{name}': '{day}' is not a weekday \
+                     (expected: mon, tue, wed, thu, fri, sat, sun)"
                 ))
             })?;
         }
         for (label, value) in [("from", &self.from), ("to", &self.to)] {
             parse_clock_time(value).ok_or_else(|| {
                 ConfigError::Invalid(format!(
-                    "Policy '{policy}', Zeitplan '{name}': {label} = '{value}' ist keine \
-                     Uhrzeit im Format HH:MM"
+                    "Policy '{policy}', schedule '{name}': {label} = '{value}' is not a \
+                     time of day in HH:MM format"
                 ))
             })?;
         }
         if self.from == self.to {
             return Err(ConfigError::Invalid(format!(
-                "Policy '{policy}', Zeitplan '{name}': from und to sind gleich — das Fenster \
-                 wäre entweder immer oder nie offen"
+                "Policy '{policy}', schedule '{name}': from and to are equal — the window \
+                 would be either always or never open"
             )));
         }
         Ok(())
@@ -507,7 +507,7 @@ pub fn parse_net(text: &str) -> Result<ipnet::IpNet, String> {
     }
     text.parse::<std::net::IpAddr>()
         .map(ipnet::IpNet::from)
-        .map_err(|_| format!("'{text}' ist weder eine Adresse noch ein Netz"))
+        .map_err(|_| format!("'{text}' is neither an address nor a network"))
 }
 
 pub fn parse_weekday(text: &str) -> Option<jiff::civil::Weekday> {
@@ -710,12 +710,12 @@ impl<'de> Deserialize<'de> for Strategy {
         match text.as_str() {
             "split_by_zone" => Ok(Self::SplitByZone),
             "fastest" | "round_robin" => Err(serde::de::Error::custom(format!(
-                "strategy = \"{text}\" gibt es nicht mehr; es gilt split_by_zone. \
-                 Bei beiden entfernten Strategien sieht am Ende jeder Upstream alles \
-                 (ARCHITECTURE.md §5). Schlüssel entfernen oder auf split_by_zone setzen."
+                "strategy = \"{text}\" no longer exists; split_by_zone applies. \
+                 With both removed strategies every upstream ends up seeing everything \
+                 (ARCHITECTURE.md §5). Remove the key or set it to split_by_zone."
             ))),
             other => Err(serde::de::Error::custom(format!(
-                "unbekannte Strategie '{other}' — erlaubt ist split_by_zone"
+                "unknown strategy '{other}' — split_by_zone is the only one allowed"
             ))),
         }
     }
@@ -761,7 +761,7 @@ impl TryFrom<String> for ZoneName {
                 name.set_fqdn(true);
                 Self(name)
             })
-            .map_err(|e| format!("'{value}' ist kein gültiger Zonenname: {e}"))
+            .map_err(|e| format!("'{value}' is not a valid zone name: {e}"))
     }
 }
 
@@ -816,8 +816,8 @@ fn parse_host_port(host: &str, default_port: u16) -> Result<SocketAddr, String> 
     }
     let ip: std::net::IpAddr = host.parse().map_err(|_| {
         format!(
-            "'{host}' ist keine IP-Adresse — Namen sind hier nicht erlaubt, \
-                              weil ihre Auflösung wieder DNS bräuchte"
+            "'{host}' is not an IP address — names are not allowed here, \
+                              because resolving them would need DNS again"
         )
     })?;
     Ok(SocketAddr::new(ip, default_port))
@@ -829,7 +829,7 @@ impl TryFrom<String> for UpstreamAddr {
     fn try_from(value: String) -> Result<Self, Self::Error> {
         let Some((scheme, rest)) = value.split_once("://") else {
             return Err(format!(
-                "'{value}' hat kein Schema — erwartet wird etwa 'dot://9.9.9.9:853'"
+                "'{value}' has no scheme — expected is something like 'dot://9.9.9.9:853'"
             ));
         };
         match scheme {
@@ -844,7 +844,7 @@ impl TryFrom<String> for UpstreamAddr {
                 parse_host_port(host, 443).map(|addr| Self::Doh { addr, path })
             }
             other => Err(format!(
-                "unbekannter Transport '{other}' — erlaubt sind udp, dot, doh, doq"
+                "unknown transport '{other}' — the allowed ones are udp, dot, doh, doq"
             )),
         }
     }
@@ -1084,7 +1084,7 @@ impl Config {
     fn validate(&self) -> Result<(), ConfigError> {
         if self.server.listen_udp.is_empty() && self.server.listen_tcp.is_empty() {
             return Err(ConfigError::Invalid(
-                "kein Listener konfiguriert: server.listen_udp und server.listen_tcp sind beide leer"
+                "no listener configured: server.listen_udp and server.listen_tcp are both empty"
                     .to_owned(),
             ));
         }
@@ -1092,34 +1092,33 @@ impl Config {
             let limit = &self.server.rate_limit;
             if limit.per_client_qps == 0 {
                 return Err(ConfigError::Invalid(
-                    "server.rate_limit.per_client_qps = 0 drosselt nicht, es sperrt: nach dem \
-                     Burst läuft kein Guthaben mehr nach. Entweder eine Rate setzen oder \
+                    "server.rate_limit.per_client_qps = 0 does not throttle, it locks out: \
+                     after the burst no credit is replenished. Either set a rate or set \
                      enabled = false."
                         .to_owned(),
                 ));
             }
             if limit.burst == 0 {
                 return Err(ConfigError::Invalid(
-                    "server.rate_limit.burst = 0 lässt keine einzige Anfrage durch".to_owned(),
+                    "server.rate_limit.burst = 0 lets not a single query through".to_owned(),
                 ));
             }
             if limit.max_clients == 0 {
                 return Err(ConfigError::Invalid(
-                    "server.rate_limit.max_clients = 0 ergibt eine Buchführung ohne Platz"
-                        .to_owned(),
+                    "server.rate_limit.max_clients = 0 gives bookkeeping without room".to_owned(),
                 ));
             }
         }
         if self.cache.max_entries == 0 {
             return Err(ConfigError::Invalid(
-                "cache.max_entries = 0 schaltet den Cache nicht ab, sondern ergibt einen \
-                 Cache ohne Platz; setze einen sinnvollen Wert"
+                "cache.max_entries = 0 does not switch the cache off, it yields a cache \
+                 without room; set a sensible value"
                     .to_owned(),
             ));
         }
         if self.cache.min_ttl > self.cache.max_ttl {
             return Err(ConfigError::Invalid(
-                "cache.min_ttl ist größer als cache.max_ttl".to_owned(),
+                "cache.min_ttl is greater than cache.max_ttl".to_owned(),
             ));
         }
         self.detection.validate()?;
@@ -1133,7 +1132,9 @@ impl Config {
                 for resolver in &pool.resolver {
                     if !matches!(resolver.addr, UpstreamAddr::Doh { .. }) {
                         return Err(ConfigError::Invalid(format!(
-                            "privacy.odoh ist eingeschaltet, aber Resolver '{}' in Pool '{}'                              spricht {}. Oblivious DoH gibt es nur über doh://; entweder alle                              Resolver auf doh:// umstellen oder odoh abschalten.",
+                            "privacy.odoh is enabled, but resolver '{}' in pool '{}' \
+                             speaks {}. Oblivious DoH exists only over doh://; either \
+                             switch every resolver to doh:// or turn odoh off.",
                             resolver.name,
                             pool.name,
                             resolver.addr.scheme()
@@ -1144,7 +1145,7 @@ impl Config {
         }
         if !(0.0..=1.0).contains(&self.cache.prefetch_threshold) {
             return Err(ConfigError::Invalid(format!(
-                "cache.prefetch_threshold muss zwischen 0.0 und 1.0 liegen, ist aber {}",
+                "cache.prefetch_threshold must lie between 0.0 and 1.0, but is {}",
                 self.cache.prefetch_threshold
             )));
         }
@@ -1154,15 +1155,15 @@ impl Config {
             .all(|pool| pool.resolver.is_empty())
         {
             return Err(ConfigError::Invalid(
-                "kein Upstream konfiguriert: es braucht mindestens einen \
-                 [[upstream_pool.resolver]]"
+                "no upstream configured: at least one \
+                 [[upstream_pool.resolver]] is needed"
                     .to_owned(),
             ));
         }
         if self.upstream_pool.len() > 1 {
             return Err(ConfigError::Invalid(format!(
-                "{} Upstream-Pools konfiguriert. Welcher Pool für welchen Client gilt, \
-                 entscheiden Policies — die kommen in Phase 5. Bis dahin ist genau einer erlaubt.",
+                "{} upstream pools configured. Which pool applies to which client is \
+                 decided by policies, which arrive in phase 5. Until then exactly one is allowed.",
                 self.upstream_pool.len()
             )));
         }
@@ -1179,8 +1180,8 @@ impl Config {
         for list in self.blocklist.iter().chain(self.allowlist.iter()) {
             if !list_names.insert(list.name.as_str()) {
                 return Err(ConfigError::Invalid(format!(
-                    "die Liste '{}' ist zweimal konfiguriert; Policies verweisen über den \
-                     Namen, er muss eindeutig sein",
+                    "the list '{}' is configured twice; policies refer to it by \
+                     name, so the name must be unique",
                     list.name
                 )));
             }
@@ -1190,7 +1191,7 @@ impl Config {
         for client in &self.client {
             if client.matches.ip.is_empty() {
                 return Err(ConfigError::Invalid(format!(
-                    "Client '{}': kein match.ip angegeben — er wäre nie erkennbar",
+                    "Client '{}': no match.ip given — it could never be recognized",
                     client.name
                 )));
             }
@@ -1200,15 +1201,15 @@ impl Config {
             }
             if !policy_names.contains(client.policy.as_str()) {
                 return Err(ConfigError::Invalid(format!(
-                    "Client '{}' verweist auf die Policy '{}', die es nicht gibt",
+                    "Client '{}' refers to the policy '{}', which does not exist",
                     client.name, client.policy
                 )));
             }
         }
         if !self.client.is_empty() && !policy_names.contains("default") {
             return Err(ConfigError::Invalid(
-                "es gibt Clients, aber keine Policy namens 'default' — für alles, was \
-                 keinem Client-Eintrag entspricht, gäbe es dann keine Regel"
+                "there are clients, but no policy named 'default' — for everything that \
+                 matches no client entry there would then be no rule"
                     .to_owned(),
             ));
         }
@@ -1216,7 +1217,7 @@ impl Config {
             for list in policy.blocklists.iter().chain(policy.allowlists.iter()) {
                 if !list_names.contains(list.as_str()) {
                     return Err(ConfigError::Invalid(format!(
-                        "Policy '{}' verweist auf die Liste '{list}', die es nicht gibt",
+                        "Policy '{}' refers to the list '{list}', which does not exist",
                         policy.name
                     )));
                 }
@@ -1227,24 +1228,24 @@ impl Config {
         }
         if self.metrics.enabled && !self.metrics.path.starts_with('/') {
             return Err(ConfigError::Invalid(format!(
-                "metrics.path = '{}' muss mit einem Schrägstrich beginnen",
+                "metrics.path = '{}' must begin with a slash",
                 self.metrics.path
             )));
         }
         if self.api.enabled && self.api.listen == self.metrics.listen {
             return Err(ConfigError::Invalid(
-                "api.listen und metrics.listen sind gleich — die Metriken haben \
-                 bewusst keinen Token und dürfen nicht auf demselben Port liegen wie \
-                 die API, die Namen zeigt"
+                "api.listen and metrics.listen are the same — metrics deliberately \
+                 carry no token and must not sit on the same port as the API, \
+                 which shows names"
                     .to_owned(),
             ));
         }
         for zone in &self.forward_zone {
             if zone.upstream.is_encrypted() {
                 return Err(ConfigError::Invalid(format!(
-                    "forward_zone '{}': verschlüsselte Transporte sind hier noch nicht \
-                     umgesetzt. Eine forward_zone zeigt auf einen Nameserver im eigenen Netz; \
-                     dafür ist udp:// vorgesehen.",
+                    "forward_zone '{}': encrypted transports are not implemented here \
+                     yet. A forward_zone points at a nameserver in your own network; \
+                     udp:// is what is meant for that.",
                     zone.zone.0
                 )));
             }
@@ -1267,10 +1268,10 @@ impl Config {
                 // niemand raten müssen.
                 if local.zone.0.zone_of(&forward.zone.0) || forward.zone.0.zone_of(&local.zone.0) {
                     return Err(ConfigError::Invalid(format!(
-                        "local_zone '{}' und forward_zone '{}' überschneiden sich. local_zone \
-                         beantwortet selbst, forward_zone gibt an einen anderen Nameserver \
-                         weiter — für dieselbe Zone geht nur eines. Eine der beiden Zonen \
-                         muss woanders hin.",
+                        "local_zone '{}' and forward_zone '{}' overlap. local_zone \
+                         answers itself, forward_zone passes on to another nameserver — \
+                         for the same zone only one of them can apply. One of the two \
+                         zones has to go elsewhere.",
                         local.zone.0, forward.zone.0
                     )));
                 }
@@ -1289,15 +1290,15 @@ impl DetectionConfig {
         ] {
             if !(0.0..=1.0).contains(&threshold) || !threshold.is_finite() {
                 return Err(ConfigError::Invalid(format!(
-                    "detection.{name}.threshold muss zwischen 0.0 und 1.0 liegen, ist aber \
+                    "detection.{name}.threshold must lie between 0.0 and 1.0, but is \
                      {threshold}"
                 )));
             }
         }
         if self.tunneling.window.is_zero() && !self.tunneling.action.is_off() {
             return Err(ConfigError::Invalid(
-                "detection.tunneling.window = 0 ergibt ein Fenster ohne Dauer; der Detektor \
-                 könnte nichts zählen. Entweder eine Dauer setzen oder action = \"off\"."
+                "detection.tunneling.window = 0 gives a window without duration; the \
+                 detector could not count anything. Either set a duration or action = \"off\"."
                     .to_owned(),
             ));
         }
@@ -1308,8 +1309,8 @@ impl DetectionConfig {
         for entry in &self.typosquat.protect {
             if !entry.contains('.') || entry.trim().is_empty() {
                 return Err(ConfigError::Invalid(format!(
-                    "detection.typosquat.protect: '{entry}' ist keine Domain — erwartet wird \
-                     etwas wie 'sparkasse.at'"
+                    "detection.typosquat.protect: '{entry}' is not a domain — expected is \
+                     something like 'sparkasse.at'"
                 )));
             }
         }
@@ -1376,13 +1377,17 @@ impl OdohConfig {
             .filter(|p| !p.is_empty())
         else {
             return Err(ConfigError::Invalid(
-                "privacy.odoh.enabled = true, aber kein proxy angegeben. Ohne Proxy wäre                  ODoH nur eine zweite Verschlüsselung zum selben Ziel und würde nichts                  verbergen."
+                "privacy.odoh.enabled = true, but no proxy given. Without a proxy ODoH \
+                 would only be a second encryption to the same destination and would \
+                 hide nothing."
                     .to_owned(),
             ));
         };
         if !proxy.starts_with("https://") {
             return Err(ConfigError::Invalid(format!(
-                "privacy.odoh.proxy = '{proxy}': der Proxy muss über https erreichbar sein.                  Über http sähe ein Mitleser Zieladresse und Zeitpunkt jeder Anfrage."
+                "privacy.odoh.proxy = '{proxy}': the proxy must be reachable over \
+                 https. Over http anyone listening would see the destination and the \
+                 time of every query."
             )));
         }
         Ok(())
@@ -1394,15 +1399,15 @@ impl UpstreamPool {
         let pool = &self.name;
         if self.resolver.is_empty() {
             return Err(ConfigError::Invalid(format!(
-                "Pool '{pool}' hat keinen Resolver"
+                "Pool '{pool}' has no resolver"
             )));
         }
         if self.fanout.is_some() {
             return Err(ConfigError::Invalid(format!(
-                "Pool '{pool}': fanout gibt es nicht mehr. Es wird immer genau ein \
-                 Resolver gefragt und erst beim Ausfall der nächste. Parallele \
-                 Anfragen zeigten dieselbe Frage mehreren Anbietern und hoben \
-                 split_by_zone auf. Bitte den Schlüssel entfernen."
+                "Pool '{pool}': fanout no longer exists. Exactly one resolver is \
+                 always asked, and the next one only if it fails. Parallel \
+                 queries showed the same question to several providers and \
+                 defeated split_by_zone. Please remove the key."
             )));
         }
         for resolver in &self.resolver {
@@ -1412,9 +1417,9 @@ impl UpstreamPool {
             // in einem Pool.
             if !resolver.addr.is_encrypted() {
                 return Err(ConfigError::Invalid(format!(
-                    "Pool '{pool}', Resolver '{name}': Klartext-DNS ist als Upstream nicht \
-                     erlaubt. Benutze dot://, doh:// oder doq://. Für einen Nameserver im \
-                     eigenen Netz ist [[forward_zone]] der richtige Ort."
+                    "Pool '{pool}', resolver '{name}': cleartext DNS is not allowed as an \
+                     upstream. Use dot://, doh:// or doq://. For a nameserver in your own \
+                     network, [[forward_zone]] is the right place."
                 )));
             }
             if resolver
@@ -1423,8 +1428,8 @@ impl UpstreamPool {
                 .is_none_or(|n| n.trim().is_empty())
             {
                 return Err(ConfigError::Invalid(format!(
-                    "Pool '{pool}', Resolver '{name}': tls_name fehlt. Ohne ihn wird das \
-                     Zertifikat gegen nichts geprüft und die Verschlüsselung ist wertlos."
+                    "Pool '{pool}', resolver '{name}': tls_name is missing. Without it the \
+                     certificate is checked against nothing and the encryption is worthless."
                 )));
             }
         }
@@ -1535,8 +1540,8 @@ nrd = { action = "flag", max_age = "30d", source = "/var/lib/alpendns/nrd.txt" }
         assert_eq!(
             config.detection.check_line(),
             "dga flag, tunneling flag, rebinding flag, \
-             typosquat flag (ohne protect: findet nichts), \
-             nrd flag (keine Quelle: läuft leer)"
+             typosquat flag (no protect: finds nothing), \
+             nrd flag (no source: runs empty)"
         );
     }
 
@@ -1559,17 +1564,17 @@ nrd = { action = "flag", max_age = "30d", source = "/var/lib/alpendns/nrd.txt" }
 
         let fehlt = line(&dir.join("gibts-nicht.txt"));
         assert!(
-            fehlt.ends_with("gibts-nicht.txt fehlt: läuft leer)"),
+            fehlt.ends_with("gibts-nicht.txt is missing: runs empty)"),
             "{fehlt}"
         );
         let leer = line(&leer);
-        assert!(leer.ends_with("leer.txt ist leer: läuft leer)"), "{leer}");
+        assert!(leer.ends_with("leer.txt is empty: runs empty)"), "{leer}");
         // Eine Datei, die da ist: kein Hinweis. Typosquat meldet sich weiter,
         // weil sein `protect` in MINIMAL leer ist.
         assert_eq!(
             line(&voll),
             "dga flag, tunneling flag, rebinding flag, \
-             typosquat flag (ohne protect: findet nichts), nrd flag"
+             typosquat flag (no protect: finds nothing), nrd flag"
         );
 
         std::fs::remove_dir_all(&dir).ok();
@@ -1613,7 +1618,7 @@ nrd = { action = "flag", max_age = "30d", source = "/var/lib/alpendns/nrd.txt" }
         let text = format!("{MINIMAL}\n[detection]\ntyposquat = {{ protect = [\"sparkasse\"] }}\n");
         let config = parse(&text).expect("parst");
         let error = config.validate().expect_err("muss abbrechen").to_string();
-        assert!(error.contains("keine Domain"), "{error}");
+        assert!(error.contains("is not a domain"), "{error}");
     }
 
     #[test]
@@ -1774,7 +1779,7 @@ odoh = { enabled = true, proxy = "https://proxy.example/p" }
         // B.1 Regel 7. Der Hinweis muss den richtigen Ort nennen.
         let text = MINIMAL.replace("dot://9.9.9.9:853", "udp://9.9.9.9:53");
         let err = valid_err(&text);
-        assert!(err.contains("Klartext"), "{err}");
+        assert!(err.contains("cleartext"), "{err}");
         assert!(
             err.contains("forward_zone"),
             "kein Hinweis auf die Ausnahme: {err}"
@@ -1858,7 +1863,7 @@ odoh = { enabled = true, proxy = "https://proxy.example/p" }
     fn the_root_zone_is_not_a_local_zone() {
         let text = format!("{MINIMAL}\n[[local_zone]]\nzone = \".\"\n");
         let err = valid_err(&text);
-        assert!(err.contains("Wurzelzone"), "{err}");
+        assert!(err.contains("root zone"), "{err}");
     }
 
     #[test]
@@ -1868,7 +1873,7 @@ odoh = { enabled = true, proxy = "https://proxy.example/p" }
              \n[[local_zone]]\nzone = \"miloo.at\"\n"
         );
         let err = valid_err(&text);
-        assert!(err.contains("zweimal"), "{err}");
+        assert!(err.contains("twice"), "{err}");
     }
 
     #[test]
@@ -1886,7 +1891,7 @@ odoh = { enabled = true, proxy = "https://proxy.example/p" }
                  \n[[local_zone]]\nzone = \"{local}\"\n"
             );
             let err = valid_err(&text);
-            assert!(err.contains("überschneiden"), "{local} / {forward}: {err}");
+            assert!(err.contains("overlap"), "{local} / {forward}: {err}");
         }
     }
 
@@ -1945,13 +1950,13 @@ odoh = { enabled = true, proxy = "https://proxy.example/p" }
         // Henne-Ei-Problem.
         let err = UpstreamAddr::try_from("dot://dns.quad9.net:853".to_owned())
             .expect_err("Name statt IP");
-        assert!(err.contains("IP-Adresse"), "{err}");
+        assert!(err.contains("IP address"), "{err}");
     }
 
     #[test]
     fn address_without_scheme_is_rejected() {
         let err = UpstreamAddr::try_from("9.9.9.9:853".to_owned()).expect_err("kein Schema");
-        assert!(err.contains("Schema"), "{err}");
+        assert!(err.contains("scheme"), "{err}");
     }
 
     #[test]
@@ -2048,7 +2053,7 @@ odoh = { enabled = true, proxy = "https://proxy.example/p" }
         let text = MINIMAL.replace("name = \"default\"", "name = \"default\"\nfanout = 2");
         let err = valid_err(&text);
         assert!(err.contains("fanout"), "{err}");
-        assert!(err.contains("genau ein"), "{err}");
+        assert!(err.contains("Exactly one"), "{err}");
     }
 
     #[test]
@@ -2057,7 +2062,7 @@ odoh = { enabled = true, proxy = "https://proxy.example/p" }
             .replace("listen_udp = [\"127.0.0.1:5353\"]", "listen_udp = []")
             .replace("listen_tcp = [\"127.0.0.1:5353\"]", "listen_tcp = []");
         let err = valid_err(&text);
-        assert!(err.contains("Listener"), "{err}");
+        assert!(err.contains("listener"), "{err}");
     }
 
     /// Die Datei, die das Debian-Paket nach `/etc/alpendns` legt. Sie ist der
@@ -2195,6 +2200,6 @@ odoh = { enabled = true, proxy = "https://proxy.example/p" }
             .expect("Kopf")
             .to_owned();
         let err = valid_err(&text);
-        assert!(err.contains("Upstream"), "{err}");
+        assert!(err.contains("upstream"), "{err}");
     }
 }

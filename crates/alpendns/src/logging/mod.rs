@@ -94,10 +94,10 @@ pub fn rotation_hint(
         return None;
     }
     Some(format!(
-        "privacy.logging.mode steht auf \"full\", aber die Rotation fehlt: {} \n\
-         gibt es nicht. {} wächst damit unbegrenzt, und wie lange die Namen \n\
-         darin liegen, entscheidet der Zufall statt einer Einstellung. Was die \n\
-         Regel tun muss, steht in /usr/share/doc/alpendns/OPERATIONS.md.",
+        "privacy.logging.mode is \"full\", but rotation is missing: {} \n\
+         does not exist. {} grows without bound, and how long the names \n\
+         inside it stay is decided by chance instead of by a setting. What \n\
+         the rule has to do is in /usr/share/doc/alpendns/OPERATIONS.md.",
         rule.display(),
         log_path.display()
     ))

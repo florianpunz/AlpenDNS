@@ -31,7 +31,7 @@ pub(crate) async fn serve<B: ResolveBackend>(
             result = socket.recv_from(&mut buf) => match result {
                 Ok(received) => received,
                 Err(error) => {
-                    tracing::warn!(%error, "recv_from fehlgeschlagen");
+                    tracing::warn!(%error, "recv_from failed");
                     continue;
                 }
             },
@@ -62,10 +62,10 @@ pub(crate) async fn serve<B: ResolveBackend>(
             match dns::encode_for_udp(&response, udp_payload_size) {
                 Ok(bytes) => {
                     if let Err(error) = socket.send_to(&bytes, peer).await {
-                        tracing::warn!(%error, "Antwort konnte nicht gesendet werden");
+                        tracing::warn!(%error, "answer could not be sent");
                     }
                 }
-                Err(error) => tracing::warn!(%error, "Antwort nicht kodierbar"),
+                Err(error) => tracing::warn!(%error, "answer not encodable"),
             }
         });
     }

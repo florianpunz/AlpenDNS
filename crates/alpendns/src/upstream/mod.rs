@@ -154,7 +154,7 @@ impl ForwardBackend {
             .map_err(|_| ResolveError::Timeout)??;
         let packet = buf
             .get(..len)
-            .ok_or_else(|| ResolveError::Malformed("Länge außerhalb des Puffers".to_owned()))?;
+            .ok_or_else(|| ResolveError::Malformed("length outside the buffer".to_owned()))?;
 
         let response =
             Message::from_vec(packet).map_err(|e| ResolveError::Malformed(e.to_string()))?;
@@ -185,7 +185,7 @@ impl ResolveBackend for ForwardBackend {
                     self.dns0x20.store(false, Ordering::Relaxed);
                     tracing::warn!(
                         upstream = %self.upstream,
-                        "Upstream spiegelt die Schreibweise nicht; 0x20 wird für ihn abgeschaltet"
+                        "upstream does not mirror the case; 0x20 is switched off for it"
                     );
                     let (retry, _) = self.prepare(&request);
                     response = self.exchange(&retry).await?;

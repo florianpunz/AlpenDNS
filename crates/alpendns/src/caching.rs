@@ -128,7 +128,7 @@ fn spawn_refresh<B: ResolveBackend, C: Clock>(
             }
             // Scheitert die Auffrischung, bleibt der alte Eintrag stehen und
             // wird beim nächsten Mal erneut versucht.
-            Err(error) => tracing::debug!(%error, "Auffrischung im Hintergrund fehlgeschlagen"),
+            Err(error) => tracing::debug!(%error, "background refresh failed"),
         }
     });
 }

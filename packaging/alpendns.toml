@@ -1,36 +1,35 @@
-# AlpenDNS — Auslieferungskonfiguration des Debian-Pakets.
+# AlpenDNS — shipping configuration of the Debian package.
 #
-# Sie ist bewusst zurückhaltend: nach `apt install` läuft ein funktionierender
-# Resolver, der **nur von diesem Rechner aus erreichbar** ist. Wer ihn im LAN
-# benutzen will, ändert genau einen Block — den ersten. Das ist die einzige
-# Änderung, die ein normaler Betrieb braucht.
+# It is deliberately restrained: after `apt install` a working resolver runs
+# that is **reachable from this machine only**. Whoever wants to use it in the
+# LAN changes exactly one block — the first one. That is the only change normal
+# operation needs.
 #
-# Die vollständige Referenz aller Schlüssel liegt daneben:
+# The full reference of all keys sits next to it:
 #   /usr/share/doc/alpendns/alpendns.example.toml
-# Betrieb, Upgrade, Fehlersuche:
+# Operation, upgrade, troubleshooting:
 #   /usr/share/doc/alpendns/OPERATIONS.md
 #
-# Nach jeder Änderung, vor dem Neustart:
+# After every change, before the restart:
 #   sudo alpendns -c /etc/alpendns/alpendns.toml check
 #
-# Unbekannte Schlüssel sind ein Startfehler, kein Warning. Ein Tippfehler soll
-# nicht dazu führen, dass jemand ungefiltert im Internet hängt und es nicht
-# merkt.
+# Unknown keys are a startup error, not a warning. A typo must not lead to
+# someone sitting unfiltered on the internet and not noticing.
 
 [server]
 # ---------------------------------------------------------------------------
-# HIER ÄNDERN, um den Resolver im LAN nutzbar zu machen.
+# CHANGE HERE to make the resolver usable in the LAN.
 #
-# Ausgeliefert wird Loopback: frisch installiert ist der Server von außen nicht
-# erreichbar. Ein Resolver, der ungefragt am Internet lauscht, ist ein
-# Amplification-Reflektor, und das darf nicht der Auslieferungszustand sein.
+# What ships is loopback: freshly installed, the server is not reachable from
+# outside. A resolver listening to the internet unasked is an amplification
+# reflector, and that must not be the state it ships in.
 #
-# Für das eigene Netz die LAN-Adresse dieses Rechners eintragen, zum Beispiel:
+# For your own network enter the LAN address of this machine, for example:
 #   listen_udp = ["127.0.0.1:53", "192.168.1.10:53"]
 #   listen_tcp = ["127.0.0.1:53", "192.168.1.10:53"]
 #
-# Eine konkrete Adresse und nicht "0.0.0.0": die Wildcard bindet auch an eine
-# Schnittstelle, die morgen am Internet hängt.
+# A concrete address and not "0.0.0.0": the wildcard also binds to an interface
+# that may be facing the internet tomorrow.
 # ---------------------------------------------------------------------------
 listen_udp = ["127.0.0.1:53", "[::1]:53"]
 listen_tcp = ["127.0.0.1:53", "[::1]:53"]
@@ -39,10 +38,10 @@ query_timeout = "3s"
 [server.edns]
 udp_payload_size = 1232
 
-# Drosselung pro Client. An, auch auf Loopback — sonst fällt beim Umstellen auf
-# eine LAN-Adresse genau die Einstellung weg, die dort gebraucht wird.
-# 100 Anfragen je Sekunde sind für ein Gerät sehr viel und für einen Angreifer
-# sehr wenig; die Spitze fängt Seitenaufrufe mit vielen Einbettungen ab.
+# Rate limiting per client. On, on loopback as well — otherwise, when switching
+# to a LAN address, exactly the setting that is needed there would fall away.
+# 100 queries per second are a lot for one device and very little for one
+# attacker; the burst catches page loads with many embeds.
 [server.rate_limit]
 enabled = true
 per_client_qps = 100
@@ -50,15 +49,14 @@ burst = 200
 max_clients = 8192
 
 # ---------------------------------------------------------------------------
-# Upstreams — verschlüsselt, mehrere Anbieter
+# Upstreams — encrypted, several providers
 # ---------------------------------------------------------------------------
 #
-# split_by_zone verteilt die Domains über einen zufälligen Seed auf die
-# Resolver: derselbe Name geht immer zum selben Anbieter (der Cache bleibt
-# wirksam), aber keiner sieht das ganze Profil. Der Seed wird täglich neu
-# gezogen.
+# split_by_zone spreads the domains over the resolvers via a random seed: the
+# same name always goes to the same provider (the cache stays effective), but no
+# one sees the whole profile. The seed is drawn anew daily.
 #
-# Klartext (udp://) ist hier nicht erlaubt und ein Startfehler.
+# Cleartext (udp://) is not allowed here and is a startup error.
 
 [[upstream_pool]]
 name = "default"
@@ -80,21 +78,21 @@ name = "dnsforge"
 addr = "doh://176.9.93.198/dns-query"
 tls_name = "dnsforge.de"
 
-# Interne Zonen an den Router im eigenen Netz. Der einzige Ort, an dem
-# Klartext-DNS erlaubt ist — und die Anfrage verlässt dabei das LAN nicht.
+# Internal zones to the router in your own network. The only place where
+# cleartext DNS is allowed — and the query does not leave the LAN doing so.
 # [[forward_zone]]
 # zone = "home.arpa"
 # upstream = "udp://192.168.1.1:53"
 
-# Eigene Einträge, die AlpenDNS selbst beantwortet — für Namen, die es im DNS
-# nicht gibt (nas.meinedomain.at, drucker.meinedomain.at). Eine Tabelle, kein
-# Zonenfile: kein SOA, kein AXFR, AlpenDNS wird davon nicht autoritativ. Der
-# Unterschied zu forward_zone darüber: dort wird ein anderer Nameserver
-# gefragt, hier wird geantwortet. Beides gleichzeitig für dieselbe Zone ist ein
-# Startfehler. Form und alle Einzelheiten: alpendns.example.toml.
+# Entries of your own that AlpenDNS answers itself — for names that do not exist
+# in DNS (nas.meinedomain.at, drucker.meinedomain.at). A table, not a zone file:
+# no SOA, no AXFR, AlpenDNS does not become authoritative for it. The difference
+# to forward_zone above: there another nameserver is asked, here an answer is
+# given. Both at the same time for the same zone is a startup error. Shape and
+# all details: alpendns.example.toml.
 # [[local_zone]]
 # zone = "meinedomain.at"
-# fallback = "upstream"          # "nxdomain" schließt die Zone ganz
+# fallback = "upstream"          # "nxdomain" closes the zone entirely
 # records = [
 #   { name = "@",   type = "A", value = "192.168.1.5" },
 #   { name = "nas", type = "A", value = "192.168.1.5" },
@@ -117,31 +115,29 @@ cookies = true
 dns0x20 = true
 
 [privacy.logging]
-# aggregate: Zähler und Häufigkeiten, aber kein Name unter der k-Schwelle und
-# keine Zeile auf Platte. Das ist der Default und die Zurückhaltung, für die es
-# dieses Projekt gibt.
+# aggregate: counters and frequencies, but no name below the k threshold and no
+# line on disk. That is the default and the restraint this project exists for.
 #
-# Für die Beobachtungswoche (docs/ROADMAP.md, Abnahme Phase 8) braucht die UI
-# Namen; dafür ist `ring` gedacht — die letzten Minuten im Arbeitsspeicher,
-# nie auf Platte:
+# For the observation week (docs/ROADMAP.md, phase 8 acceptance) the UI needs
+# names; `ring` is meant for that — the last minutes in RAM, never on disk:
 #   mode = "ring"
 mode = "aggregate"
 ring_seconds = "5m"
 aggregate_k = 5
 
 # ---------------------------------------------------------------------------
-# Blocken
+# Blocking
 # ---------------------------------------------------------------------------
 
 [blocking]
 mode = "nxdomain"
-# Von systemd angelegt (CacheDirectory=), gehört dem Dienstuser. Damit filtert
-# ein Neustart auch ohne Internet.
+# Created by systemd (CacheDirectory=), owned by the service user. That way a
+# restart filters even without internet.
 cache_dir = "/var/cache/alpendns/lists"
 
-# ACHTUNG: Ohne erreichbare Liste bricht der *erste* Start ab — lieber kein DNS
-# als ungefiltertes DNS. Ein späterer Ausfall ist unkritisch, dann gilt die
-# zwischengespeicherte Fassung weiter.
+# ATTENTION: Without a reachable list the *first* start aborts — better no DNS
+# than unfiltered DNS. A later outage is not critical, the cached version then
+# stays in force.
 [[blocklist]]
 name = "stevenblack-unified"
 url = "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts"
@@ -150,44 +146,44 @@ refresh = "24h"
 enabled = true
 
 # ---------------------------------------------------------------------------
-# Heuristiken — alle auf `flag`, keine blockt
+# Heuristics — all on `flag`, none of them blocks
 # ---------------------------------------------------------------------------
 #
-# `flag` heißt: läuft, zählt mit, erscheint in der UI unter "Auffällig" — und
-# blockt nichts. Der Weg zu `block` führt über eine Woche Beobachtung und das
-# Durchsehen der Fehlalarme; die Anleitung dazu steht in OPERATIONS.md unter
-# "Beobachtungswoche".
+# `flag` means: it runs, it counts along, it shows up in the UI under "Flagged"
+# — and it blocks nothing. The way to `block` goes through a week of
+# observation and a review of the false positives; the instructions for that are
+# in OPERATIONS.md under "Observation week".
 
 [detection]
 dga = { action = "flag", threshold = 0.75 }
 tunneling = { action = "flag", threshold = 0.75, window = "5m", allow_zones = [] }
 rebinding = { action = "flag", allow_zones = [] }
-# Ohne Einträge tut der Typosquat-Wächter nichts. Hier gehören die Domains
-# hinein, die DIR wichtig sind — Bank, Behörde, Arbeitgeber:
+# Without entries the typosquat guard does nothing. This is where the domains
+# that matter to YOU belong — bank, government agency, employer:
 #   typosquat = { action = "flag", threshold = 0.85, protect = ["meine-bank.at"] }
 typosquat = { action = "flag", threshold = 0.85, protect = [] }
-# Fehlt die Datei, läuft der Detektor leer mit. Der Resolver hängt nicht davon
-# ab, dass ein zweiter Dienst gelaufen ist.
+# If the file is missing, the detector runs empty. The resolver does not depend
+# on a second service having run.
 nrd = { action = "flag", max_age = "30d", source = "/var/lib/alpendns/nrd.txt" }
 
 # ---------------------------------------------------------------------------
-# API, UI, Metriken
+# API, UI, metrics
 # ---------------------------------------------------------------------------
 
-# Die UI zeigt Namen und gehört deshalb auf Loopback. Von einem anderen Rechner
-# erreicht man sie über einen SSH-Tunnel:
+# The UI shows names and therefore belongs on loopback. From another machine it
+# is reached through an SSH tunnel:
 #   ssh -L 8053:127.0.0.1:8053 <server>
-# und dann http://127.0.0.1:8053 im Browser.
+# and then http://127.0.0.1:8053 in the browser.
 [api]
 enabled = true
 listen = "127.0.0.1:8053"
-# Unter /var/lib und nicht unter /etc: die Unit setzt ProtectSystem=strict,
-# /etc ist für den Dienst schreibgeschützt. Der Token wird beim ersten Start
-# erzeugt und mit Rechten 0600 abgelegt.
+# Under /var/lib and not under /etc: the unit sets ProtectSystem=strict, /etc is
+# read-only for the service. The token is created on the first start and stored
+# with mode 0600.
 token_file = "/var/lib/alpendns/api.token"
 
-# Ohne Token, dafür ohne Namen in der Ausgabe. Aus, bis jemand einen Prometheus
-# hat, der es abholt.
+# Without a token, but also without names in the output. Off until someone has a
+# Prometheus to pick it up.
 [metrics]
 enabled = false
 listen = "127.0.0.1:9153"

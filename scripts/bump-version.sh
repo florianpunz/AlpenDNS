@@ -24,7 +24,7 @@ esac
 
 current="$(sed -nE 's/^version = "([0-9]+\.[0-9]+\.[0-9]+)"$/\1/p' Cargo.toml | head -n1)"
 if [ -z "$current" ]; then
-  echo "keine version in Cargo.toml gefunden" >&2
+  echo "no version found in Cargo.toml" >&2
   exit 1
 fi
 

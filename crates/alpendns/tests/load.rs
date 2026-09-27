@@ -303,7 +303,7 @@ async fn tcp_connection_setup_with_the_limits() {
     const TCP_PER_CLIENT: usize = 500;
 
     let harness = start(CacheConfig::default()).await;
-    println!("\n{TCP_CLIENTS} Clients × {TCP_PER_CLIENT} Verbindungen");
+    println!("\n{TCP_CLIENTS} clients × {TCP_PER_CLIENT} connections");
 
     // Einmal warmlaufen lassen, damit der erste Verbindungsaufbau nicht in die
     // Messung fällt.
@@ -312,9 +312,9 @@ async fn tcp_connection_setup_with_the_limits() {
     let rate = drive_tcp(harness.tcp_addr, TCP_CLIENTS, TCP_PER_CLIENT).await;
     let counters = harness.tcp_counters();
 
-    println!("  {rate:.0} Verbindungen/s mit je einer Anfrage");
+    println!("  {rate:.0} connections/s with one query each");
     println!(
-        "  Obergrenze: {} gewartet, {} je Adresse abgewiesen, {} Body-Zeitüberschreitungen",
+        "  Limits: {} at capacity, {} rejected per client, {} body timeouts",
         counters.at_capacity, counters.rejected_per_client, counters.body_timeouts
     );
     assert_eq!(
@@ -331,7 +331,7 @@ async fn tcp_connection_setup_with_the_limits() {
 async fn throughput_repeated_versus_unique_corpus() {
     let harness = start(CacheConfig::default()).await;
     let total = CLIENTS * PER_CLIENT;
-    println!("\nClients: {CLIENTS} × {PER_CLIENT} Anfragen = {total} gesamt");
+    println!("\nClients: {CLIENTS} × {PER_CLIENT} queries = {total} total");
 
     let before = harness.upstream_hits.load(Ordering::Relaxed);
     let unique_rate = drive(harness.addr, true, 0).await;
@@ -341,11 +341,11 @@ async fn throughput_repeated_versus_unique_corpus() {
     let repeat_rate = drive(harness.addr, false, 0).await;
     let repeat_upstream = harness.upstream_hits.load(Ordering::Relaxed) - before;
 
-    println!("\n| Korpus                      | Anfragen/s | Upstream-Anfragen |");
-    println!("|-----------------------------|-----------:|------------------:|");
-    println!("| jede Anfrage ein neuer Name | {unique_rate:>10.0} | {unique_upstream:>17} |");
-    println!("| immer derselbe Name         | {repeat_rate:>10.0} | {repeat_upstream:>17} |");
-    println!("\nFaktor Durchsatz: {:.1}x", repeat_rate / unique_rate);
+    println!("\n| Corpus                 | queries/s | upstream queries |");
+    println!("|------------------------|----------:|-----------------:|");
+    println!("| every query a new name | {unique_rate:>9.0} | {unique_upstream:>16} |");
+    println!("| always the same name   | {repeat_rate:>9.0} | {repeat_upstream:>16} |");
+    println!("\nThroughput factor: {:.1}x", repeat_rate / unique_rate);
 
     assert_eq!(
         repeat_upstream, 1,
@@ -397,11 +397,11 @@ async fn throughput_with_and_without_detectors() {
     let detected = drive(with.addr, true, 1).await;
     with.shutdown.cancel();
 
-    println!("\n| Anfragepfad            | Anfragen/s |");
-    println!("|------------------------|-----------:|");
-    println!("| ohne Detektoren        | {plain:>10.0} |");
-    println!("| mit vier Detektoren    | {detected:>10.0} |");
-    println!("\nAnteil: {:.1} %", detected / plain * 100.0);
+    println!("\n| Request path        | queries/s |");
+    println!("|---------------------|----------:|");
+    println!("| without detectors   | {plain:>9.0} |");
+    println!("| with four detectors | {detected:>9.0} |");
+    println!("\nShare: {:.1} %", detected / plain * 100.0);
 
     // Kein hartes Kriterium — die Zahl ist maschinenabhängig. Aber eine
     // Halbierung wäre ein Befund und kein Rauschen.
@@ -495,12 +495,12 @@ async fn throughput_with_and_without_rate_limiting() {
     limited.shutdown.cancel();
     let after = resident_kib();
 
-    println!("\n| Anfragepfad        | Anfragen/s | p50 | p99 |");
-    println!("|--------------------|-----------:|----:|----:|");
-    println!("| ohne Drosselung    | {plain_qps:>10.0} | {plain_p50:?} | {plain_p99:?} |");
-    println!("| mit Drosselung     | {limited_qps:>10.0} | {limited_p50:?} | {limited_p99:?} |");
+    println!("\n| Request path          | queries/s | p50 | p99 |");
+    println!("|-----------------------|----------:|----:|----:|");
+    println!("| without rate limiting | {plain_qps:>9.0} | {plain_p50:?} | {plain_p99:?} |");
+    println!("| with rate limiting    | {limited_qps:>9.0} | {limited_p50:?} | {limited_p99:?} |");
     println!(
-        "\nAnteil: {:.1} %  ·  RSS {} KiB → {} KiB  ·  beobachtete Clients: {}  ·  verworfen: {}",
+        "\nShare: {:.1} %  ·  RSS {} KiB → {} KiB  ·  observed clients: {}  ·  discarded: {}",
         limited_qps / plain_qps * 100.0,
         before,
         after,
@@ -563,10 +563,10 @@ async fn a_flooding_client_does_not_slow_down_the_others() {
     harness.shutdown.cancel();
 
     println!(
-        "\nStörer: {sent} Anfragen abgeschickt, {} verworfen",
+        "\nTroublemaker: {sent} queries sent, {} discarded",
         limiter.throttled()
     );
-    println!("Die übrigen Clients: {qps:.0} Anfragen/s, p50 {p50:?}, p99 {p99:?}");
+    println!("The other clients: {qps:.0} queries/s, p50 {p50:?}, p99 {p99:?}");
 
     assert!(
         limiter.throttled() > 0,
@@ -603,11 +603,11 @@ async fn resident_memory_stays_bounded_beyond_max_entries() {
     }
     let after_five = resident_kib();
 
-    println!("\nmax_entries: 10 000, je Runde {per_round} neue Namen");
-    println!("  RSS nach 1 Runde:  {after_first:>8} KiB");
-    println!("  RSS nach 5 Runden: {after_five:>8} KiB");
+    println!("\nmax_entries: 10 000, {per_round} new names per round");
+    println!("  RSS after 1 round:  {after_first:>8} KiB");
+    println!("  RSS after 5 rounds: {after_five:>8} KiB");
     println!(
-        "  Zuwachs:           {:>8} KiB",
+        "  growth:             {:>8} KiB",
         after_five.saturating_sub(after_first)
     );
 
@@ -700,20 +700,23 @@ fn matcher_with_two_million_entries() {
     hits.sort_unstable();
     misses.sort_unstable();
 
-    println!("\nMatcher mit {} Einträgen", matcher.len());
-    println!("  Liste erzeugen:  {generated:>10.2?}");
-    println!("  Parsen:          {parse_time:>10.2?}");
-    println!("  Matcher bauen:   {build_time:>10.2?}");
-    println!("  RSS vorher:      {before:>8} KiB");
-    println!("  RSS nachher:     {after:>8} KiB");
-    println!("  Zuwachs:         {:>8} KiB", after.saturating_sub(before));
+    println!("\nMatcher with {} entries", matcher.len());
+    println!("  generate list:       {generated:>10.2?}");
+    println!("  parse:               {parse_time:>10.2?}");
+    println!("  build matcher:       {build_time:>10.2?}");
+    println!("  RSS before:          {before:>8} KiB");
+    println!("  RSS after:           {after:>8} KiB");
     println!(
-        "  Treffer     p50 {:>8.0?}  p99 {:>8.0?}",
+        "  growth:              {:>8} KiB",
+        after.saturating_sub(before)
+    );
+    println!(
+        "  hits    p50 {:>8.0?}  p99 {:>8.0?}",
         percentile(&hits, 0.5),
         percentile(&hits, 0.99)
     );
     println!(
-        "  Nicht-Treffer p50 {:>6.0?}  p99 {:>8.0?}",
+        "  misses  p50 {:>8.0?}  p99 {:>8.0?}",
         percentile(&misses, 0.5),
         percentile(&misses, 0.99)
     );
@@ -726,13 +729,13 @@ fn matcher_with_two_million_entries() {
     drop(matcher);
     let freed = resident_kib();
     let owned = after.saturating_sub(freed);
-    println!("  RSS ohne Matcher:{freed:>8} KiB");
+    println!("  RSS without matcher: {freed:>8} KiB");
     #[expect(
         clippy::cast_precision_loss,
         reason = "Byte-Zahlen und Eintragszahlen liegen weit unter 2^53"
     )]
     let per_entry = (owned as f64 * 1024.0) / entries as f64;
-    println!("  Matcher selbst:  {owned:>8} KiB, rund {per_entry:.0} Byte je Eintrag");
+    println!("  matcher itself:      {owned:>8} KiB, about {per_entry:.0} bytes per entry");
 
     assert!(
         percentile(&misses, 0.99) < Duration::from_micros(50),
@@ -784,8 +787,8 @@ async fn cache_hit_latency_with_two_million_blocklist_entries() {
     }
     latencies.sort_unstable();
 
-    println!("\nCache-Treffer bei {entries} Blocklisten-Einträgen");
-    println!("  RSS des Prozesses: {rss:>8} KiB");
+    println!("\nCache hits with {entries} blocklist entries");
+    println!("  RSS of the process: {rss:>8} KiB");
     println!("  p50 {:>10.2?}", percentile(&latencies, 0.5));
     println!("  p99 {:>10.2?}", percentile(&latencies, 0.99));
     println!("  p999 {:>9.2?}", percentile(&latencies, 0.999));
@@ -847,12 +850,12 @@ fn counting_structure_memory_and_speed() {
             reason = "Stichprobengrößen weit unter 2^53"
         )]
         let per = |d: Duration, n: usize| d.as_nanos() as f64 / n as f64;
-        println!("\n{distinct} verschiedene Namen, {entries} Anfragen");
-        println!("  Speicher     {rss:>8} KiB");
-        println!("  je Eintrag   {:>8.0} ns", per(add, entries));
-        println!("  je Abfrage   {:>8.0} ns", per(lookup, distinct));
-        println!("  gezählte Namen {tracked:>6}");
-        println!("  über Schwelle  {over_threshold:>6}");
+        println!("\n{distinct} distinct names, {entries} queries");
+        println!("  memory       {rss:>8} KiB");
+        println!("  per entry    {:>8.0} ns", per(add, entries));
+        println!("  per lookup   {:>8.0} ns", per(lookup, distinct));
+        println!("  tracked names  {tracked:>6}");
+        println!("  over threshold {over_threshold:>6}");
 
         assert_eq!(
             over_threshold, distinct,

@@ -103,7 +103,7 @@ pub fn render(snapshot: &Snapshot) -> String {
 
     let _ = writeln!(
         out,
-        "# HELP alpendns_build_info Version des laufenden Prozesses"
+        "# HELP alpendns_build_info Version of the running process"
     );
     let _ = writeln!(out, "# TYPE alpendns_build_info gauge");
     let _ = writeln!(
@@ -114,30 +114,30 @@ pub fn render(snapshot: &Snapshot) -> String {
     gauge(
         &mut out,
         "alpendns_uptime_seconds",
-        "Laufzeit des Prozesses",
+        "Uptime of the process",
         snapshot.uptime.as_secs_f64(),
     );
 
     counter(
         &mut out,
         "alpendns_queries_total",
-        "Beantwortete Anfragen",
+        "Answered queries",
         snapshot.log.queries,
     );
     counter(
         &mut out,
         "alpendns_queries_blocked_total",
-        "Anfragen, die von einer Regel geblockt wurden",
+        "Queries blocked by a rule",
         snapshot.log.blocked,
     );
     counter(
         &mut out,
         "alpendns_queries_allowed_total",
-        "Anfragen, die eine Allowlist oder Freigabe ausdrücklich durchgelassen hat",
+        "Queries an allowlist or an exemption explicitly passed",
         snapshot.policy.allowed,
     );
 
-    let _ = writeln!(out, "# HELP alpendns_responses_total Antworten nach RCODE");
+    let _ = writeln!(out, "# HELP alpendns_responses_total Answers by RCODE");
     let _ = writeln!(out, "# TYPE alpendns_responses_total counter");
     for (rcode, value) in &snapshot.log.by_rcode {
         let _ = writeln!(
@@ -150,37 +150,37 @@ pub fn render(snapshot: &Snapshot) -> String {
     counter(
         &mut out,
         "alpendns_cache_hits_total",
-        "Treffer auf einen gültigen Cache-Eintrag",
+        "Hits on a valid cache entry",
         snapshot.cache.hits,
     );
     counter(
         &mut out,
         "alpendns_cache_stale_hits_total",
-        "Treffer auf einen abgelaufenen Eintrag im serve-stale-Fenster",
+        "Hits on an expired entry inside the serve-stale window",
         snapshot.cache.stale_hits,
     );
     counter(
         &mut out,
         "alpendns_cache_misses_total",
-        "Anfragen, die der Cache nicht beantworten konnte",
+        "Queries the cache could not answer",
         snapshot.cache.misses,
     );
     gauge(
         &mut out,
         "alpendns_cache_entries",
-        "Einträge im Cache",
+        "Entries in the cache",
         snapshot.cache_entries as f64,
     );
     gauge(
         &mut out,
         "alpendns_cache_hit_ratio",
-        "Anteil der Anfragen, die der Cache beantwortet hat",
+        "Share of queries the cache answered",
         snapshot.cache.hit_rate(),
     );
     gauge(
         &mut out,
         "alpendns_list_entries",
-        "Eindeutige Domains in allen geladenen Listen",
+        "Unique domains across all loaded lists",
         snapshot.policy.entries as f64,
     );
 
@@ -190,7 +190,7 @@ pub fn render(snapshot: &Snapshot) -> String {
     // Label-Werte stammen ausschließlich aus geschlossenen Aufzählungen.
     let _ = writeln!(
         out,
-        "# HELP alpendns_blocking_mode 1 beim eingestellten Block-Modus, 0 bei den übrigen"
+        "# HELP alpendns_blocking_mode 1 for the configured blocking mode, 0 for the others"
     );
     let _ = writeln!(out, "# TYPE alpendns_blocking_mode gauge");
     for mode in BlockMode::ALL {
@@ -204,7 +204,7 @@ pub fn render(snapshot: &Snapshot) -> String {
 
     let _ = writeln!(
         out,
-        "# HELP alpendns_logging_mode 1 beim eingestellten Log-Modus, 0 bei den übrigen"
+        "# HELP alpendns_logging_mode 1 for the configured log mode, 0 for the others"
     );
     let _ = writeln!(out, "# TYPE alpendns_logging_mode gauge");
     for mode in LogMode::ALL {
@@ -218,7 +218,7 @@ pub fn render(snapshot: &Snapshot) -> String {
 
     let _ = writeln!(
         out,
-        "# HELP alpendns_blocked_by_reason_total Geblockte Anfragen je Grund"
+        "# HELP alpendns_blocked_by_reason_total Blocked queries by reason"
     );
     let _ = writeln!(out, "# TYPE alpendns_blocked_by_reason_total counter");
     for (reason, value) in &snapshot.log.by_reason {
@@ -235,25 +235,25 @@ pub fn render(snapshot: &Snapshot) -> String {
     counter(
         &mut out,
         "alpendns_privacy_ecs_stripped_total",
-        "Anfragen, aus denen eine ECS-Option entfernt wurde",
+        "Queries with the ECS option removed",
         snapshot.privacy.ecs_stripped,
     );
     counter(
         &mut out,
         "alpendns_privacy_padded_total",
-        "Anfragen, die auf Blockgröße aufgefüllt wurden",
+        "Queries padded to the block size",
         snapshot.privacy.padded,
     );
     counter(
         &mut out,
         "alpendns_privacy_case_randomized_total",
-        "Anfragen mit gewürfelter Groß-/Kleinschreibung (0x20)",
+        "Queries with randomized letter case (0x20)",
         snapshot.privacy.randomized,
     );
     counter(
         &mut out,
         "alpendns_privacy_cookies_total",
-        "Anfragen mit gesetztem DNS-Cookie",
+        "Queries with a DNS cookie set",
         snapshot.privacy.cookies,
     );
 
@@ -262,13 +262,13 @@ pub fn render(snapshot: &Snapshot) -> String {
     gauge(
         &mut out,
         "alpendns_aggregate_k",
-        "Ab wie vielen Treffern ein Name überhaupt genannt werden darf",
+        "Number of hits from which a name may be reported at all",
         f64::from(snapshot.aggregate_k),
     );
     counter(
         &mut out,
         "alpendns_queries_below_threshold_total",
-        "Anfragen auf Namen, die die k-Schwelle nicht erreicht haben",
+        "Queries for names that did not reach the k threshold",
         snapshot.below_threshold_queries,
     );
 
@@ -278,12 +278,12 @@ pub fn render(snapshot: &Snapshot) -> String {
     gauge(
         &mut out,
         "alpendns_dnssec_enabled",
-        "1, wenn AlpenDNS die Signaturkette selbst nachrechnet",
+        "1 if AlpenDNS validates the signature chain itself",
         f64::from(u8::from(snapshot.dnssec_enabled)),
     );
     let _ = writeln!(
         out,
-        "# HELP alpendns_dnssec_total Geprüfte Antworten je Urteil"
+        "# HELP alpendns_dnssec_total Checked answers by verdict"
     );
     let _ = writeln!(out, "# TYPE alpendns_dnssec_total counter");
     for verdict in Verdict::ALL {
@@ -301,13 +301,13 @@ pub fn render(snapshot: &Snapshot) -> String {
     gauge(
         &mut out,
         "alpendns_zone_seed_rotation_seconds",
-        "Abstand, in dem die Zuordnung Domain → Upstream neu gewürfelt wird; 0 = nie",
+        "Interval at which the domain → upstream assignment is reshuffled; 0 = never",
         snapshot.zone_seed_rotation.as_secs_f64(),
     );
     counter(
         &mut out,
         "alpendns_zone_seed_rotations_total",
-        "Wie oft die Zuordnung Domain → Upstream seit dem Start neu gewürfelt wurde",
+        "How often the domain → upstream assignment has been reshuffled since start",
         snapshot.zone_seed_rotations,
     );
 
@@ -317,7 +317,7 @@ pub fn render(snapshot: &Snapshot) -> String {
     // eingehängt ist, erscheint als `off`.
     let _ = writeln!(
         out,
-        "# HELP alpendns_detector_action 1 bei der eingestellten Stufe je Detektor, 0 sonst"
+        "# HELP alpendns_detector_action 1 for the configured action per detector, 0 otherwise"
     );
     let _ = writeln!(out, "# TYPE alpendns_detector_action gauge");
     for detector in DetectorKind::ALL {
@@ -339,7 +339,7 @@ pub fn render(snapshot: &Snapshot) -> String {
 
     let _ = writeln!(
         out,
-        "# HELP alpendns_detections_total Funde je Detektor, oberhalb seiner Schwelle"
+        "# HELP alpendns_detections_total Findings per detector above its threshold"
     );
     let _ = writeln!(out, "# TYPE alpendns_detections_total counter");
     for (detector, count) in &snapshot.detections {
@@ -350,7 +350,7 @@ pub fn render(snapshot: &Snapshot) -> String {
         );
     }
 
-    let _ = writeln!(out, "# HELP alpendns_lists Geladene Listen je Format");
+    let _ = writeln!(out, "# HELP alpendns_lists Loaded lists by format");
     let _ = writeln!(out, "# TYPE alpendns_lists gauge");
     for (format, count) in &snapshot.list_formats {
         let _ = writeln!(
@@ -366,7 +366,7 @@ pub fn render(snapshot: &Snapshot) -> String {
     // wonach jemand gesucht hat.
     let _ = writeln!(
         out,
-        "# HELP alpendns_blocklist_age_seconds Alter der geltenden Fassung je Liste"
+        "# HELP alpendns_blocklist_age_seconds Age of the current revision per list"
     );
     let _ = writeln!(out, "# TYPE alpendns_blocklist_age_seconds gauge");
     for (name, seconds) in &snapshot.list_ages {
@@ -379,7 +379,7 @@ pub fn render(snapshot: &Snapshot) -> String {
 
     let _ = writeln!(
         out,
-        "# HELP alpendns_upstream_queries_total Erfolgreiche Anfragen je Upstream"
+        "# HELP alpendns_upstream_queries_total Successful queries per upstream"
     );
     let _ = writeln!(out, "# TYPE alpendns_upstream_queries_total counter");
     for upstream in &snapshot.upstreams {
@@ -392,7 +392,7 @@ pub fn render(snapshot: &Snapshot) -> String {
     }
     let _ = writeln!(
         out,
-        "# HELP alpendns_upstream_transport 1 je Upstream beim benutzten Transport"
+        "# HELP alpendns_upstream_transport 1 per upstream for the transport in use"
     );
     let _ = writeln!(out, "# TYPE alpendns_upstream_transport gauge");
     for upstream in &snapshot.upstreams {
@@ -406,7 +406,7 @@ pub fn render(snapshot: &Snapshot) -> String {
 
     let _ = writeln!(
         out,
-        "# HELP alpendns_upstream_failures_total Fehlgeschlagene Anfragen je Upstream"
+        "# HELP alpendns_upstream_failures_total Failed queries per upstream"
     );
     let _ = writeln!(out, "# TYPE alpendns_upstream_failures_total counter");
     for upstream in &snapshot.upstreams {
@@ -419,7 +419,7 @@ pub fn render(snapshot: &Snapshot) -> String {
     }
     let _ = writeln!(
         out,
-        "# HELP alpendns_upstream_rtt_seconds Gleitendes Mittel der Antwortzeit"
+        "# HELP alpendns_upstream_rtt_seconds Moving average of the answer time"
     );
     let _ = writeln!(out, "# TYPE alpendns_upstream_rtt_seconds gauge");
     for upstream in &snapshot.upstreams {
@@ -438,32 +438,32 @@ pub fn render(snapshot: &Snapshot) -> String {
     gauge(
         &mut out,
         "alpendns_rate_limit_enabled",
-        "1, wenn pro Client gedrosselt wird",
+        "1 if per-client rate limiting is enabled",
         f64::from(u8::from(snapshot.rate_limit.is_some())),
     );
     if let Some(limit) = &snapshot.rate_limit {
         counter(
             &mut out,
             "alpendns_rate_limited_total",
-            "Anfragen, die wegen Überschreitung des Client-Limits verworfen wurden",
+            "Queries dropped for exceeding the client limit",
             limit.throttled,
         );
         gauge(
             &mut out,
             "alpendns_rate_limit_clients",
-            "Clients, für die gerade ein Guthaben geführt wird",
+            "Clients currently holding a credit",
             limit.tracked as f64,
         );
         gauge(
             &mut out,
             "alpendns_rate_limit_qps",
-            "Konfigurierte Anfragen je Sekunde und Client",
+            "Configured queries per second and client",
             limit.per_client_qps,
         );
         gauge(
             &mut out,
             "alpendns_rate_limit_burst",
-            "Konfiguriertes Guthaben, das ein Client ansammeln darf",
+            "Configured credit a client may accumulate",
             limit.burst,
         );
     }
@@ -475,25 +475,25 @@ pub fn render(snapshot: &Snapshot) -> String {
     counter(
         &mut out,
         "alpendns_tcp_connections_rejected_total",
-        "TCP-Verbindungen, die eine Quell-IP über ihr Kontingent hinaus aufmachen wollte",
+        "TCP connections a source IP tried to open beyond its quota",
         snapshot.tcp.rejected_per_client,
     );
     counter(
         &mut out,
         "alpendns_tcp_connections_at_capacity_total",
-        "Annahmen, die warten mussten, weil alle Verbindungsplätze belegt waren",
+        "Accepts that had to wait because all connection slots were taken",
         snapshot.tcp.at_capacity,
     );
     counter(
         &mut out,
         "alpendns_tcp_body_timeouts_total",
-        "TCP-Verbindungen, die ihr Längenpräfix geschickt und dann geschwiegen haben",
+        "TCP connections that sent their length prefix and then went silent",
         snapshot.tcp.body_timeouts,
     );
 
     let _ = writeln!(
         out,
-        "# HELP alpendns_upstream_down 1, wenn ein Upstream gerade übersprungen wird"
+        "# HELP alpendns_upstream_down 1 while an upstream is currently skipped"
     );
     let _ = writeln!(out, "# TYPE alpendns_upstream_down gauge");
     for upstream in &snapshot.upstreams {
