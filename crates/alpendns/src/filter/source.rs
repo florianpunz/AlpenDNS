@@ -500,13 +500,107 @@ async fn write_cache(
 }
 
 /// Liest eine Datei und bricht ab, wenn sie zu groß ist.
+///
+/// Die Grenze gilt beim Lesen selbst, nicht bei einer Größenabfrage davor:
+/// zwischen `metadata()` und dem Lesen kann die Datei wachsen oder getauscht
+/// werden (SECURITY-AUDIT.md, TOCTOU). Ein Byte mehr als erlaubt zu lesen
+/// genügt, um "zu groß" von "genau an der Grenze" zu unterscheiden.
 async fn read_limited(path: &Path) -> std::io::Result<String> {
-    let metadata = tokio::fs::metadata(path).await?;
-    if metadata.len() > MAX_LIST_BYTES {
+    use tokio::io::AsyncReadExt as _;
+
+    let file = tokio::fs::File::open(path).await?;
+    let mut bytes = Vec::new();
+    file.take(MAX_LIST_BYTES.saturating_add(1))
+        .read_to_end(&mut bytes)
+        .await?;
+    if bytes.len() as u64 > MAX_LIST_BYTES {
         return Err(std::io::Error::other(format!(
             "{} is larger than {MAX_LIST_BYTES} bytes",
             path.display()
         )));
     }
-    tokio::fs::read_to_string(path).await
+    String::from_utf8(bytes)
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scratch(name: &str) -> std::path::PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("alpendns-source-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("Verzeichnis anlegen");
+        dir
+    }
+
+    fn limit() -> usize {
+        usize::try_from(MAX_LIST_BYTES).expect("Grenze passt in usize")
+    }
+
+    #[tokio::test]
+    async fn a_file_exactly_at_the_limit_is_read() {
+        let dir = scratch("at-limit");
+        let path = dir.join("list");
+        std::fs::write(&path, vec![b'a'; limit()]).expect("Datei schreiben");
+
+        let text = read_limited(&path)
+            .await
+            .expect("genau an der Grenze ist erlaubt");
+        assert_eq!(text.len(), limit());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn a_file_one_byte_over_the_limit_is_rejected() {
+        let dir = scratch("over-limit");
+        let path = dir.join("list");
+        std::fs::write(&path, vec![b'a'; limit() + 1]).expect("Datei schreiben");
+
+        assert!(read_limited(&path).await.is_err());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// SECURITY-AUDIT.md, "Low — TOCTOU in `read_limited`": die Grenze muss
+    /// beim Lesen gelten, nicht bei einer Größenabfrage davor. Eine FIFO meldet
+    /// über `metadata()` die Länge 0 und liefert dann, so viel geschrieben wird —
+    /// dieselbe Lage wie eine Datei, die zwischen Prüfung und Lesen wächst, nur
+    /// ohne Zeitfenster, das der Test treffen müsste.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn the_limit_holds_while_reading_not_only_before() {
+        let dir = scratch("fifo");
+        let path = dir.join("list");
+        let status = std::process::Command::new("mkfifo")
+            .arg(&path)
+            .status()
+            .expect("mkfifo starten");
+        assert!(status.success(), "mkfifo fehlgeschlagen");
+
+        let writer_path = path.clone();
+        let writer = std::thread::spawn(move || {
+            use std::io::Write as _;
+            let mut fifo = std::fs::OpenOptions::new()
+                .write(true)
+                .open(writer_path)
+                .expect("FIFO öffnen");
+            // Ein MiB mehr als erlaubt; bricht ab, sobald der Leser schließt.
+            let chunk = vec![b'a'; 1 << 20];
+            let chunks = limit().div_ceil(chunk.len()) + 1;
+            for _ in 0..chunks {
+                if fifo.write_all(&chunk).is_err() {
+                    break;
+                }
+            }
+        });
+
+        let result = read_limited(&path).await;
+        writer.join().expect("Schreiber beendet");
+        let _ = std::fs::remove_dir_all(dir);
+        assert!(
+            result.is_err(),
+            "über die Grenze gelesen: {} Bytes",
+            result.map(|text| text.len()).unwrap_or_default()
+        );
+    }
 }

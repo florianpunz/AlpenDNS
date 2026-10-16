@@ -870,8 +870,15 @@ async fn sample_history(
 /// Ohne diesen Schritt müsste vor dem ersten Start jemand von Hand eine Datei
 /// mit Zufallszeichen anlegen, nur um die UI überhaupt zu sehen. Die Datei
 /// bekommt Rechte 0600 — sie ist das Passwort.
+///
+/// Neu angelegt wird sie gleich mit 0600, nicht erst geschrieben und danach
+/// ge-`chmod`et: dazwischen wäre das frische Passwort für alle lesbar.
 fn read_or_create_token(path: &std::path::Path) -> anyhow::Result<String> {
     if let Ok(existing) = std::fs::read_to_string(path) {
+        // Vor dem Leerprüfen: eine leere Datei wird unten neu beschrieben, und
+        // `mode(0o600)` wirkt nur beim Anlegen, nicht auf eine vorhandene.
+        #[cfg(unix)]
+        tighten_permissions(path)?;
         let trimmed = existing.trim().to_owned();
         if !trimmed.is_empty() {
             return Ok(trimmed);
@@ -889,16 +896,40 @@ fn read_or_create_token(path: &std::path::Path) -> anyhow::Result<String> {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("creating the directory for {}", path.display()))?;
     }
-    std::fs::write(path, format!("{token}\n"))
-        .with_context(|| format!("writing the token to {}", path.display()))?;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt as _;
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
-            .with_context(|| format!("setting the permissions on {}", path.display()))?;
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.mode(0o600);
     }
+    options
+        .open(path)
+        .and_then(|mut file| std::io::Write::write_all(&mut file, format!("{token}\n").as_bytes()))
+        .with_context(|| format!("writing the token to {}", path.display()))?;
     tracing::info!(path = %path.display(), "created a new API token");
     Ok(token)
+}
+
+/// Nimmt Gruppe und Rest die Rechte an der Token-Datei, falls sie welche haben.
+/// Strengere Rechte als 0600 bleiben, wie sie sind.
+#[cfg(unix)]
+fn tighten_permissions(path: &std::path::Path) -> anyhow::Result<()> {
+    use std::os::unix::fs::PermissionsExt as _;
+    let mode = std::fs::metadata(path)
+        .with_context(|| format!("reading the permissions of {}", path.display()))?
+        .permissions()
+        .mode();
+    if mode & 0o077 != 0 {
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+            .with_context(|| format!("setting the permissions on {}", path.display()))?;
+        tracing::warn!(
+            path = %path.display(),
+            was = format!("{:o}", mode & 0o777),
+            "the API token file was readable by others; permissions set to 600"
+        );
+    }
+    Ok(())
 }
 
 /// `alpendns check`
@@ -1226,5 +1257,88 @@ async fn reload_on_hangup(
                 ),
             },
         }
+    }
+}
+
+#[cfg(test)]
+#[cfg(unix)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt as _;
+
+    fn scratch(name: &str) -> std::path::PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("alpendns-token-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("Verzeichnis anlegen");
+        dir
+    }
+
+    fn mode(path: &std::path::Path) -> u32 {
+        std::fs::metadata(path)
+            .expect("Metadaten")
+            .permissions()
+            .mode()
+            & 0o777
+    }
+
+    #[test]
+    fn a_new_token_file_is_only_readable_by_the_owner() {
+        let dir = scratch("new");
+        let path = dir.join("api.token");
+
+        let token = read_or_create_token(&path).expect("Token anlegen");
+        assert_eq!(mode(&path), 0o600);
+        assert_eq!(token.len(), 32);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// SECURITY-AUDIT.md, "Low — API token file briefly with default
+    /// permissions": eine vorhandene Datei mit zu offenen Rechten wurde nur
+    /// gelesen und blieb so offen, wie sie war.
+    #[test]
+    fn an_existing_token_file_with_loose_permissions_is_tightened() {
+        let dir = scratch("loose");
+        let path = dir.join("api.token");
+        std::fs::write(&path, "0123456789abcdef0123456789abcdef\n").expect("Datei schreiben");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644))
+            .expect("Rechte setzen");
+
+        let token = read_or_create_token(&path).expect("Token lesen");
+        assert_eq!(token, "0123456789abcdef0123456789abcdef");
+        assert_eq!(mode(&path), 0o600);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Eine leere Datei wird neu beschrieben. `mode(0o600)` beim Öffnen wirkt
+    /// nur, wenn die Datei *angelegt* wird — eine vorhandene behielte ihre
+    /// offenen Rechte samt dem frischen Token darin.
+    #[test]
+    fn an_empty_token_file_with_loose_permissions_gets_a_token_and_tight_permissions() {
+        let dir = scratch("empty");
+        let path = dir.join("api.token");
+        std::fs::write(&path, "").expect("Datei schreiben");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644))
+            .expect("Rechte setzen");
+
+        let token = read_or_create_token(&path).expect("Token anlegen");
+        assert_eq!(token.len(), 32);
+        assert_eq!(mode(&path), 0o600);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Strengere Rechte als 0600 sind keine zu offenen und bleiben, wie sie sind.
+    #[test]
+    fn a_stricter_token_file_is_left_alone() {
+        let dir = scratch("strict");
+        let path = dir.join("api.token");
+        std::fs::write(&path, "0123456789abcdef0123456789abcdef\n").expect("Datei schreiben");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o400))
+            .expect("Rechte setzen");
+
+        read_or_create_token(&path).expect("Token lesen");
+        assert_eq!(mode(&path), 0o400);
+        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+        let _ = std::fs::remove_dir_all(dir);
     }
 }
