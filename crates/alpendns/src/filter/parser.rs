@@ -461,4 +461,29 @@ mod tests {
     struct FormatHolder {
         format: Format,
     }
+
+    /// Ein Name mit allem, was `normalize` zu tun bekommt: Großbuchstaben,
+    /// Punkte und Leerzeichen am Rand, daneben roher Müll. Auf einem schon
+    /// normalisierten Namen wäre die Eigenschaft geschenkt.
+    fn raw_name() -> impl proptest::strategy::Strategy<Value = String> {
+        use proptest::strategy::Strategy as _;
+        let shaped = (
+            "[ .]{0,2}",
+            proptest::collection::vec("[a-zA-Z0-9_-]{1,12}", 1..5),
+            "[ .]{0,2}",
+        )
+            .prop_map(|(head, labels, tail)| format!("{head}{}{tail}", labels.join(".")));
+        proptest::prop_oneof![shaped, "[ ./@a-zA-Z0-9_-]{0,40}"]
+    }
+
+    proptest::proptest! {
+        /// Die Invariante aus docs/TESTING.md §2: Normalisierung ist
+        /// idempotent — ein normalisierter Name kommt unverändert wieder heraus.
+        #[test]
+        fn normalizing_twice_changes_nothing(raw in raw_name()) {
+            if let Some(once) = normalize(&raw) {
+                proptest::prop_assert_eq!(normalize(&once), Some(once.clone()));
+            }
+        }
+    }
 }

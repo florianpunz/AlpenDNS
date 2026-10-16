@@ -349,6 +349,30 @@ mod tests {
         }
     }
 
+    proptest::proptest! {
+        /// Die Invariante aus docs/TESTING.md §2 über beliebige Namen statt
+        /// über einen festen: 0x20 ändert nur die Schreibweise. Für den
+        /// normalen, case-insensitiven Vergleich bleibt es derselbe Name —
+        /// darauf verlässt sich die Prüfung der Antwort —, die Form (FQDN oder
+        /// nicht) bleibt, und der case-sensitive Vergleich erkennt das Echo.
+        #[test]
+        fn case_randomization_only_changes_the_case(
+            labels in proptest::collection::vec("[a-zA-Z0-9]{1,20}", 1..5),
+            fqdn in proptest::bool::ANY,
+        ) {
+            let text = labels.join(".") + if fqdn { "." } else { "" };
+            let original = Name::from_ascii(&text).expect("gültiger Name");
+            let randomized = randomize_case(&original);
+            proptest::prop_assert_eq!(&randomized, &original);
+            proptest::prop_assert_eq!(
+                randomized.to_ascii().to_ascii_lowercase(),
+                original.to_ascii().to_ascii_lowercase()
+            );
+            proptest::prop_assert_eq!(randomized.is_fqdn(), original.is_fqdn());
+            proptest::prop_assert!(echoed_same_case(&randomized, &randomized.clone()));
+        }
+    }
+
     #[test]
     fn case_randomization_actually_changes_the_case_sometimes() {
         let original = name("averyverylongnamewithmanyletters.example.com.");

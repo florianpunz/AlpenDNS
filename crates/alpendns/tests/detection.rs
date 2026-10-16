@@ -18,7 +18,7 @@ use std::time::Duration;
 use alpendns::clock::{FixedWallClock, TestClock};
 use alpendns::config::BlockingConfig;
 use alpendns::detect::{
-    Action, Detector, Detectors, Finding, NameDetector, Observation, rebinding,
+    Action, Detector, Detectors, Finding, NameDetector, Observation, nrd, rebinding, tunneling,
 };
 use alpendns::filter::block::BlockMode;
 use alpendns::policy::{Blueprint, Decision, Engine, PolicyBackend};
@@ -583,4 +583,94 @@ fn a_split_horizon_zone_is_not_exempt_as_a_whole() {
         !zones.iter().any(|zone| zone == &name("miloo.at.")),
         "die ganze Zone wurde ausgenommen: {zones:?}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Tunneling und NRD durch die Engine
+// ---------------------------------------------------------------------------
+//
+// Ob die beiden Detektoren richtig *erkennen*, prüfen ihre Tests in
+// `detect/tunneling.rs` und `detect/nrd.rs`. Hier geht es nur darum, dass sie,
+// verdrahtet wie im Betrieb, im Trace landen und auf `flag` nichts blocken.
+// Das ersetzt nicht den Labortest mit echtem iodine, den ROADMAP Phase 8 für
+// die Abnahme des Tunneling-Detektors verlangt.
+
+/// Ein iodine-artiger Name, nach demselben Schema wie in `detect/tunneling.rs`.
+fn iodine_like(index: usize) -> String {
+    const ALPHABET: &[u8] = b"abcdefghijklmnopqrstuvwxyz0123456789";
+    let mut state = (index as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15);
+    let mut label = String::with_capacity(60);
+    for _ in 0..58 {
+        state = state
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        let pick = usize::try_from(state >> 33).unwrap_or(0) % ALPHABET.len();
+        label.push(char::from(ALPHABET[pick]));
+    }
+    format!("{label}.t.example.com")
+}
+
+fn with_tunneling(clock: &Arc<TestClock>) -> Detectors {
+    Detectors::new().with_name(
+        tunneling::Tunneling::new(Duration::from_secs(300), &[], Arc::clone(clock)),
+        Action::Flag,
+        0,
+    )
+}
+
+#[test]
+fn tunneling_flags_an_iodine_like_stream_in_the_trace() {
+    let clock = Arc::new(TestClock::new());
+    let engine = engine(with_tunneling(&clock), &clock);
+
+    let mut found = None;
+    for index in 0..100 {
+        let mut ctx = ctx();
+        let decision = engine.evaluate(&name(&iodine_like(index)), peer(), &mut ctx);
+        assert_eq!(decision, Decision::Allow, "flag blockt nie");
+        found = found.or_else(|| detected(&ctx));
+    }
+    let (detector, _, action, _) = found.expect("der Strom wurde nie gemeldet");
+    assert_eq!(detector, Detector::Tunneling);
+    assert_eq!(action, Action::Flag);
+}
+
+#[test]
+fn tunneling_leaves_ordinary_names_under_one_zone_alone() {
+    let clock = Arc::new(TestClock::new());
+    let engine = engine(with_tunneling(&clock), &clock);
+
+    for host in [
+        "www", "mail", "api", "cdn", "static", "images", "docs", "shop",
+    ] {
+        let mut ctx = ctx();
+        engine.evaluate(&name(&format!("{host}.example.com")), peer(), &mut ctx);
+        assert_eq!(detected(&ctx), None, "{host}.example.com");
+    }
+}
+
+#[test]
+fn nrd_flags_a_fresh_domain_in_the_trace_and_not_an_old_one() {
+    let dir = std::env::temp_dir().join(format!("alpendns-detection-nrd-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("Verzeichnis anlegen");
+    let path = dir.join("nrd.txt");
+    // wall() steht auf 2026-08-30: zehn Tage gegen sechs Jahre.
+    std::fs::write(&path, "frisch.example 2026-08-20\nalt.example 2020-01-01\n")
+        .expect("Datei schreiben");
+    let nrd = nrd::Nrd::load(&path, Duration::from_secs(30 * 86_400), wall()).expect("NRD lädt");
+    let _ = std::fs::remove_dir_all(&dir);
+
+    let clock = Arc::new(TestClock::new());
+    let engine = engine(Detectors::new().with_name(nrd, Action::Flag, 0), &clock);
+
+    let mut fresh = ctx();
+    let decision = engine.evaluate(&name("www.frisch.example"), peer(), &mut fresh);
+    assert_eq!(decision, Decision::Allow, "flag blockt nie");
+    let (detector, _, action, _) = detected(&fresh).expect("frische Domain nicht gemeldet");
+    assert_eq!(detector, Detector::Nrd);
+    assert_eq!(action, Action::Flag);
+
+    let mut old = ctx();
+    engine.evaluate(&name("alt.example"), peer(), &mut old);
+    assert_eq!(detected(&old), None);
 }
