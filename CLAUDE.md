@@ -403,4 +403,7 @@ In addition to part A.1 — stop before you:
 * change the configuration format incompatibly;
 * switch a heuristic in `alpendns-detect` from `flag` to `block` as the default
   (false positives that break the internet are the biggest risk to acceptance);
-* implement something assigned to a later phase in `docs/ROADMAP.md`.
+* implement something assigned to a later phase in `docs/ROADMAP.md`;
+* change anything on a production host or under `/etc/alpendns` /
+  `/var/lib/alpendns`;
+* print, log or commit a secret (token, key, password) — name only the path.
