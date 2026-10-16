@@ -119,9 +119,10 @@ later audit does not start from scratch:
   fallback then reads more than 64 MB.
 - **Risk:** requires local write access to the service user's cache directory;
   not reachable over the network. Defense in depth, hence Low.
-- **Status: open.** `read_limited` still checks and reads in two steps
-  (`crates/alpendns/src/filter/source.rs`). The fix in `cb8f86a` addressed the
-  download path, not this cached-file path.
+- **Status: fixed** in `ecec90d` (2026-10-16). `read_limited` no longer asks
+  for the size first; `take(MAX_LIST_BYTES + 1)` bounds the read itself. The
+  regression test reads from a FIFO, which reports length 0 and then delivers
+  more than the limit.
 
 ### Low — API token file briefly with default permissions
 
@@ -135,8 +136,9 @@ later audit does not start from scratch:
 - **Risk:** local attacker, tiny time window, but it is the API credential. The
   clean version would be `OpenOptions` with `mode(0o600)` (Unix) at creation
   time, so that no open window ever exists.
-- **Status: open.** `crates/alpendns/src/main.rs` still writes and then chmods,
-  and does not tighten pre-existing loose permissions.
+- **Status: fixed** in `ecec90d` (2026-10-16). The file is created with
+  `OpenOptions::mode(0o600)`; an existing file readable by group or others is
+  set to `0600` and a warning is logged.
 
 ### Context (not a code problem) — amplification via spoofed source IP
 
