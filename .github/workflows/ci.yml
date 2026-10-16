@@ -83,11 +83,20 @@ jobs:
         if: steps.deny.outcome == 'failure'
         run: exit 1
 
-  # Enable once crates/*/fuzz targets exist (see docs/TESTING.md).
-  # fuzz:
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: dtolnay/rust-toolchain@nightly
-  #     - run: cargo install cargo-fuzz
-  #     - run: cargo fuzz run parse_message -- -max_total_time=120
+  # Jedes Target 120 s (docs/TESTING.md §3). `-O` ist die Auslieferungs-
+  # konfiguration ohne Overflow-Checks: mit ihnen panict hickory-proto 0.26.1
+  # an einem kaputten TSIG-Record, ein bekannter Fall, der laut ADR-0006 bis
+  # hickory-proto 0.27 in fuzz/known-crashes/ liegt und nicht im Corpus.
+  fuzz:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: crates/alpendns
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - run: cargo install cargo-fuzz --locked
+      - run: cargo fuzz run -O parse_request -- -max_total_time=120
+      - run: cargo fuzz run -O parse_blocklist -- -max_total_time=120
+      - run: cargo fuzz run -O parse_config -- -max_total_time=120
+      - run: cargo fuzz run -O parse_upstream_addr -- -max_total_time=120

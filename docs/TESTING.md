@@ -34,11 +34,13 @@ For invariants that must hold for *all* inputs:
 Everything that reads bytes from the network or from foreign files gets a fuzz
 target:
 
-* Parsing a DNS message (even though `hickory-proto` does it — we fuzz our use
-  of it, including the places where we pull fields out).
-* Blocklist lines, all formats.
-* Config TOML.
-* DoH path parsing (token extraction).
+* `parse_request` — parsing a DNS message (even though `hickory-proto` does
+  it — we fuzz our use of it, including the places where we pull fields out).
+* `parse_blocklist` — blocklist lines, all formats.
+* `parse_config` — config TOML, through `Config::load` including validation.
+* `parse_upstream_addr` — upstream addresses from the config (`dot://…`,
+  `doh://host/path`).
+* DoH path parsing (token extraction) — open: there is no DoH listener yet.
 
 Success criterion: no panic, no endless loop, no unbounded growth. A crash that
 is found is checked in as a corpus file and becomes a regression test.
@@ -181,7 +183,7 @@ And the fuzz target invoked by hand — nightly, and the only nightly exception
 in the project:
 
 ```bash
-cargo +nightly fuzz run parse_message -- -max_total_time=120
+cargo +nightly fuzz run -O parse_request -- -max_total_time=120  # -O: ADR-0006
 ```
 
 The load measurement is explicitly **not** part of it (see §5).

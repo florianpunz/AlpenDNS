@@ -19,6 +19,27 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "parse_blocklist"
+path = "fuzz_targets/parse_blocklist.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "parse_config"
+path = "fuzz_targets/parse_config.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "parse_upstream_addr"
+path = "fuzz_targets/parse_upstream_addr.rs"
+test = false
+doc = false
+bench = false
+
 # Eigener Workspace: das Fuzz-Crate braucht nightly. Läge es im Haupt-Workspace,
 # würde `cargo clippy --all-targets` auf stable daran scheitern.
 [workspace]
