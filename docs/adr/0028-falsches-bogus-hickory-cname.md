@@ -1,6 +1,6 @@
 # ADR-0028: False `bogus` from hickory for a CNAME into another zone
 
-**Status:** proposed · **Date:** 2026-10-17 · **Concerns:**
+**Status:** accepted · **Date:** 2026-10-17 · **Concerns:**
 [ADR-0016](0016-dnssec-validierung-im-forwarder.md), `crates/alpendns/src/dnssec.rs`,
 `crates/alpendns/src/upstream/transport.rs`, the dependency `hickory-net`
 
@@ -23,8 +23,15 @@ if !soa_name.zone_of(&query.name) {
 
 With a CNAME into another zone the SOA belongs to the target's zone, which is not
 an ancestor of the query name. Present in `hickory-net` 0.26.1 (line 1615), 0.26.2
-(line 1742) and on `main` at `fb29151` (line 1937); PR #3595 ("net: verify NSEC
-records against CNAME target") is open and may fix it.
+(line 1742) and on `main` at `fb29151` (line 1937).
+
+**The way to the fix is PR
+[#3595](https://github.com/hickory-dns/hickory-dns/pull/3595) "net: verify NSEC
+records against CNAME target" at hickory-dns** (open since 2026-04-17, branch
+`cname-nsec`, `crates/net/src/dnssec/mod.rs` +43/−4). It is very likely this
+case; a short field report with the reproduction is prepared for the PR
+(`/tmp/hickory/pr-3595-comment.md`, the human posts it). Until it lands, the
+behaviour described here stays.
 
 Our own share is only how we consume the verdict: `dnssec::from_error` accepts
 hickory's proof as a *verdict* whenever the answer carries records (which it does
@@ -37,7 +44,12 @@ Reproduction without network (a test in a hickory checkout, `fb29151`):
 
 ## Decision
 
-**None yet.** Two options, and neither is free.
+**Option A is taken: accept it and document it as a known false-alarm source.**
+Validation stays on and `Bogus` stays terminal; the class is named where it is
+seen (observation week) so that the false positives are not counted as findings
+against the detectors. Option B stays below as the rejected alternative — it is
+the only lever we have, and it costs exactly the protection ADR-0016 was written
+for.
 
 ### Option A — accept it and document it as a known false-alarm source
 
@@ -53,7 +65,7 @@ against the detectors.
   round trip and three failed attempts for the pool. A device that polls such a
   name keeps a share of the pool marked down.
 
-### Option B — switch off our own validation for now
+### Option B — rejected: switch off our own validation for now
 
 `privacy.dnssec = false`: rely on the upstream's AD bit. The transport is
 authenticated with DoT/DoH/DoQ and the three configured upstreams validate
@@ -75,4 +87,6 @@ The state ends with a hickory release that contains the fix (PR #3595 or an
 equivalent change). The proof is a test that pins it: the recorded answer from
 this diagnosis as a fixture, validated through hickory, expected `Secure` — the
 same shape as the reproduction above, but in `crates/alpendns/tests/dnssec.rs`
-against the pinned version. Until that test is green, this ADR stays `proposed`.
+against the pinned version. Until that test is green, this ADR describes the
+accepted state: the class is a known false-alarm source and is named as such in
+the observation report.
