@@ -948,7 +948,33 @@ not a preference.
 
 **Effort:** S to M, most of it in the config check and the docs.
 
+## 12. Two tests that flap under load
 
+Both are measurement tests, not logic tests, and both were seen failing in a full
+`cargo test --all-features` run on 2026-10-17 — never in isolation. Not repaired
+here; the direction is named.
+
+* **`upstream::pool::tests::rotation_keeps_the_distribution_even`**
+  ([pool.rs](../crates/alpendns/src/upstream/pool.rs)). The pool is built with a
+  fixed seed (`with_seed(…, 0x5eed)`), but the test then calls `rotate_seed()`
+  five times, and that draws `rand::random()` (`pool.rs:162`) — fresh entropy,
+  not a sequence. Every round must stay under 5 % deviation; one unlucky draw
+  gave `[3453, 3159, 3388]`, i.e. 5.23 %. Fix direction: a deterministic seed
+  sequence for the test (a `rotate_to(seed)` helper or a `cfg(test)` counter)
+  instead of entropy, or a bound derived from the sample size — with 10,000 names
+  and three buckets the deviation *is* the measurement, not a property of the
+  code.
+* **`throughput_with_and_without_rate_limiting`**
+  ([tests/load.rs](../crates/alpendns/tests/load.rs), `#[ignore]`). It measures
+  queries/s once without and once with the limiter and asserts
+  `limited > plain * 0.8`; in 3 of 15 runs the second phase met a machine that
+  was busy with something else, and the assertion fired at its own threshold.
+  Both measurements are in the same run, but one after the other — that is a
+  comparison across time, not under the same conditions. Fix direction:
+  interleave (A/B/A/B) and compare medians, or a tolerance with a documented
+  measurement-noise argument.
+
+## Order and bundles
 
 **First, because cheap and with real effect:**
 
