@@ -1,6 +1,6 @@
 # ADR-0029: The more specific zone wins, whatever its type
 
-**Status:** proposed · **Date:** 2026-10-17 · **Replaces part of:**
+**Status:** accepted · **Date:** 2026-10-17 · **Replaces part of:**
 [ADR-0023](0023-lokale-zonen.md) · **Concerns:**
 `crates/alpendns/src/config.rs` (`validate_local_zones`),
 `crates/alpendns/src/local.rs` (`LocalBackend`),
@@ -27,11 +27,20 @@ names outside the DC zone returned SERVFAIL in 60–100 ms. The right
 configuration is therefore: close `168.192` locally *and* forward `1.168.192`
 to the DC.
 
-`Config::validate` refuses exactly that. It rejects every overlap of a
-`[[local_zone]]` and a `[[forward_zone]]`, including a forward zone that is
-strictly more specific than the local one. The two needs — "do not ask
+**It also triggers a second false-alarm source.** Quad9 answers
+`168.192.in-addr.arpa` from its own RFC 6303 local zone without NSEC or NSEC3.
+A validating resolver can prove neither secure nor insecure and drops the
+answer; the client sees SERVFAIL. This is not ADR-0028: that one is hickory's
+NSEC check after a CNAME into another zone, this one is an unsigned local-zone
+answer for a name below a signed parent. Closing `168.192` locally with this
+ADR removes the question from the upstream path. The SERVFAIL measured for
+`13.2.168.192` at 14:52:08Z on 2026-10-17 is this source, not ADR-0028.
+
+`Config::validate` refused exactly that before this ADR. It rejected every
+overlap of a `[[local_zone]]` and a `[[forward_zone]]`, including a forward zone
+that is strictly more specific than the local one. The two needs — "do not ask
 strangers about my LAN" and "ask my own nameserver for the part it owns" —
-cannot be expressed together.
+could not be expressed together.
 
 ## Decision
 
@@ -70,8 +79,8 @@ Implementation, in the order the request passes through:
 ## Consequences
 
 * **The dns1 case is expressible:** one closed `168.192.in-addr.arpa`, one
-  forwarded `1.168.192.in-addr.arpa`. Nothing on dns1 changes with this ADR;
-  the change is proposed and stays on a branch (B.8).
+  forwarded `1.168.192.in-addr.arpa`. This ADR is accepted with the change;
+  dns1 receives the configuration in the deployment step after the release.
 * **`fallback = "upstream"` parents:** the pass-through code path already
   existed, but `validate` made the configuration unreachable. It is reachable
   now. The new part is the closed parent (`fallback = "nxdomain"`), which used

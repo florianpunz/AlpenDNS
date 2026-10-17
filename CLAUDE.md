@@ -97,7 +97,7 @@ The pipeline is a chain of `ResolveBackend` implementations, outside in:
 the names of `[[local_zone]]` from a static table itself — that is not an
 authoritative zone ([ADR-0023](docs/adr/0023-lokale-zonen.md)). It also carries
 the `[[forward_zone]]` names, so a forward zone deeper than the matching local
-zone wins (ADR-0029, proposed); the forwarding itself stays in the
+zone wins (ADR-0029); the forwarding itself stays in the
 `ZoneRouter`. Otherwise no layer knows the others; the diagram is in
 `docs/ARCHITECTURE.md` §1.
 

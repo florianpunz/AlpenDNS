@@ -230,7 +230,7 @@ fallback = "nxdomain"
 "#;
 
 /// Der dns1-Fall: das `/16` ist lokal geschlossen, das `/24` der DCs geht an
-/// den LAN-Server (ADR-0029, auf diesem Branch).
+/// den LAN-Server (ADR-0029).
 const NESTED: &str = r#"
 [[local_zone]]
 zone = "168.192.in-addr.arpa"

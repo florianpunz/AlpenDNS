@@ -212,7 +212,7 @@ the `/16` at home. A more specific local zone answers its entries; its
 `fallback` decides the rest. `alpendns check` prints the direction for a nested
 local/forward pair. A local record in the less specific zone no longer applies
 under a more specific forward zone
-([ADR-0029](adr/0029-nested-forward-zone.md), proposed).
+([ADR-0029](adr/0029-nested-forward-zone.md)).
 
 Three things to know before the first entry:
 
@@ -296,8 +296,8 @@ fallback = "nxdomain"
 **A `forward_zone` inside a closed zone is allowed, and the more specific zone
 wins.** The chain is `Cache → Local → ZoneRouter → Pool`, so `LocalBackend`
 hands a name to the `ZoneRouter` when a forward zone lies deeper than the
-local zone that would otherwise answer ([ADR-0029](adr/0029-nested-forward-zone.md),
-proposed). A `/24` of the `/16` above can therefore go to the domain
+local zone that would otherwise answer ([ADR-0029](adr/0029-nested-forward-zone.md)).
+A `/24` of the `/16` above can therefore go to the domain
 controllers while the rest stays closed:
 
 ```toml

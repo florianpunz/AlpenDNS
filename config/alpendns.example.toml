@@ -113,7 +113,7 @@ upstream = "udp://10.0.0.1:53"
 # The difference to forward_zone above: there AlpenDNS *asks* another
 # nameserver, here it *answers*. The same zone in both sections is a startup
 # error. A zone may lie inside the other; the more specific one wins
-# (ADR-0029, proposed): a forward_zone for 1.168.192.in-addr.arpa inside a closed
+# (ADR-0029): a forward_zone for 1.168.192.in-addr.arpa inside a closed
 # local_zone for 168.192.in-addr.arpa sends that /24 to the LAN server and
 # keeps the rest of the /16 at home.
 #

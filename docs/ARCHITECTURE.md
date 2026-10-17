@@ -73,7 +73,7 @@ implementation of the trait and knows only the one below it; which links exist
 is decided once, when `main` wires them up. `LocalBackend` answers the names in
 `[[local_zone]]` and passes everything else down — a static table, not an
 authoritative zone ([ADR-0023](adr/0023-lokale-zonen.md)). Since ADR-0029
-(proposed) it also carries the nested `[[forward_zone]]` names: a forward zone
+(ADR-0029) it also carries the nested `[[forward_zone]]` names: a forward zone
 that lies deeper than the matching local zone wins, and `LocalBackend` hands the
 name to the `ZoneRouter`. It knows those names, not the router's backend; the
 forwarding itself stays in the router.
