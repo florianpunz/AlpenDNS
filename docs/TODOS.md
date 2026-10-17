@@ -981,6 +981,30 @@ here; the direction is named.
   are measured alternately over five rounds, the medians are compared against
   the unchanged `0.8`; 15 runs with `--ignored` passed, share 95.6–100.7 %.
 
+## 13. `forward_zone` duplicates are accepted silently
+
+**Finding.** `ForwardZone` carries exactly one `upstream`
+([config.rs](../crates/alpendns/src/config.rs)); the `ZoneRouter` picks with
+`.find(|(zone, _)| zone.zone_of(question))`
+([router.rs](../crates/alpendns/src/router.rs)) — the first hit wins. A second
+`[[forward_zone]]` for the same zone is therefore dead text, and nothing says so:
+`Config::validate` only checks the transport and the overlap with
+`[[local_zone]]`, and `alpendns check` does not list forward zones at all. Seen
+while setting up dns1: two blocks for `168.192.in-addr.arpa` (one per DC) passed
+`check` with exit 0, and only the first would ever be asked.
+
+**Direction.** `check` lists the forward zones (zone → upstream) and **warns** on
+duplicates. A startup error would be an incompatible configuration change for
+everyone who has such a block today — B.8 says ask first, so warning first, error
+maybe later together with a migration note.
+
+**Possible extension.** Several servers per `forward_zone` with failover
+(`upstream = [...]`, the router asks the next when the first one does not
+answer). Today the operator has to pick one nameserver per zone; a dead DC takes
+the reverse zone with it.
+
+**Not built:** neither the list output nor the warning nor the failover.
+
 ## Order and bundles
 
 **First, because cheap and with real effect:**
