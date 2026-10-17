@@ -903,7 +903,52 @@ For completeness, because it belongs to the decision:
 
 ---
 
-## Order and bundles
+## 11. RFC 6303 defaults for the private reverse zones
+
+> A PTR query for `192.168.1.5` leaves the house. Closing the RFC 6303 zones is possible
+> per `[[local_zone]]` today — but only if someone writes 25 blocks.
+
+**Finding.** `[[local_zone]]` with `fallback = "nxdomain"` closes a zone
+([ADR-0023](adr/0023-lokale-zonen.md)), and [OPERATIONS.md](OPERATIONS.md) now
+carries the copy-paste block for the RFC 6303 §4 list. Built in is nothing:
+without those entries a PTR query for a private address goes to the upstream
+(`local.rs`, `LocalZone::is_closed` only knows configured zones). On dns1 that
+showed up twice — as a privacy leak and as unstable NXDOMAIN/SERVFAIL answers,
+because upstreams treat the ranges differently.
+
+**Design.** The list from RFC 6303 §4 as a table compiled into the binary, used
+when no configured zone claims the name. Two things have to be decided first:
+
+* **The overlap rule.** `Config::validate` refuses `local_zone` and
+  `forward_zone` on the same or a contained zone (`config.rs`). A built-in
+  default would collide with every existing `forward_zone` into the own DCs —
+  configurations that start today would stop starting. An explicit entry has to
+  *override* the default, and the overlap check has to see only configured
+  entries.
+* **The answer.** NXDOMAIN like a closed local zone, or NODATA? RFC 6303 §4
+  speaks of "locally served", and an unallocated reverse zone has no owner; the
+  cheaper answer is NXDOMAIN without a synthetic SOA, exactly as `local.rs`
+  answers a closed zone today.
+
+**Steps.**
+
+1. Compile the RFC 6303 §4 zones in as a fallback table → verify: `dig -x
+   192.168.1.5` against a freshly installed instance is answered locally and the
+   query log shows no upstream step
+2. Let a configured `[[local_zone]]`/`[[forward_zone]]` override the default and
+   keep `Config::validate` green → verify: a configuration with
+   `1.168.192.in-addr.arpa` as a forward zone starts, while the same zone as a
+   `local_zone` and a `forward_zone` still is an error
+3. Migration note in OPERATIONS.md → verify: a configuration from before the
+   change starts unchanged and its behaviour is documented
+
+**Not built:** no PTR records derived from `local_zone` A records (ADR-0023),
+and no switch to turn the default off — "do not ask strangers about my LAN" is
+not a preference.
+
+**Effort:** S to M, most of it in the config check and the docs.
+
+
 
 **First, because cheap and with real effect:**
 

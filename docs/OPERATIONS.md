@@ -191,6 +191,85 @@ Three things to know before the first entry:
   a validating client rejects — the well-known split-horizon problem. It only
   concerns clients that validate DNSSEC themselves.
 
+### Private reverse zones are not forwarded
+
+A PTR query for `192.168.1.5` leaves the house today: there is no reverse zone
+for it, so the question "which device is 192.168.1.5" is asked at the upstream
+resolver. That is a privacy leak, and it is also where unstable answers come
+from — upstreams treat those ranges differently, some answer NXDOMAIN, some
+SERVFAIL.
+
+[RFC 6303](https://www.rfc-editor.org/rfc/rfc6303#section-4) §4 lists the reverse
+zones that must never be asked outward. Closing them is one line per zone:
+`fallback = "nxdomain"` without records, so AlpenDNS answers "does not exist"
+and nothing leaves the process ([ADR-0023](adr/0023-lokale-zonen.md), a closed
+zone is the one-liner for "this is nobody else's business").
+
+```toml
+# 10/8
+[[local_zone]]
+zone = "10.in-addr.arpa"
+fallback = "nxdomain"
+
+# 172.16/12 — 172.16.0.0 to 172.31.255.255
+[[local_zone]]
+zone = "16.172.in-addr.arpa"
+fallback = "nxdomain"
+# … the same for 17.172.in-addr.arpa through 31.172.in-addr.arpa …
+
+# 192.168/16
+[[local_zone]]
+zone = "168.192.in-addr.arpa"
+fallback = "nxdomain"
+
+# 169.254/16 (link-local)
+[[local_zone]]
+zone = "254.169.in-addr.arpa"
+fallback = "nxdomain"
+
+# 127/8 (loopback)
+[[local_zone]]
+zone = "127.in-addr.arpa"
+fallback = "nxdomain"
+
+# fd00::/8 (unique local)
+[[local_zone]]
+zone = "d.f.ip6.arpa"
+fallback = "nxdomain"
+
+# fe80::/10 (link-local): fe80:: to febf::
+[[local_zone]]
+zone = "8.e.f.ip6.arpa"
+fallback = "nxdomain"
+
+[[local_zone]]
+zone = "9.e.f.ip6.arpa"
+fallback = "nxdomain"
+
+[[local_zone]]
+zone = "a.e.f.ip6.arpa"
+fallback = "nxdomain"
+
+[[local_zone]]
+zone = "b.e.f.ip6.arpa"
+fallback = "nxdomain"
+```
+
+**A `forward_zone` does not take precedence over this — it is refused.** The
+chain is `Cache → Local → ZoneRouter → Pool`, so a local zone sits *above* the
+router and would win. It never gets that far: `Config::validate` rejects the
+overlap of the same *or a contained* zone at startup with "local_zone … and
+`forward_zone` … overlap … One of the two zones has to go elsewhere"
+(`config.rs`). Whoever wants a reverse zone answered by the domain controllers
+in the LAN therefore leaves it **out of the list above** and configures it as
+`[[forward_zone]]` — not both.
+
+That has a practical consequence for a `/24`: `1.168.192.in-addr.arpa` (the
+reverse zone of `192.168.1.0/24`) is *contained* in `168.192.in-addr.arpa`, so
+the closed `/16` above and a forwarded `/24` collide. With DCs that answer
+`1.168.192.in-addr.arpa`, leave `168.192.in-addr.arpa` to them and close only
+the rest.
+
 ### The interface
 
 The web UI shows names and therefore listens on loopback only. From another
