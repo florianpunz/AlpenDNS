@@ -44,7 +44,7 @@ cargo test --release --test load -- --ignored --nocapture --test-threads=1
 | 2 | `upstream/pool.rs` `is_down` | a `Mutex` lock per upstream per cache miss, although the value is written only on failure | `Mutex<Option<Instant>>` → `AtomicU64` (monotonic microseconds) | pending | S |
 | 3 | `policy/mod.rs` `resolve` | `asked` string (to_ascii + lowercase) on every request, needed only for the rebinding check | build it only when an answer detector is attached | pending | S |
 | 4 | `detect/dga/mod.rs` | `symbols`/`mean_surprise` allocate a Vec per label; labels are ≤ 63 characters | fixed-size stack buffer instead of a heap Vec | pending | S |
-| 5 | `upstream/strategy.rs` `registrable_domain` | PSL lookup + up to three string allocations per cache miss | hash the registrable domain without the last `to_owned()` | pending | S |
+| 5 | `upstream/strategy.rs` `registrable_domain` | PSL lookup + up to three string allocations per cache miss | hash the registrable domain without the last `to_owned()` | measured: no benefit (`load.rs` has no pool; the load binary is byte-identical) | S |
 | 6 | `detect/typosquat.rs` `embeds` | `format!(".{protected}")` three times per entry per request | compute it once when the detector is built | pending | S |
 | — | detectors, total | run on every allow request | **none** — an accepted price, see below | **measured: ~10 %** | — |
 | — | tunneling mutex | a global mutex per request | **none for now** — reversal condition documented | **measured: part of the 10 %** | — |
@@ -241,6 +241,17 @@ no profile shows the UDP allocation as hot.
 clones in [transport.rs](crates/alpendns/src/upstream/transport.rs) are cheap: a
 request carries only its question, no answers. **Rejected:** not the place where time
 is lost; a rework here would risk lifetime errors for nothing.
+
+### Candidate 5: `registrable_domain` without the last allocation — not measurable
+
+Implemented on `perf/registrable-domain` (`zone_index` hashes the borrowed `&str`;
+a test pins that the mapping stays the same). The measurement never got as far as
+noise: `load.rs` wires `ForwardBackend` directly, without a `Pool`, so the linker
+drops `strategy.rs` from the load binary altogether. Baseline and candidate built
+to the **same bytes** (sha256 `22545a5c…`), so an A/B run would compare the
+program with itself. **Rejected** under the rule above — no proven benefit — and
+the branch is kept. Reconsider only together with a load measurement that runs
+through a `split_by_zone` pool; the same gap applies to candidate 2.
 
 ---
 
