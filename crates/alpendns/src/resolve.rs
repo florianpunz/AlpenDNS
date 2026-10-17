@@ -43,6 +43,11 @@ pub enum ResolveError {
     /// Fehlversuch angerechnet wird (Begründung in `crate::dnssec::from_error`).
     #[error("Upstream delivered no verifiable answer")]
     Unproven,
+    /// Dieselbe Frage ist gerade eben schon gescheitert und der Fehler wird
+    /// kurz gemerkt (RFC 9520 §3.2, ADR-0027). Der Upstream wird innerhalb der
+    /// Frist nicht erneut gefragt.
+    #[error("resolution failed recently; the failure is cached")]
+    CachedFailure,
 }
 
 /// Löst eine Anfrage auf — in v1 durch Weiterleiten an einen Upstream.

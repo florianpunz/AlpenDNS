@@ -117,6 +117,9 @@ pub enum Step {
         zone: Arc<str>,
         records: usize,
     },
+    /// Dieselbe Frage ist kurz zuvor gescheitert; der Upstream wird innerhalb
+    /// der Frist nicht gefragt (RFC 9520 §3.2, ADR-0027).
+    FailureCached,
 }
 
 impl std::fmt::Display for Step {
@@ -181,6 +184,12 @@ impl std::fmt::Display for Step {
             Self::Synthesized { mode } => write!(f, "Answer synthesized locally, mode {mode:?}"),
             Self::LocalAnswer { zone, records } => {
                 write!(f, "from local zone '{zone}', {records} record(s)")
+            }
+            Self::FailureCached => {
+                write!(
+                    f,
+                    "the same question failed moments ago; the upstream is not asked again"
+                )
             }
         }
     }

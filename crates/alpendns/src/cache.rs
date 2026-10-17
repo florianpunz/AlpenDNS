@@ -154,6 +154,15 @@ impl<C: Clock> Cache<C> {
         self.shards.get(hasher.finish() as usize & (SHARDS - 1))
     }
 
+    /// Die Uhr, mit der der Cache rechnet.
+    ///
+    /// Der eine Ort, an dem die Zeit herkommt (B.3 Regel 4) — die Schicht
+    /// darüber braucht sie für ihre eigenen Fristen (RFC 9520, ADR-0027) und
+    /// soll dafür nicht ein zweites `Instant::now()` aufmachen.
+    pub fn now(&self) -> Instant {
+        self.clock.now()
+    }
+
     /// Sucht einen Eintrag und setzt die TTLs auf die Restlaufzeit.
     pub fn get(&self, key: &Key) -> Option<Hit> {
         let now = self.clock.now();
@@ -265,7 +274,11 @@ impl<C: Clock> Cache<C> {
                 Some(soa_ttl.clamp(self.min_ttl, self.max_negative_ttl))
             }
             // SERVFAIL, REFUSED und alles andere sind Zustandsmeldungen, keine
-            // Daten. Sie zu cachen würde einen kurzen Ausfall verlängern.
+            // Daten — sie gehören nicht in den Antwort-Cache, der sie für alle
+            // Clients festhielte. Dass ein Name *gerade* scheitert, merkt sich
+            // die Schicht darüber für ein paar Sekunden (caching.rs,
+            // ADR-0027): kurz, bei jedem weiteren Fehler verdoppelt, und ohne
+            // den Fehler als Antwort zu speichern.
             _ => None,
         }
     }

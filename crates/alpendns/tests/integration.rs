@@ -568,8 +568,10 @@ async fn prefetch_refreshes_before_the_entry_expires() {
 
 #[tokio::test]
 async fn servfail_is_not_cached() {
-    // Erst schweigt der Upstream (SERVFAIL), dann antwortet er. Wäre der Fehler
-    // gecacht, bliebe der Client dauerhaft auf SERVFAIL sitzen.
+    // Erst schweigt der Upstream (SERVFAIL), dann antwortet er. Seit ADR-0027
+    // wird der Fehler kurz gemerkt (RFC 9520 §3.2): innerhalb der Frist bleibt
+    // es beim SERVFAIL, ohne dass der Upstream erneut gefragt wird — danach
+    // löst der Resolver wieder auf. Dauerhaft sitzen bleibt niemand.
     let fake = fake_upstream(Duration::ZERO, |req| Some(answer_with_a(req))).await;
     fake.silent.store(true, Ordering::SeqCst);
     let server = start_server(fake.addr, Duration::from_millis(200)).await;
@@ -582,8 +584,22 @@ async fn servfail_is_not_cached() {
 
     fake.silent.store(false, Ordering::SeqCst);
     let second = Message::from_vec(&ask_udp(server.udp, &request).await).expect("dekodierbar");
-    assert_eq!(second.metadata.response_code, ResponseCode::NoError);
-    assert_eq!(second.answers.len(), 1);
+    assert_eq!(
+        second.metadata.response_code,
+        ResponseCode::ServFail,
+        "innerhalb der Frist antwortet der gemerkte Fehler"
+    );
+    assert_eq!(
+        fake.hits.load(Ordering::SeqCst),
+        1,
+        "die zweite Frage hat den Upstream trotz Frist erreicht"
+    );
+
+    // Nach der Frist (FAILURE_TTL = 5 s) wird wieder gefragt.
+    server.clock.advance(Duration::from_secs(6));
+    let third = Message::from_vec(&ask_udp(server.udp, &request).await).expect("dekodierbar");
+    assert_eq!(third.metadata.response_code, ResponseCode::NoError);
+    assert_eq!(third.answers.len(), 1);
 
     server.shutdown.cancel();
     server.handle.await.expect("sauberes Ende");
