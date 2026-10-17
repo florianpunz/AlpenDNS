@@ -87,6 +87,11 @@ jobs:
   # konfiguration ohne Overflow-Checks: mit ihnen panict hickory-proto 0.26.1
   # an einem kaputten TSIG-Record, ein bekannter Fall, der laut ADR-0006 bis
   # hickory-proto 0.27 in fuzz/known-crashes/ liegt und nicht im Corpus.
+  #
+  # `+nightly` gehört an jeden Aufruf: `rust-toolchain.toml` pinnt `stable`, und
+  # diese Datei sticht die von `dtolnay/rust-toolchain` installierte nightly aus.
+  # Ohne das Flag baut cargo-fuzz mit `-Zsanitizer=address` und bricht ab
+  # ("the option `Z` is only accepted on the nightly compiler").
   fuzz:
     runs-on: ubuntu-latest
     defaults:
@@ -96,7 +101,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@nightly
       - run: cargo install cargo-fuzz --locked
-      - run: cargo fuzz run -O parse_request -- -max_total_time=120
-      - run: cargo fuzz run -O parse_blocklist -- -max_total_time=120
-      - run: cargo fuzz run -O parse_config -- -max_total_time=120
-      - run: cargo fuzz run -O parse_upstream_addr -- -max_total_time=120
+      - run: cargo +nightly fuzz run -O parse_request -- -max_total_time=120
+      - run: cargo +nightly fuzz run -O parse_blocklist -- -max_total_time=120
+      - run: cargo +nightly fuzz run -O parse_config -- -max_total_time=120
+      - run: cargo +nightly fuzz run -O parse_upstream_addr -- -max_total_time=120
