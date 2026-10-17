@@ -535,7 +535,10 @@ himself. Then the contract holds and the migration is visible.
 
 ```
 1. Field suggestion on an unknown key → verify: a test with "blocklists" instead of
-   "blocklist" names the right name in the error text
+   "blocklist" names the right name in the error text — **done:** `typo_hint` in
+   config.rs takes the expected fields from serde's message and suggests the closest
+   within Damerau-Levenshtein distance 2 (`typosquat::distance`); start, reload and
+   `alpendns check` share the path through `Config::load`
 2. Record the pattern for renames (serde(alias) + warning), with an example
    → verify: a test loads a config with the old name, the result is identical, the warning
    is logged

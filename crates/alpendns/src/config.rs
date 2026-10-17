@@ -31,11 +31,17 @@ pub enum ConfigError {
         #[source]
         source: std::io::Error,
     },
-    #[error("configuration file {path} is invalid")]
+    #[error("configuration file {path} is invalid{hint}")]
     Parse {
         path: String,
+        /// Leer, oder der Vorschlag bei einem vertippten Schlüssel. Steht im
+        /// Text selbst, weil der Reload den Fehler nur mit `%error` loggt,
+        /// ohne die Kette.
+        hint: String,
+        // Geboxt, weil der Fehler mit `hint` sonst über Clippys Grenze für
+        // `Result`-Fehler wächst (`result_large_err`).
         #[source]
-        source: toml::de::Error,
+        source: Box<toml::de::Error>,
     },
     #[error("configuration incomplete: {0}")]
     Invalid(String),
@@ -498,6 +504,33 @@ impl ScheduleEntry {
         }
         Ok(())
     }
+}
+
+/// Schlägt bei einem unbekannten Schlüssel den ähnlichsten bekannten vor.
+///
+/// Die Liste der erwarteten Felder kommt aus serdes Meldung ("unknown field
+/// 'x', expected one of 'a', 'b'", dort in Backticks) statt aus einer eigenen
+/// Liste, die beim nächsten neuen Schlüssel veralten würde. Vorschlag nur bis
+/// Distanz 2: weiter weg rät er eher, als dass er hilft (ADR-0024).
+fn typo_hint(message: &str) -> String {
+    let Some((unknown, expected)) = message
+        .strip_prefix("unknown field `")
+        .and_then(|rest| rest.split_once('`'))
+    else {
+        return String::new();
+    };
+    // Zwischen den Backticks stehen die Namen, außerhalb Komma und Prosa.
+    let closest = expected
+        .split('`')
+        .skip(1)
+        .step_by(2)
+        .filter_map(|field| {
+            crate::detect::typosquat::distance(unknown, field, 2).map(|d| (d, field))
+        })
+        .min_by_key(|&(d, _)| d);
+    closest.map_or_else(String::new, |(_, field)| {
+        format!(": unknown key `{unknown}` — did you mean `{field}`?")
+    })
 }
 
 /// Eine Adresse oder ein Netz. Eine nackte Adresse wird zum Netz mit voller Länge.
@@ -1074,7 +1107,8 @@ impl Config {
         })?;
         let config: Self = toml::from_str(&text).map_err(|source| ConfigError::Parse {
             path: path.display().to_string(),
-            source,
+            hint: typo_hint(source.message()),
+            source: Box::new(source),
         })?;
         config.validate()?;
         Ok(config)
@@ -1463,6 +1497,41 @@ tls_name = "dns.quad9.net"
         let config = parse(text).expect("muss parsen");
         config.validate().expect("muss gültig sein");
         config
+    }
+
+    /// Lädt `text` über [`Config::load`], also über denselben Weg wie Start,
+    /// Reload und `alpendns check`.
+    fn load_text(text: &str, tag: &str) -> Result<Config, ConfigError> {
+        let dir = std::env::temp_dir().join(format!("alpendns-config-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("Testverzeichnis");
+        let path = dir.join(format!("{tag}.toml"));
+        std::fs::write(&path, text).expect("schreiben");
+        Config::load(&path)
+    }
+
+    #[test]
+    fn a_typo_in_a_top_level_key_names_the_right_one() {
+        let text = format!("{MINIMAL}\n[[blocklsit]]\nname = \"ads\"\n");
+        let error = load_text(&text, "typo-top").expect_err("ein Tippfehler startet nicht");
+        let message = error.to_string();
+        assert!(message.contains("`blocklsit`"), "{message}");
+        assert!(message.contains("did you mean `blocklist`?"), "{message}");
+    }
+
+    #[test]
+    fn a_typo_in_a_nested_table_names_the_right_one() {
+        let text = MINIMAL.replace("listen_tcp", "listne_tcp");
+        let error = load_text(&text, "typo-nested").expect_err("ein Tippfehler startet nicht");
+        let message = error.to_string();
+        assert!(message.contains("did you mean `listen_tcp`?"), "{message}");
+    }
+
+    #[test]
+    fn a_foreign_key_gets_no_misleading_suggestion() {
+        let text = MINIMAL.replace("[server]\n", "[server]\nfrobnicate = true\n");
+        let error = load_text(&text, "foreign").expect_err("ein fremder Schlüssel startet nicht");
+        let message = error.to_string();
+        assert!(!message.contains("did you mean"), "{message}");
     }
 
     #[test]
