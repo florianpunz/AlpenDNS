@@ -470,14 +470,18 @@ async fn drive_measured(server: SocketAddr, offset: usize) -> (f64, Duration, Du
 /// kostet die Pflichtausstattung aus CLAUDE.md B.5". Das Limit steht dabei so
 /// hoch, dass nichts verworfen wird — gemessen wird der Weg durch den
 /// Token-Bucket, nicht die Wirkung der Drosselung.
+///
+/// Beide Server laufen gleichzeitig und werden abwechselnd gemessen (A/B/A/B),
+/// verglichen werden die Mediane. Nacheinander gemessen verglich der Test zwei
+/// Zeitpunkte statt zwei Pfade: traf die zweite Phase eine Maschine, die
+/// gerade etwas anderes tat, schlug die Schwelle an (TODOS.md 12).
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "Lastmessung: maschinenabhängig, gehört nicht in die Definition of Done"]
 async fn throughput_with_and_without_rate_limiting() {
+    const ROUNDS: usize = 5;
+
     let before = resident_kib();
     let plain = start(CacheConfig::default()).await;
-    let (plain_qps, plain_p50, plain_p99) = drive_measured(plain.addr, 0).await;
-    plain.shutdown.cancel();
-
     let limiter = Arc::new(RateLimiter::new(
         1_000_000,
         1_000_000,
@@ -491,11 +495,30 @@ async fn throughput_with_and_without_rate_limiting() {
         Some(Arc::clone(&limiter)),
     )
     .await;
-    let (limited_qps, limited_p50, limited_p99) = drive_measured(limited.addr, 1).await;
+
+    // Jede Runde mit eigenem Offset, damit jede Messung nur neue Namen sieht.
+    let mut plain_runs = Vec::with_capacity(ROUNDS);
+    let mut limited_runs = Vec::with_capacity(ROUNDS);
+    for round in 0..ROUNDS {
+        plain_runs.push(drive_measured(plain.addr, 2 * round).await);
+        limited_runs.push(drive_measured(limited.addr, 2 * round + 1).await);
+    }
+    plain.shutdown.cancel();
     limited.shutdown.cancel();
     let after = resident_kib();
 
-    println!("\n| Request path          | queries/s | p50 | p99 |");
+    println!("\n| Round | without: q/s | p99 | with: q/s | p99 |");
+    println!("|------:|-------------:|----:|----------:|----:|");
+    for (round, (a, b)) in plain_runs.iter().zip(&limited_runs).enumerate() {
+        println!(
+            "| {round} | {:>9.0} | {:?} | {:>9.0} | {:?} |",
+            a.0, a.2, b.0, b.2
+        );
+    }
+    let (plain_qps, plain_p50, plain_p99) = medians(&plain_runs);
+    let (limited_qps, limited_p50, limited_p99) = medians(&limited_runs);
+
+    println!("\n| Request path (median) | queries/s | p50 | p99 |");
     println!("|-----------------------|----------:|----:|----:|");
     println!("| without rate limiting | {plain_qps:>9.0} | {plain_p50:?} | {plain_p99:?} |");
     println!("| with rate limiting    | {limited_qps:>9.0} | {limited_p50:?} | {limited_p99:?} |");
@@ -518,6 +541,18 @@ async fn throughput_with_and_without_rate_limiting() {
         "die Drosselung kostet mehr als ein Fünftel des Durchsatzes: \
          {limited_qps:.0} gegen {plain_qps:.0}"
     );
+}
+
+/// Median je Spalte über mehrere Läufe von [`drive_measured`].
+fn medians(runs: &[(f64, Duration, Duration)]) -> (f64, Duration, Duration) {
+    let mut qps: Vec<f64> = runs.iter().map(|r| r.0).collect();
+    let mut p50: Vec<Duration> = runs.iter().map(|r| r.1).collect();
+    let mut p99: Vec<Duration> = runs.iter().map(|r| r.2).collect();
+    qps.sort_unstable_by(f64::total_cmp);
+    p50.sort_unstable();
+    p99.sort_unstable();
+    let mid = runs.len().div_euclid(2);
+    (qps[mid], p50[mid], p99[mid])
 }
 
 /// Ein Client über dem Limit darf die anderen nicht mitreißen.

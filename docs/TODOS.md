@@ -948,7 +948,7 @@ not a preference.
 
 **Effort:** S to M, most of it in the config check and the docs.
 
-## 12. Two tests that flap under load
+## 12. Two tests that flap under load — done.
 
 Both are measurement tests, not logic tests, and both were seen failing in a full
 `cargo test --all-features` run on 2026-10-17 — never in isolation. Not repaired
@@ -974,7 +974,9 @@ here; the direction is named.
   Both measurements are in the same run, but one after the other — that is a
   comparison across time, not under the same conditions. Fix direction:
   interleave (A/B/A/B) and compare medians, or a tolerance with a documented
-  measurement-noise argument.
+  measurement-noise argument. **Done:** both servers now run side by side and
+  are measured alternately over five rounds, the medians are compared against
+  the unchanged `0.8`; 15 runs with `--ignored` passed, share 95.6–100.7 %.
 
 ## Order and bundles
 
