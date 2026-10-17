@@ -274,7 +274,7 @@ No query log, unless the operator explicitly turns on `full`.
 |---|---|
 | Upstream timeout | next resolver in the pool; all dead → `serve_stale`, otherwise SERVFAIL |
 | Blocklist not loadable | last cached version, log the error, raise the metric, do not prevent startup |
-| Blocklist not loadable on first start | abort startup — better no DNS than unfiltered DNS |
+| Blocklist not loadable and no cached copy yet | abort startup — better no DNS than unfiltered DNS |
 | Broken request from a client | FORMERR, raise the counter, no log spam per packet |
 | Answer does not match the question | discard, do not cache, count as a possible spoofing attempt |
 | Config reload fails | old config stays, error to the log |

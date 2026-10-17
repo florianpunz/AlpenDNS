@@ -564,6 +564,11 @@ fn build_schedule(entry: &crate::config::ScheduleEntry) -> Result<Schedule, Conf
 /// damit ein Reload sofort greift statt auf den nächsten Refresh-Tick zu warten.
 /// `wake` stößt genau diesen Zyklus an: der Reload signalisiert hier, sobald er
 /// einen neuen Stand eingetauscht hat.
+///
+/// Der Task lädt sofort nach dem Start: die erste Iteration verbraucht den
+/// ersten Tick nicht vorab. Er darf deshalb erst gestartet werden, nachdem die
+/// Listener-Sockets gebunden sind — der Abruf löst die Listen-URL über den
+/// Host auf, und der kann sich selbst fragen.
 pub async fn run_updater<C: Clock + Clone, W: WallClock>(
     engine: Arc<Engine<C, W>>,
     source: Arc<crate::reload::PolicySource>,
@@ -572,7 +577,11 @@ pub async fn run_updater<C: Clock + Clone, W: WallClock>(
     shutdown: tokio_util::sync::CancellationToken,
 ) {
     let mut ticker = tokio::time::interval(interval);
-    ticker.tick().await; // der erste Tick kommt sofort
+    // Kein Tick vor der Schleife: `interval` liefert den ersten Tick sofort.
+    // Ihn vorher zu verbrauchen verschiebt den ersten Abruf um ein volles
+    // Intervall. `main` startet den Task nach dem Binden der Listener-Sockets;
+    // der Erstabruf wiederholt den Ladevorgang des Starts bewusst, weil der
+    // vor dem Binden lief und auf die Cache-Fassung zurückfallen konnte.
     loop {
         tokio::select! {
             () = shutdown.cancelled() => return,

@@ -120,6 +120,15 @@ listen_tcp = ["127.0.0.1:53", "192.168.1.10:53"]
 Enter this machine's actual LAN address, **not** `0.0.0.0`: the wildcard also
 binds to an interface that may be facing the internet tomorrow.
 
+If the machine itself resolves through AlpenDNS, keep a loopback listener
+(`127.0.0.1:53`, and `[::1]:53` where the host uses IPv6 loopback) in both
+lists: the blocklist refresh after startup resolves its own list URL through
+the system resolver. The strict load before the listeners means that a `url`
+list without a cached copy aborts the start on such a host; point
+`/etc/resolv.conf` at the loopback only after a start in which every
+configured `url` list reached the cache (`sudo ls -l
+/var/cache/alpendns/lists/`, or the age in the interface).
+
 Then:
 
 ```bash
@@ -132,6 +141,24 @@ server, and says at the end whether a listener reaches beyond your own network.
 The same check runs as `ExecStartPre` before every start: if the file is broken,
 the new process does not start at all, and on a `restart` the service stays down
 and says why — instead of ending up in a restart loop.
+
+Add a list after that start with a reload rather than a restart:
+
+```bash
+sudo systemctl kill -s HUP --kill-whom=main alpendns
+```
+
+A restart instead hits the abort above, because the new list has no cached
+copy yet. If the reload's fetch fails, the failed list keeps the cached
+version if there is one. A missing list that a policy references — the
+implicit default policy references every enabled list — makes the rebuild fail
+with `rule set cannot be built, the old one stays in effect`, and then no list
+is updated. A repeated HUP retries immediately; the next regular attempt is
+one refresh interval away (24 h by default). `journalctl -u alpendns` shows
+`list loaded` with `origin=Network` or `origin=NotModified` on success.
+Restart only once the new list is in the cache (`sudo ls -l
+/var/cache/alpendns/lists/`); a restart before that ends after five attempts
+with the unit failed.
 
 Finally, switch the clients over: point the DHCP DNS server in your router at
 this machine's address.
@@ -388,7 +415,7 @@ not writable for the service.
 | Message | Meaning |
 |---|---|
 | `unknown field ...` | Typo in a key. Unknown keys are a startup error, not a warning — otherwise someone would sit unfiltered on the internet and not notice. |
-| `blocklists could not be loaded at startup` | No network on the very first start, and nothing in the cache yet. Later, an outage is not critical: the cached version stays in force. |
+| `blocklists could not be loaded at startup` | No network on the very first start, and nothing in the cache yet — or a single list that cannot be read and has no cache yet, a `path` typo included. Seen in `journalctl -u alpendns` after a failed start, not in `check` (it neither downloads nor stats list files). On a host that resolves through itself, that is the case until every `url` list has a cached copy — see "Opening it up to your own network". Later, an outage is not critical: the cached version stays in force. |
 | `listeners could not be opened` | Port 53 is taken — see below. |
 | `... cannot write in ...` | Permissions under `/var` are off. `systemctl restart alpendns` resets them, because systemd manages the directories. |
 
@@ -413,7 +440,8 @@ sudo systemctl restart alpendns
 ```
 
 If the machine itself should resolve through AlpenDNS, afterwards point
-`/etc/resolv.conf` or the `DNS=` entry in `resolved.conf` at `127.0.0.1`.
+`/etc/resolv.conf` or the `DNS=` entry in `resolved.conf` at `127.0.0.1`; see
+the listener and cache caveat under "Opening it up to your own network".
 
 ### Names do not resolve although the service is running
 

@@ -314,7 +314,7 @@ fn run() -> anyhow::Result<()> {
         .iter()
         .map(|spec| (spec.name.clone(), spec.format))
         .collect();
-    // Kürzestes Intervall aller Listen; Details in filter::run_updater.
+    // Kürzestes Intervall aller Listen; Details in policy::run_updater.
     let refresh = config
         .blocklist
         .iter()
@@ -384,6 +384,11 @@ fn run() -> anyhow::Result<()> {
             )
             .with_detectors(detectors),
         );
+        // `Blueprint::build` hat die Arc<Matcher> geklont. `loaded` würde die
+        // Startgeneration sonst bis zum Prozessende festhalten — weil der
+        // erste Tausch schon kurz nach dem Start passieren kann, wäre das
+        // eine zweite volle Matcher-Generation im Speicher.
+        drop(loaded);
 
         // Von außen nach innen: Filter → Cache → Lokale Zonen → Zonen-Weiche
         // → Pool. Gefiltert wird vor dem Cache, damit dieser die ungefilterte
@@ -540,9 +545,14 @@ fn run() -> anyhow::Result<()> {
             });
         }
 
-        // Weckt run_updater, sobald ein Reload einen neuen Stand eingetauscht hat,
-        // damit er sofort lädt statt auf den nächsten Refresh-Tick zu warten.
+        // Der Notify weckt run_updater, sobald ein Reload einen neuen Stand
+        // eingetauscht hat, damit er sofort lädt statt auf den nächsten
+        // Refresh-Tick zu warten.
         let reload_wake = Arc::new(Notify::new());
+        // Erst nach dem Binden der Listener-Sockets: der erste Abruf des
+        // Updaters löst die Listen-URL über den Host auf, und der kann sich
+        // selbst fragen. Die Sockets nehmen die Anfrage schon an, auch bevor
+        // die Annahmeschleifen sie auslesen.
         tokio::spawn(alpendns::policy::run_updater(
             Arc::clone(&engine),
             Arc::clone(&policy_source),

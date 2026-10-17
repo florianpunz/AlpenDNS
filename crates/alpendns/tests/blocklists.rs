@@ -19,13 +19,16 @@ use alpendns::filter::block::BlockMode;
 use alpendns::filter::parser::Format;
 use alpendns::filter::source::{ListSpec, LoadError, Loader, Origin, Source};
 use alpendns::policy::rules::RegexRules;
-use alpendns::policy::{Blueprint, Decision, Engine, PolicyBackend, PolicyBlueprint};
+use alpendns::policy::{Blueprint, Decision, Engine, PolicyBackend, PolicyBlueprint, run_updater};
+use alpendns::reload::PolicySource;
 use alpendns::resolve::{ResolveBackend, ResolveError};
 use alpendns::trace::{Ctx, Step};
 use hickory_proto::op::{Message, MessageType, OpCode, Query, ResponseCode};
 use hickory_proto::rr::{Name, RecordType};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::Notify;
+use tokio_util::sync::CancellationToken;
 
 /// Ein Verzeichnis, das sich beim Verlassen des Gültigkeitsbereichs aufräumt.
 struct TempDir(PathBuf);
@@ -64,6 +67,20 @@ struct HttpFake {
     /// Wie oft mit 304 geantwortet wurde.
     not_modified: Arc<AtomicUsize>,
     down: Arc<AtomicBool>,
+    /// Wird nach jeder angekommenen Anfrage geweckt. Tests warten darauf,
+    /// statt zu schlafen.
+    arrived: Arc<Notify>,
+}
+
+impl HttpFake {
+    /// Wartet, bis mindestens `count` Anfragen angekommen sind.
+    async fn wait_for_requests(&self, count: usize) {
+        while self.requests.load(Ordering::SeqCst) < count {
+            // `notify_one` legt ein Permit ab; ein Wecken vor dem Warten geht
+            // deshalb nicht verloren.
+            self.arrived.notified().await;
+        }
+    }
 }
 
 /// Ein HTTP/1.1-Server, der genau eine Liste ausliefert und ETag beherrscht.
@@ -80,16 +97,21 @@ async fn http_fake_bytes(body: Vec<u8>, etag: &'static str, chunked: bool) -> Ht
     let requests = Arc::new(AtomicUsize::new(0));
     let not_modified = Arc::new(AtomicUsize::new(0));
     let down = Arc::new(AtomicBool::new(false));
+    let arrived = Arc::new(Notify::new());
 
-    let (body, counter, cached, offline) = (
+    let (body, counter, cached, offline, wake) = (
         Arc::new(body),
         Arc::clone(&requests),
         Arc::clone(&not_modified),
         Arc::clone(&down),
+        Arc::clone(&arrived),
     );
     tokio::spawn(async move {
         while let Ok((mut stream, _)) = listener.accept().await {
             counter.fetch_add(1, Ordering::SeqCst);
+            // Muss notify_one bleiben: `wait_for_requests` lebt vom Permit,
+            // das auch dann liegen bleibt, wenn noch niemand wartet.
+            wake.notify_one();
             if offline.load(Ordering::SeqCst) {
                 // Verbindung ohne Antwort schließen: der Server ist "weg".
                 drop(stream);
@@ -139,6 +161,7 @@ async fn http_fake_bytes(body: Vec<u8>, etag: &'static str, chunked: bool) -> Ht
         requests,
         not_modified,
         down,
+        arrived,
     }
 }
 
@@ -266,6 +289,95 @@ async fn a_list_is_downloaded_and_parsed() {
     let set = lists.load(true).await.expect("Liste lädt");
     assert_eq!(set.total_entries(), 2);
     assert_eq!(fake.requests.load(Ordering::SeqCst), 1);
+}
+
+/// Der Updater lädt direkt nach dem Start, nicht erst nach einem vollen Intervall.
+///
+/// Der Fehler: `run_updater` verbrauchte den sofortigen ersten Tick vor der
+/// Schleife. Nach einem Neustart blieb damit die Cache-Fassung bis zu 24 h
+/// aktiv. Auf dns1 war die Liste dadurch 14 Tage alt, weil der strikte
+/// Erststart vor dem Binden der Listener läuft und dort nicht ins Netz kommt.
+#[tokio::test]
+async fn the_updater_fetches_once_right_after_start() {
+    // Weit über der Frist unten: der Test unterscheidet "sofort" von "nach
+    // einem Intervall", nicht zwei kurze Intervalle.
+    const REFRESH: Duration = Duration::from_secs(24 * 60 * 60);
+    const DEADLINE: Duration = Duration::from_secs(5);
+
+    let fake = http_fake(LIST_BODY, "\"v1\"").await;
+    let cache = TempDir::new("updater-first-fetch");
+    let lists = Lists::new(
+        Loader::new(cache.path()).expect("Loader"),
+        vec![spec(
+            "block",
+            Source::Url(format!("http://{}/liste", fake.addr)),
+            Format::Hosts,
+        )],
+    );
+    let blueprint = Blueprint::new(
+        Vec::new(),
+        Arc::from("default"),
+        vec![PolicyBlueprint {
+            name: Arc::from("default"),
+            blocklists: vec![Arc::from("block")],
+            allowlists: Vec::new(),
+            regex: Arc::new(RegexRules::default()),
+            schedules: Vec::new(),
+        }],
+    );
+    let source = Arc::new(PolicySource::new(blueprint, lists));
+    let engine = Arc::new(Engine::new(
+        Blueprint::new(Vec::new(), Arc::from("default"), Vec::new())
+            .build(&Default::default())
+            .expect("leerer Regelstand"),
+        0,
+        &BlockingConfig::default(),
+        Arc::new(TestClock::new()),
+        SystemWallClock,
+    ));
+    let filter = Arc::clone(&engine);
+
+    // Die Reihenfolge gegenüber dem Binden der Listener gehört zu main.rs;
+    // dieser Test prüft nur, dass der erste Abruf nicht auf das Intervall wartet.
+    let shutdown = CancellationToken::new();
+    let running = tokio::spawn(run_updater(
+        engine,
+        source,
+        REFRESH,
+        Arc::new(Notify::new()),
+        shutdown.clone(),
+    ));
+
+    // Kein sleep: auf die Anfrage beim Fake warten, dann darauf, dass der
+    // Regelstand wirklich getauscht ist. Die Fristen greifen nur im roten
+    // Fall — ohne den Fix käme der Abruf erst nach REFRESH.
+    tokio::time::timeout(DEADLINE, fake.wait_for_requests(1))
+        .await
+        .expect("der Updater hat nach dem Start keine Liste geladen");
+    let blocked = Name::from_ascii("ads.example.com.").expect("gültiger Name");
+    let peer = ctx().peer.ip();
+    tokio::time::timeout(DEADLINE, async {
+        loop {
+            let mut context = ctx();
+            if filter.evaluate(&blocked, peer, &mut context) == Decision::Block {
+                return;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("die geladene Liste ist nicht im Regelstand angekommen");
+
+    shutdown.cancel();
+    tokio::time::timeout(DEADLINE, running)
+        .await
+        .expect("der Updater beendet sich nicht")
+        .expect("der Updater ist abgestürzt");
+    assert_eq!(
+        fake.requests.load(Ordering::SeqCst),
+        1,
+        "der Updater hat mehr als einmal geladen"
+    );
 }
 
 #[tokio::test]
