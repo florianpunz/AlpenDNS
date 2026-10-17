@@ -104,6 +104,11 @@ the resolver encrypted without anything having to be configured on a single devi
 is the difference between "I have set up DoH" and "DNS is encrypted throughout the
 household".
 
+**What already applies today:** because RFC 9462 §6.1 forbids forwarding, `resolver.arpa`
+is answered by the resolver itself — NODATA for every name and type (§6.4) until a
+Designated Resolver exists. That is where DDR later hangs
+(`local::LocalBackend`, `crates/alpendns/src/local.rs`).
+
 **Prerequisite:** a certificate the clients trust, with the resolver's IP or name as SAN.
 In the LAN that means either a real domain with ACME-DNS-01 or a CA of your own deployed
 on the devices.

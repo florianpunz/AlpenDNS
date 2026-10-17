@@ -187,6 +187,15 @@ impl LocalZone {
     }
 }
 
+/// Das Sondergebiet aus RFC 9462: `resolver.arpa` wird lokal beantwortet.
+///
+/// §6.1: „A DNS forwarder SHOULD NOT forward queries for "resolver.arpa" (or
+/// any subdomains) upstream." §6.4 sagt, was stattdessen gilt: NODATA für
+/// jeden Namen und jeden Typ. AlpenDNS bietet keine verschlüsselten Listener
+/// an, es gibt also keinen Designated Resolver, den eine SVCB-Antwort
+/// beschreiben könnte — NODATA ist damit auch inhaltlich richtig.
+const DDR_ZONE: &str = "resolver.arpa.";
+
 /// Beantwortet Namen aus den lokalen Zonen und reicht alles andere weiter.
 ///
 /// Steht **unter** dem Cache (lokale Antworten sollen wie jede andere ihre TTL
@@ -197,13 +206,20 @@ impl LocalZone {
 pub struct LocalBackend<B> {
     /// Absteigend nach Tiefe sortiert, damit die spezifischste Zone gewinnt.
     zones: Vec<LocalZone>,
+    /// `resolver.arpa` mit vorberechnetem Trace-Label. `None` nur, wenn das
+    /// Literal nicht parsebar wäre — das kann nicht eintreten, und ein
+    /// Prozess, der deswegen nicht startet, wäre die schlechtere Antwort.
+    ddr: Option<(Name, Arc<str>)>,
     inner: B,
 }
 
 impl<B: ResolveBackend> LocalBackend<B> {
     pub fn new(mut zones: Vec<LocalZone>, inner: B) -> Self {
         zones.sort_by_key(|zone| std::cmp::Reverse(zone.zone.num_labels()));
-        Self { zones, inner }
+        let ddr = Name::from_ascii(DDR_ZONE)
+            .ok()
+            .map(|zone| (zone, Arc::from(DDR_ZONE)));
+        Self { zones, ddr, inner }
     }
 
     /// Der Eintrag zu einem Namen, mit der Zone, in der er steht.
@@ -265,7 +281,22 @@ impl<B: ResolveBackend> ResolveBackend for LocalBackend<B> {
                 return Ok(response);
             }
 
-            // 2. Kein Eintrag: die spezifischste Zone, die den Namen enthält,
+            // 2. resolver.arpa beantwortet AlpenDNS selbst (RFC 9462 §6.1 und
+            //    §6.4): ein Forwarder gibt es nicht weiter, und ohne eigenen
+            //    Designated Resolver ist NODATA die richtige Antwort. Ein
+            //    ausdrücklicher Eintrag oben gewinnt weiterhin.
+            if let Some((zone, label)) = &self.ddr
+                && zone.zone_of(query.name())
+            {
+                let response = response_to(request);
+                ctx.record(Step::LocalAnswer {
+                    zone: Arc::clone(label),
+                    records: 0,
+                });
+                return Ok(response);
+            }
+
+            // 3. Kein Eintrag: die spezifischste Zone, die den Namen enthält,
             //    entscheidet, ob er überhaupt hinausgeht.
             if let Some(zone) = self
                 .zones

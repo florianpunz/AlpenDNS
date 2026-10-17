@@ -309,6 +309,38 @@ async fn an_unknown_zone_reaches_the_upstream() {
 }
 
 #[tokio::test]
+async fn resolver_arpa_is_answered_locally_and_never_forwarded() {
+    // RFC 9462 §6.1: "A DNS forwarder SHOULD NOT forward queries for
+    // "resolver.arpa" (or any subdomains) upstream." Und §6.4: für jeden Namen
+    // unter resolver.arpa ist NODATA die Antwort, wenn es keinen Designated
+    // Resolver gibt — AlpenDNS bietet keine verschlüsselten Listener an, also
+    // gibt es keinen. Der Upstream darf die Frage nie sehen.
+    let server = start("", &[]).await;
+
+    for (name, qtype) in [
+        ("_dns.resolver.arpa.", RecordType::SVCB),
+        ("_dns.resolver.arpa.", RecordType::A),
+        ("anything.resolver.arpa.", RecordType::A),
+    ] {
+        let response = server.ask(name, qtype).await;
+        assert_eq!(
+            response.metadata.response_code,
+            ResponseCode::NoError,
+            "{name} {qtype}: kein NODATA"
+        );
+        assert!(
+            response.answers.is_empty(),
+            "{name} {qtype}: es kam eine Antwort, wo NODATA richtig wäre"
+        );
+    }
+    assert_eq!(
+        server.upstream_hits(),
+        0,
+        "resolver.arpa wurde an den Upstream weitergeleitet"
+    );
+}
+
+#[tokio::test]
 async fn blocking_beats_the_table() {
     // Sonst wäre die Filterung über eine Zeile in der Tabelle aushebelbar:
     // wer `nas.miloo.at` lokal festnagelt, hätte damit eine Blockliste
