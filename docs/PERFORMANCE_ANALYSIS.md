@@ -45,7 +45,7 @@ cargo test --release --test load -- --ignored --nocapture --test-threads=1
 | 3 | `policy/mod.rs` `resolve` | `asked` string (to_ascii + lowercase) on every request, needed only for the rebinding check | build it only when an answer detector is attached | pending | S |
 | 4 | `detect/dga/mod.rs` | `symbols`/`mean_surprise` allocate a Vec per label; labels are ≤ 63 characters | fixed-size stack buffer instead of a heap Vec | pending | S |
 | 5 | `upstream/strategy.rs` `registrable_domain` | PSL lookup + up to three string allocations per cache miss | hash the registrable domain without the last `to_owned()` | measured: no benefit (`load.rs` has no pool; the load binary is byte-identical) | S |
-| 6 | `detect/typosquat.rs` `embeds` | `format!(".{protected}")` three times per entry per request | compute it once when the detector is built | pending | S |
+| 6 | `detect/typosquat.rs` `embeds` | `format!(".{protected}")` three times per entry per request | compute it once when the detector is built | measured: no benefit (+6.3 % q/s with detectors, inside a ±3.6 % noise floor) | S |
 | — | detectors, total | run on every allow request | **none** — an accepted price, see below | **measured: ~10 %** | — |
 | — | tunneling mutex | a global mutex per request | **none for now** — reversal condition documented | **measured: part of the 10 %** | — |
 | — | cache hit `with_ttl` | deep clone of the answer per hit | **none** — the price of the hit | **measured: p50 18.8 µs** | — |
@@ -252,6 +252,27 @@ to the **same bytes** (sha256 `22545a5c…`), so an A/B run would compare the
 program with itself. **Rejected** under the rule above — no proven benefit — and
 the branch is kept. Reconsider only together with a load measurement that runs
 through a `split_by_zone` pool; the same gap applies to candidate 2.
+
+### Candidate 6: the typosquat embed string built once — inside the noise
+
+Implemented on `perf/typosquat-embeds` (`Protected::dotted` holds `.domain.`, the
+three comparisons in `embeds` use slices of it). Measured interleaved against
+`main`, five full `load` runs each, load below 1 before every run, 4-core
+container (medians, q/s):
+
+| Path | `main` | candidate | Δ |
+|---|---:|---:|---:|
+| with four detectors (typosquat attached) | 39,518 | 42,022 | +6.3 % |
+| every query a new name (no detectors) | 46,971 | 48,611 | +3.5 % |
+| without rate limiting (no detectors) | 47,026 | 45,335 | −3.6 % |
+| cache hit p99 (no detectors) | 93.7 µs | 105.4 µs | +12.5 % |
+
+The detector row is the only one the change can reach; its single runs overlap
+(39,137–41,910 against 39,466–45,461), and the median is carried by two high runs.
+The three rows below it run code the change does not touch, and they move by as
+much — that is the noise floor of the machine, not an effect. Six small
+allocations per request are also nanoseconds against a request that costs tens of
+microseconds. **Rejected:** no benefit shown above the noise; the branch is kept.
 
 ---
 
