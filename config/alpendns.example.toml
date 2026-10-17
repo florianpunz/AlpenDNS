@@ -111,9 +111,11 @@ upstream = "udp://10.0.0.1:53"
 # Local zone: entries of your own that AlpenDNS answers ITSELF.
 #
 # The difference to forward_zone above: there AlpenDNS *asks* another
-# nameserver, here it *answers*. That is why the two ways exclude each other —
-# a zone that stands in both sections (or contains the other) is a startup error
-# and not a question of precedence.
+# nameserver, here it *answers*. The same zone in both sections is a startup
+# error. A zone may lie inside the other; the more specific one wins
+# (ADR-0029, proposed): a forward_zone for 1.168.192.in-addr.arpa inside a closed
+# local_zone for 168.192.in-addr.arpa sends that /24 to the LAN server and
+# keeps the rest of the /16 at home.
 #
 # This is a TABLE, not a zone file: no SOA, no NS, no AXFR/IXFR, no NOTIFY, no
 # signing, and the AA bit stays off in the answer. AlpenDNS does not become
@@ -129,7 +131,8 @@ zone = "miloo.at"
 ttl = 300
 # What happens to names for which there is NO entry here:
 #   "upstream"  they are resolved as usual (default, split horizon)
-#   "nxdomain"  they do not exist; the zone is closed and nothing goes out
+#   "nxdomain"  they do not exist; the zone is closed and no upstream sees the rest
+#               (unless a nested zone claims part of it)
 #
 # Split horizon is the default because a local table only pins down the names
 # that stand in it — everything else is a zone like any other.
@@ -137,7 +140,7 @@ ttl = 300
 # records:
 #   [[local_zone]]
 #   zone = "miloo.at"
-#   fallback = "nxdomain"      # nothing from miloo.at leaves the house
+#   fallback = "nxdomain"      # nothing from miloo.at leaves the house (unless a nested zone claims part of it)
 # `alpendns check` says the state explicitly, because a forgotten fallback would
 # otherwise weaken exactly the promise this is about.
 records = [

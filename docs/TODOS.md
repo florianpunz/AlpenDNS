@@ -922,12 +922,13 @@ because upstreams treat the ranges differently.
 **Design.** The list from RFC 6303 §4 as a table compiled into the binary, used
 when no configured zone claims the name. Two things have to be decided first:
 
-* **The overlap rule.** `Config::validate` refuses `local_zone` and
-  `forward_zone` on the same or a contained zone (`config.rs`). A built-in
-  default would collide with every existing `forward_zone` into the own DCs —
-  configurations that start today would stop starting. An explicit entry has to
-  *override* the default, and the overlap check has to see only configured
-  entries.
+* **The overlap rule.** On `main`, `Config::validate` refuses `local_zone` and
+  `forward_zone` on the same or a contained zone (`config.rs`). ADR-0029
+  (proposed on `feat/nested-forward-zone`) already allows configured nesting
+  and rejects only equality. A built-in default would still collide with every
+  existing `forward_zone` into the own DCs — configurations that start today
+  would stop starting. An explicit entry has to *override* the default, and
+  the overlap check has to see only configured entries.
 * **The answer.** NXDOMAIN like a closed local zone, or NODATA? RFC 6303 §4
   speaks of "locally served", and an unallocated reverse zone has no owner; the
   cheaper answer is NXDOMAIN without a synthetic SOA, exactly as `local.rs`
@@ -941,7 +942,9 @@ when no configured zone claims the name. Two things have to be decided first:
 2. Let a configured `[[local_zone]]`/`[[forward_zone]]` override the default and
    keep `Config::validate` green → verify: a configuration with
    `1.168.192.in-addr.arpa` as a forward zone starts, while the same zone as a
-   `local_zone` and a `forward_zone` still is an error
+   `local_zone` and a `forward_zone` still is an error. The forward half is
+   already true on `feat/nested-forward-zone` (ADR-0029); the built-in default
+   still has to be taught the same rule.
 3. Migration note in OPERATIONS.md → verify: a configuration from before the
    change starts unchanged and its behaviour is documented
 
@@ -988,10 +991,11 @@ here; the direction is named.
 `.find(|(zone, _)| zone.zone_of(question))`
 ([router.rs](../crates/alpendns/src/router.rs)) — the first hit wins. A second
 `[[forward_zone]]` for the same zone is therefore dead text, and nothing says so:
-`Config::validate` only checks the transport and the overlap with
-`[[local_zone]]`, and `alpendns check` does not list forward zones at all. Seen
+On `main`, `Config::validate` only checks the transport and the overlap with
+`[[local_zone]]`, and `alpendns check` did not list forward zones at all. Seen
 while setting up dns1: two blocks for `168.192.in-addr.arpa` (one per DC) passed
-`check` with exit 0, and only the first would ever be asked.
+`check` with exit 0, and only the first would ever be asked. The list output and
+the duplicate warning are built on `feat/nested-forward-zone` (ADR-0029).
 
 **Direction.** `check` lists the forward zones (zone → upstream) and **warns** on
 duplicates. A startup error would be an incompatible configuration change for
@@ -1003,7 +1007,8 @@ maybe later together with a migration note.
 answer). Today the operator has to pick one nameserver per zone; a dead DC takes
 the reverse zone with it.
 
-**Not built:** neither the list output nor the warning nor the failover.
+**Not built:** the failover between several servers per zone. The list output
+and the duplicate warning are on `feat/nested-forward-zone` (ADR-0029).
 
 ## Order and bundles
 

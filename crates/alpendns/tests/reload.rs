@@ -14,6 +14,8 @@
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use hickory_proto::op::{Message, MessageType, OpCode, Query, ResponseCode};
@@ -89,6 +91,21 @@ fn config_text(port: u16, fake: Option<SocketAddr>, lists: &[(&str, &str)]) -> S
     text
 }
 
+/// Eine geschlossene lokale Zone und eine verschachtelte Weiterleitung in
+/// dieselbe — der Pfad durch das echte `main` (ADR-0029).
+fn nested_config(port: u16, fake: SocketAddr, cache: &str) -> String {
+    format!(
+        "[server]\nlisten_udp = [\"127.0.0.1:{port}\"]\nlisten_tcp = [\"127.0.0.1:{port}\"]\n\n\
+         [[upstream_pool]]\nname = \"default\"\n\n\
+         [[upstream_pool.resolver]]\nname = \"pool\"\naddr = \"dot://127.0.0.1:853\"\n\
+         tls_name = \"dns.example.net\"\n\n\
+         [blocking]\ncache_dir = \"{cache}\"\n\n\
+         [api]\nenabled = false\n\n[metrics]\nenabled = false\n\n\
+         [[local_zone]]\nzone = \"168.192.in-addr.arpa\"\nfallback = \"nxdomain\"\n\n\
+         [[forward_zone]]\nzone = \"1.168.192.in-addr.arpa\"\nupstream = \"udp://{fake}\"\n"
+    )
+}
+
 fn name(s: &str) -> Name {
     Name::from_ascii(s).expect("gültiger Name")
 }
@@ -101,15 +118,19 @@ fn query_message(qname: &str, qtype: RecordType) -> Message {
 }
 
 /// Ein lokaler Fake-Upstream, der jede Anfrage mit einem A-Record beantwortet.
-async fn fake_upstream() -> SocketAddr {
+/// Der Zähler macht sichtbar, ob eine Anfrage wirklich dort gelandet ist.
+async fn fake_upstream() -> (SocketAddr, Arc<AtomicUsize>) {
     let socket = UdpSocket::bind("127.0.0.1:0").await.expect("bind");
     let addr = socket.local_addr().expect("Adresse");
+    let hits = Arc::new(AtomicUsize::new(0));
+    let counter = Arc::clone(&hits);
     tokio::spawn(async move {
         let mut buf = vec![0_u8; 4096];
         while let Ok((len, peer)) = socket.recv_from(&mut buf).await {
             let Ok(request) = Message::from_vec(&buf[..len]) else {
                 continue;
             };
+            counter.fetch_add(1, Ordering::SeqCst);
             let mut response = Message::response(request.metadata.id, OpCode::Query);
             response.add_queries(request.queries.iter().cloned());
             if let Some(qname) = request.queries.first().map(|q| q.name().clone()) {
@@ -124,7 +145,7 @@ async fn fake_upstream() -> SocketAddr {
             }
         }
     });
-    addr
+    (addr, hits)
 }
 
 /// Der laufende Server-Prozess samt Log-Datei. Beendet sich im Drop sauber.
@@ -276,7 +297,7 @@ async fn valid_reload_blocks_a_newly_added_list() {
     let dir = TempDir::new("valid");
     let ads = dir.file("ads.list", "ads.example\n");
     let more = dir.file("more.list", "banned.example\n");
-    let fake = fake_upstream().await;
+    let (fake, _hits) = fake_upstream().await;
     let port = free_port();
     let config = dir.file(
         "alpendns.toml",
@@ -308,6 +329,41 @@ async fn valid_reload_blocks_a_newly_added_list() {
     query_until(port, "banned.example.", ResponseCode::NXDomain).await;
     // Die erste Liste gilt weiter.
     query_until(port, "ads.example.", ResponseCode::NXDomain).await;
+
+    server.shutdown();
+}
+
+#[tokio::test]
+async fn a_nested_forward_zone_is_wired_through_main() {
+    // Der einzige Test, der den echten `main`-Pfad für ADR-0029 ausführt:
+    // `forward_names` muss aus der Konfiguration in `LocalBackend::new` landen,
+    // sonst bleibt die geschlossene lokale Zone bei NXDOMAIN.
+    let dir = TempDir::new("nested");
+    let (fake, hits) = fake_upstream().await;
+    let port = free_port();
+    let cache = dir.0.join("cache");
+    std::fs::create_dir_all(&cache).expect("cache directory");
+    let config = dir.file(
+        "alpendns.toml",
+        &nested_config(port, fake, &cache.to_string_lossy()),
+    );
+    let log = dir.0.join("server.log").to_string_lossy().into_owned();
+    let mut server = Server::start(&config, &log);
+
+    let forwarded = query_until(port, "20.1.168.192.in-addr.arpa.", ResponseCode::NoError).await;
+    assert_eq!(
+        forwarded.answers.len(),
+        1,
+        "der LAN-Fake hat nicht geantwortet"
+    );
+    assert_eq!(hits.load(Ordering::SeqCst), 1);
+
+    query_until(port, "13.2.168.192.in-addr.arpa.", ResponseCode::NXDomain).await;
+    assert_eq!(
+        hits.load(Ordering::SeqCst),
+        1,
+        "ein Name außerhalb ging an die Weiterleitung"
+    );
 
     server.shutdown();
 }

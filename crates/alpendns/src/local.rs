@@ -206,6 +206,13 @@ const DDR_ZONE: &str = "resolver.arpa.";
 pub struct LocalBackend<B> {
     /// Absteigend nach Tiefe sortiert, damit die spezifischste Zone gewinnt.
     zones: Vec<LocalZone>,
+    /// Die `[[forward_zone]]`-Namen aus der Konfiguration.
+    ///
+    /// Liegt eine davon innerhalb einer lokalen Zone, gewinnt sie als die
+    /// spezifischere Zone — auch gegen die Tabelle der lokalen Zone
+    /// (ADR-0029). Die Weiterleitung selbst bleibt im
+    /// [`ZoneRouter`](crate::router::ZoneRouter) unter diesem Layer.
+    forward_zones: Vec<Name>,
     /// `resolver.arpa` mit vorberechnetem Trace-Label. `None` nur, wenn das
     /// Literal nicht parsebar wäre — das kann nicht eintreten, und ein
     /// Prozess, der deswegen nicht startet, wäre die schlechtere Antwort.
@@ -214,12 +221,25 @@ pub struct LocalBackend<B> {
 }
 
 impl<B: ResolveBackend> LocalBackend<B> {
-    pub fn new(mut zones: Vec<LocalZone>, inner: B) -> Self {
+    pub fn new(mut zones: Vec<LocalZone>, mut forward_zones: Vec<Name>, inner: B) -> Self {
         zones.sort_by_key(|zone| std::cmp::Reverse(zone.zone.num_labels()));
+        // Nur eine Weiterleitung, die tiefer liegt als eine lokale Zone, kann
+        // diese überstimmen. Alles andere sieht der ZoneRouter ohnehin; diese
+        // Schicht muss es nicht wissen und soll den heißen Pfad nicht belasten.
+        forward_zones.retain(|forward| {
+            zones.iter().any(|local| {
+                forward.num_labels() > local.zone.num_labels() && local.zone.zone_of(forward)
+            })
+        });
         let ddr = Name::from_ascii(DDR_ZONE)
             .ok()
             .map(|zone| (zone, Arc::from(DDR_ZONE)));
-        Self { zones, ddr, inner }
+        Self {
+            zones,
+            forward_zones,
+            ddr,
+            inner,
+        }
     }
 
     /// Der Eintrag zu einem Namen, mit der Zone, in der er steht.
@@ -243,6 +263,27 @@ impl<B: ResolveBackend> ResolveBackend for LocalBackend<B> {
             let Some(query) = query.filter(|q| q.query_class() == DNSClass::IN) else {
                 return self.inner.resolve(request, ctx).await;
             };
+
+            // Vor der Tabelle: eine spezifischere forward_zone gewinnt gegen
+            // die lokale Zone — auch gegen deren Einträge. Die Zonenwahl steht
+            // vor der Tabelle (ADR-0029). `resolver.arpa` bleibt ausgenommen;
+            // DDR wird unten beantwortet, ein Eintrag oben gewinnt weiterhin.
+            let local_zone = self
+                .zones
+                .iter()
+                .find(|zone| zone.zone.zone_of(query.name()));
+            let under_ddr = self
+                .ddr
+                .as_ref()
+                .is_some_and(|(zone, _)| zone.zone_of(query.name()));
+            if !under_ddr
+                && let Some(local) = local_zone
+                && self.forward_zones.iter().any(|forward| {
+                    forward.num_labels() > local.zone.num_labels() && forward.zone_of(query.name())
+                })
+            {
+                return self.inner.resolve(request, ctx).await;
+            }
 
             // 1. Ein Eintrag gewinnt immer — auch gegen eine geschlossene
             //    Zone, die den Namen ebenfalls enthält. Wer ihn hinschreibt,
@@ -298,10 +339,7 @@ impl<B: ResolveBackend> ResolveBackend for LocalBackend<B> {
 
             // 3. Kein Eintrag: die spezifischste Zone, die den Namen enthält,
             //    entscheidet, ob er überhaupt hinausgeht.
-            if let Some(zone) = self
-                .zones
-                .iter()
-                .find(|zone| zone.zone.zone_of(query.name()))
+            if let Some(zone) = local_zone
                 && zone.is_closed()
             {
                 let mut response = response_to(request);
@@ -924,6 +962,7 @@ records = [{ name = "_dmarc", type = "TXT", value = '"v=DMARC1; p=none"' }]
         let inner = Arc::new(Counter::default());
         let backend = LocalBackend::new(
             build_zones(&[config(text)]).expect("gültige Zonen"),
+            Vec::new(),
             Arc::clone(&inner),
         );
         let mut ctx = ctx();
@@ -1059,6 +1098,7 @@ fallback = "nxdomain"
         let inner = Arc::new(Counter::default());
         let backend = LocalBackend::new(
             build_zones(&zones).expect("gültige Zonen"),
+            Vec::new(),
             Arc::clone(&inner),
         );
         let response = backend
@@ -1073,11 +1113,124 @@ fallback = "nxdomain"
     }
 
     #[tokio::test]
+    async fn a_more_specific_forward_zone_beats_a_closed_local_zone() {
+        // ADR-0029: die spezifischere Zone gewinnt, unabhängig vom Typ.
+        let zones = [config(
+            r#"
+zone = "168.192.in-addr.arpa"
+fallback = "nxdomain"
+"#,
+        )];
+        let inner = Arc::new(Counter::default());
+        let backend = LocalBackend::new(
+            build_zones(&zones).expect("gültige Zonen"),
+            vec![zone("1.168.192.in-addr.arpa")],
+            Arc::clone(&inner),
+        );
+
+        let response = backend
+            .resolve(
+                &ask("20.1.168.192.in-addr.arpa.", RecordType::PTR, DNSClass::IN),
+                &mut ctx(),
+            )
+            .await
+            .expect("Antwort");
+        assert_eq!(
+            inner.hits.load(Ordering::SeqCst),
+            1,
+            "die Weiterleitung wurde nicht gefragt"
+        );
+        assert_eq!(response.metadata.response_code, ResponseCode::NoError);
+
+        // Ein Name außerhalb der spezifischeren Zone bleibt geschlossen.
+        let response = backend
+            .resolve(
+                &ask("13.2.168.192.in-addr.arpa.", RecordType::PTR, DNSClass::IN),
+                &mut ctx(),
+            )
+            .await
+            .expect("Antwort");
+        assert_eq!(
+            inner.hits.load(Ordering::SeqCst),
+            1,
+            "die Weiterleitung wurde ein zweites Mal gefragt"
+        );
+        assert_eq!(response.metadata.response_code, ResponseCode::NXDomain);
+    }
+
+    #[tokio::test]
+    async fn a_local_entry_does_not_beat_a_more_specific_forward_zone() {
+        // Die Zonenwahl steht vor der Tabelle: der Eintrag liegt in der
+        // weniger spezifischen Zone und gilt unter der Weiterleitung nicht.
+        let zones = [config(
+            r#"
+zone = "168.192.in-addr.arpa"
+records = [{ name = "20.1", type = "PTR", value = "nas.miloo.at." }]
+"#,
+        )];
+        let inner = Arc::new(Counter::default());
+        let backend = LocalBackend::new(
+            build_zones(&zones).expect("gültige Zonen"),
+            vec![zone("1.168.192.in-addr.arpa")],
+            Arc::clone(&inner),
+        );
+
+        let response = backend
+            .resolve(
+                &ask("20.1.168.192.in-addr.arpa.", RecordType::PTR, DNSClass::IN),
+                &mut ctx(),
+            )
+            .await
+            .expect("Antwort");
+        assert_eq!(
+            inner.hits.load(Ordering::SeqCst),
+            1,
+            "die lokale Tabelle hat gewonnen"
+        );
+        assert!(response.answers.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_more_specific_local_zone_still_beats_a_forward_zone() {
+        // Die Gegenrichtung: die lokale Zone liegt tiefer und gewinnt.
+        let zones = [config(
+            r#"
+zone = "sub.miloo.at"
+records = [{ name = "nas", type = "A", value = "192.168.1.5" }]
+"#,
+        )];
+        let inner = Arc::new(Counter::default());
+        let backend = LocalBackend::new(
+            build_zones(&zones).expect("gültige Zonen"),
+            vec![zone("miloo.at")],
+            Arc::clone(&inner),
+        );
+
+        let response = backend
+            .resolve(
+                &ask("nas.sub.miloo.at.", RecordType::A, DNSClass::IN),
+                &mut ctx(),
+            )
+            .await
+            .expect("Antwort");
+        assert_eq!(
+            inner.hits.load(Ordering::SeqCst),
+            0,
+            "die Weiterleitung hat gewonnen"
+        );
+        assert_eq!(
+            response.answers.first().map(|record| record.data.clone()),
+            Some(RData::A(A(Ipv4Addr::new(192, 168, 1, 5))))
+        );
+    }
+
+    #[tokio::test]
     async fn a_class_other_than_in_is_passed_through() {
         // Die Tabelle sind IN-Zonen; für CH gibt es hier nichts zu sagen.
         let inner = Arc::new(Counter::default());
         let backend = LocalBackend::new(
             build_zones(&[config(SPLIT_HORIZON)]).expect("gültige Zonen"),
+            Vec::new(),
             Arc::clone(&inner),
         );
         let response = backend
@@ -1101,6 +1254,7 @@ fallback = "nxdomain"
             let inner = Arc::new(Counter::default());
             let backend = LocalBackend::new(
                 build_zones(&[config(SPLIT_HORIZON)]).expect("gültige Zonen"),
+                Vec::new(),
                 Arc::clone(&inner),
             );
             let message = Message::new(1, MessageType::Query, OpCode::Query);

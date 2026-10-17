@@ -165,14 +165,14 @@ this machine's address.
 
 ### Names of your own
 
-Two things look similar and are not. Both keep a name in the house, and only
-one of them answers:
+Two things look similar and are not. Both keep a name in the house; a zone of
+one kind may lie inside the other, and the more specific one wins:
 
 | | `[[forward_zone]]` | `[[local_zone]]` |
 |---|---|---|
 | Who answers | another nameserver, e.g. the router | AlpenDNS itself |
 | What it is for | a zone that already exists in the LAN (`home.arpa`, `10.in-addr.arpa`) | a name that exists nowhere: `nas.meinedomain.at` |
-| Transport | cleartext UDP, into the own network | none — nothing leaves the process |
+| Transport | cleartext UDP, into the own network | none for its entries — no upstream is asked |
 | Changes | on the other server | in this file, restart needed |
 
 A `[[local_zone]]` is a table, not a zone file: no SOA, no transfer, and
@@ -190,20 +190,29 @@ records = [
 ]
 ```
 
-Everything else under `meinedomain.at` is still resolved over the upstream — the
-default is `fallback = "upstream"`, split horizon. To keep the whole domain
-inside the house, `fallback = "nxdomain"`; without `records` that is the entire
-zone:
+Everything else under `meinedomain.at` is still resolved over the upstream — or
+by a more specific `[[forward_zone]]`; the default is `fallback = "upstream"`,
+split horizon. To keep the whole domain inside the house,
+`fallback = "nxdomain"`; without `records` that is the entire zone:
 
 ```toml
 [[local_zone]]
 zone = "meinedomain.at"
-fallback = "nxdomain"      # nothing from this domain leaves the house
+fallback = "nxdomain"      # no upstream sees the rest of this domain
 ```
 
 `alpendns check` prints the state of every local zone, including which of the two
 fallbacks is active — the default is the quieter of the two, and a forgotten
 `fallback` would weaken exactly the promise the section is about.
+
+Zones may lie inside one another. A more specific `[[forward_zone]]` wins over
+the local zone that contains it: `1.168.192.in-addr.arpa` inside a closed
+`168.192.in-addr.arpa` sends that `/24` to the LAN server and keeps the rest of
+the `/16` at home. A more specific local zone answers its entries; its
+`fallback` decides the rest. `alpendns check` prints the direction for a nested
+local/forward pair. A local record in the less specific zone no longer applies
+under a more specific forward zone
+([ADR-0029](adr/0029-nested-forward-zone.md), proposed).
 
 Three things to know before the first entry:
 
@@ -218,7 +227,7 @@ Three things to know before the first entry:
   a validating client rejects — the well-known split-horizon problem. It only
   concerns clients that validate DNSSEC themselves.
 
-### Private reverse zones are not forwarded
+### Private reverse zones are not asked outward — unless a nested zone claims part of them
 
 A PTR query for `192.168.1.5` leaves the house today: there is no reverse zone
 for it, so the question "which device is 192.168.1.5" is asked at the upstream
@@ -229,8 +238,10 @@ SERVFAIL.
 [RFC 6303](https://www.rfc-editor.org/rfc/rfc6303#section-4) §4 lists the reverse
 zones that must never be asked outward. Closing them is one line per zone:
 `fallback = "nxdomain"` without records, so AlpenDNS answers "does not exist"
-and nothing leaves the process ([ADR-0023](adr/0023-lokale-zonen.md), a closed
-zone is the one-liner for "this is nobody else's business").
+and, except for a more specific zone inside it (a forward zone forwards it, an
+open local zone sends it upstream), nothing goes to an upstream
+([ADR-0023](adr/0023-lokale-zonen.md), a closed zone is the one-liner for "this
+is nobody else's business").
 
 ```toml
 # 10/8
@@ -282,20 +293,28 @@ zone = "b.e.f.ip6.arpa"
 fallback = "nxdomain"
 ```
 
-**A `forward_zone` does not take precedence over this — it is refused.** The
-chain is `Cache → Local → ZoneRouter → Pool`, so a local zone sits *above* the
-router and would win. It never gets that far: `Config::validate` rejects the
-overlap of the same *or a contained* zone at startup with "local_zone … and
-`forward_zone` … overlap … One of the two zones has to go elsewhere"
-(`config.rs`). Whoever wants a reverse zone answered by the domain controllers
-in the LAN therefore leaves it **out of the list above** and configures it as
-`[[forward_zone]]` — not both.
+**A `forward_zone` inside a closed zone is allowed, and the more specific zone
+wins.** The chain is `Cache → Local → ZoneRouter → Pool`, so `LocalBackend`
+hands a name to the `ZoneRouter` when a forward zone lies deeper than the
+local zone that would otherwise answer ([ADR-0029](adr/0029-nested-forward-zone.md),
+proposed). A `/24` of the `/16` above can therefore go to the domain
+controllers while the rest stays closed:
 
-That has a practical consequence for a `/24`: `1.168.192.in-addr.arpa` (the
-reverse zone of `192.168.1.0/24`) is *contained* in `168.192.in-addr.arpa`, so
-the closed `/16` above and a forwarded `/24` collide. With DCs that answer
-`1.168.192.in-addr.arpa`, leave `168.192.in-addr.arpa` to them and close only
-the rest.
+```toml
+[[local_zone]]
+zone = "168.192.in-addr.arpa"
+fallback = "nxdomain"
+
+[[forward_zone]]
+zone = "1.168.192.in-addr.arpa"
+upstream = "udp://192.168.1.10:53"
+```
+
+`alpendns check` lists the forward zones, warns about duplicates, and names
+which zone answers for every nested local/forward pair outside `resolver.arpa`.
+A `local_zone` and a `forward_zone` for the same name are still a startup error;
+a local record in the less specific zone does not apply under a deeper forward
+zone.
 
 ### The interface
 
@@ -354,7 +373,10 @@ sudo apt install ./alpendns_<old-version>_amd64.deb --allow-downgrades
 ```
 
 The state under `/var` is compatible across versions: blocklist cache and token
-are files without a schema.
+are files without a schema. Keep a copy of the pre-ADR-0029 configuration or run
+`alpendns check` from the 2.0.0 package before downgrading: a configuration with
+nested `[[local_zone]]`/`[[forward_zone]]` entries is refused by the 2.0.0
+release (ADR-0029).
 
 ---
 
@@ -468,16 +490,20 @@ in the UI (the "Allow" button).
 **A name from `[[local_zone]]` does not resolve.** Four questions, in this
 order:
 
-1. **Is the name in the table at all?** A local zone never answers a name that
-   was not written into it — `grep` in the configuration is faster than any
-   tool here. And watch the relative-name trap from §1.
+1. **Is the name in the table at all — and is it shadowed?** A local zone never
+   answers a name that was not written into it — `grep` in the configuration is
+   faster than any tool here. And watch the relative-name trap from §1. A more
+   specific `[[forward_zone]]` can shadow an entry; `alpendns check` prints the
+   pair. A deeper `[[local_zone]]` does not — entries are looked up across all
+   local zones.
 2. **Was the right type asked?** A name with an `A` entry and no `AAAA` entry
    answers NODATA rather than the upstream's answer. That is intended: a name
    must not have two horizons.
 3. **Is the zone closed?** With `fallback = "nxdomain"` everything the table
-   does not contain is NXDOMAIN. That can lock a whole network out if the zone
-   was meant to be split-horizon. `alpendns check` prints the fallback of every
-   zone for exactly this reason.
+   does not contain is NXDOMAIN — unless a more specific zone claims it (a
+   nested `forward_zone` or `local_zone`). That can lock a whole network out if
+   the zone was meant to be split-horizon. `alpendns check` prints the fallback
+   of every zone for exactly this reason.
 4. **Is the old answer still in the cache?** Positive answers are cached for
    their TTL, and a change to the table only takes effect after a restart. A
    restart empties the cache.

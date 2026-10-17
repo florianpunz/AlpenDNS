@@ -290,6 +290,29 @@ fn run() -> anyhow::Result<()> {
         .iter()
         .map(|zone| zone.zone.0.to_string())
         .collect();
+    // Nur die Namen: `LocalBackend` entscheidet, ob eine lokale Zone von einer
+    // spezifischeren Weiterleitung überstimmt wird (ADR-0029); die
+    // Weiterleitung selbst bleibt im ZoneRouter.
+    let forward_names: Vec<hickory_proto::rr::Name> =
+        zones.iter().map(|(name, _)| name.clone()).collect();
+    // Dieselbe Information im Startlog, nicht nur in `check`: welche Zone
+    // gewinnt, ist eine Eigenschaft der Konfiguration und soll beim Start
+    // sichtbar sein (ADR-0029).
+    let mut nested = std::collections::HashSet::new();
+    for forward in &config.forward_zone {
+        for local in &config.local_zone {
+            if local.zone.0 != forward.zone.0
+                && (local.zone.0.zone_of(&forward.zone.0) || forward.zone.0.zone_of(&local.zone.0))
+                && nested.insert((local.zone.0.clone(), forward.zone.0.clone()))
+            {
+                tracing::info!(
+                    local = %zone_label(&local.zone.0),
+                    forward = %zone_label(&forward.zone.0),
+                    "nested zones configured (ADR-0029); check shows the effective order"
+                );
+            }
+        }
+    }
     // `validate` hat die Tabellen schon gebaut, um Fehler beim Start zu melden;
     // hier entstehen sie noch einmal als das, was der Layer benutzt. Dieselbe
     // Funktion, damit `alpendns check` nicht auseinanderläuft mit dem Start.
@@ -396,7 +419,11 @@ fn run() -> anyhow::Result<()> {
         // eine lokale Zone steht vor der Weiche, weil ein Eintrag spezifischer
         // ist als eine Zone.
         let caching = CachingBackend::new(
-            LocalBackend::new(local_zones, ZoneRouter::new(zones, Arc::clone(&pool))),
+            LocalBackend::new(
+                local_zones,
+                forward_names,
+                ZoneRouter::new(zones, Arc::clone(&pool)),
+            ),
             &cache_config,
             SystemClock,
         );
@@ -942,6 +969,15 @@ fn tighten_permissions(path: &std::path::Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Zonenname für die Ausgabe: ohne den Punkt am Ende, den nur der Draht braucht.
+fn zone_label(name: &hickory_proto::rr::Name) -> String {
+    if name.is_root() {
+        ".".to_owned()
+    } else {
+        name.to_ascii().trim_end_matches('.').to_owned()
+    }
+}
+
 /// `alpendns check`
 ///
 /// Läuft als `ExecStartPre` vor jedem Start (ROADMAP Phase 9, Schritt 3). Der
@@ -987,6 +1023,7 @@ fn check(path: &std::path::Path) -> anyhow::Result<()> {
         "  Blocking:    {:?}, Logging: {:?}",
         config.blocking.mode, config.privacy.logging.mode
     );
+    let ddr = hickory_proto::rr::Name::from_ascii("resolver.arpa.").ok();
     for zone in &config.local_zone {
         // `validate` ist bereits durchgelaufen; der Fehlerfall steht hier nur,
         // damit diese Zeile nicht selbst scheitern kann.
@@ -1003,8 +1040,81 @@ fn check(path: &std::path::Path) -> anyhow::Result<()> {
         // Default ist Split-Horizon, also geht alles Unbenannte weiter hinaus.
         // Wer "miloo.at komplett ausschließen" gemeint hat, sieht es hier.
         if !built.is_closed() {
-            println!("               Names without an entry go on to the upstream.");
+            // Liegt die offene Zone in einer weniger spezifischen
+            // Weiterleitung, gehen die unbenannten Namen dorthin — nicht in
+            // den Pool. Die Zeile darunter nennt die Weiterleitung.
+            let in_forward = config.forward_zone.iter().any(|forward| {
+                forward.zone.0.zone_of(built.zone())
+                    && forward.zone.0 != *built.zone()
+                    && !ddr.as_ref().is_some_and(|ddr| ddr.zone_of(&forward.zone.0))
+            });
+            if in_forward {
+                println!(
+                    "               Names without an entry follow normal resolution (see the forward \
+                     zone below)."
+                );
+            } else {
+                println!("               Names without an entry go on to the upstream.");
+            }
             println!("               To exclude the zone completely: fallback = \"nxdomain\".");
+        }
+    }
+    let mut seen = std::collections::HashSet::new();
+    for zone in &config.forward_zone {
+        if !seen.insert(zone.zone.0.clone()) {
+            println!(
+                "               duplicate forward_zone {} — only the first one is asked.",
+                zone_label(&zone.zone.0)
+            );
+        }
+        let dead = ddr.as_ref().is_some_and(|ddr| ddr.zone_of(&zone.zone.0));
+        println!(
+            "  Forward:     {} → {}://{}{}",
+            zone_label(&zone.zone.0),
+            zone.upstream.scheme(),
+            zone.upstream.socket_addr(),
+            if dead {
+                " (not asked: resolver.arpa is answered locally)"
+            } else {
+                ""
+            }
+        );
+    }
+    // Verschachtelte Zonen sind seit ADR-0029 erlaubt. Die Zeilen nennen die
+    // Richtung, nicht einen pauschalen Sieger: eine offene lokale Zone
+    // beantwortet nur ihre Einträge und reicht den Rest weiter.
+    for forward in &config.forward_zone {
+        // A forward zone below resolver.arpa is never asked (DDR answers
+        // first); no pair line should advertise it as live.
+        let dead = ddr.as_ref().is_some_and(|ddr| ddr.zone_of(&forward.zone.0));
+        if dead {
+            continue;
+        }
+        for local in &config.local_zone {
+            if local.zone.0 == forward.zone.0 {
+                continue;
+            }
+            if local.zone.0.zone_of(&forward.zone.0) {
+                println!(
+                    "               {} (forward) lies inside local zone {}: the forward zone wins for \
+                     that name and everything below it, except names a more specific zone answers \
+                     itself.",
+                    zone_label(&forward.zone.0),
+                    zone_label(&local.zone.0)
+                );
+            } else if forward.zone.0.zone_of(&local.zone.0) {
+                println!(
+                    "               local zone {} lies inside forward zone {}: its entries are \
+                     answered locally, except under a more specific forward zone; {}",
+                    zone_label(&local.zone.0),
+                    zone_label(&forward.zone.0),
+                    if local.fallback == alpendns::local::Fallback::Nxdomain {
+                        "everything else is NXDOMAIN, unless a more specific zone answers it."
+                    } else {
+                        "the rest goes on to normal resolution; a more specific zone still wins."
+                    }
+                );
+            }
         }
     }
     let limit = &config.server.rate_limit;

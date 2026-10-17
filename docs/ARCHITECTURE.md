@@ -72,7 +72,11 @@ The layer behind it is a chain, outside in:
 implementation of the trait and knows only the one below it; which links exist
 is decided once, when `main` wires them up. `LocalBackend` answers the names in
 `[[local_zone]]` and passes everything else down — a static table, not an
-authoritative zone ([ADR-0023](adr/0023-lokale-zonen.md)).
+authoritative zone ([ADR-0023](adr/0023-lokale-zonen.md)). Since ADR-0029
+(proposed) it also carries the nested `[[forward_zone]]` names: a forward zone
+that lies deeper than the matching local zone wins, and `LocalBackend` hands the
+name to the `ZoneRouter`. It knows those names, not the router's backend; the
+forwarding itself stays in the router.
 
 For recursion, v1 does not implement a variant of its own: the slot where a
 `RecursiveBackend` would sit is the trait itself. If one joins, nothing changes

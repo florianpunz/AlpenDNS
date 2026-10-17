@@ -140,6 +140,21 @@ fn run(args: &[&str]) -> (String, String) {
     )
 }
 
+/// Wie [`run`], aber mit dem Exit-Status — für Tests, die auch prüfen wollen,
+/// dass der Aufruf erfolgreich war.
+fn run_status(args: &[&str]) -> (std::process::ExitStatus, String, String) {
+    let output = Command::new(env!("CARGO_BIN_EXE_alpendns"))
+        .args(args)
+        .env("LC_ALL", "C")
+        .output()
+        .expect("Binary aufrufen");
+    (
+        output.status,
+        String::from_utf8_lossy(&output.stdout).into_owned(),
+        String::from_utf8_lossy(&output.stderr).into_owned(),
+    )
+}
+
 struct TempDir(PathBuf);
 
 impl TempDir {
@@ -274,6 +289,85 @@ fn the_command_line_speaks_english() {
     assert!(
         german_words("Blocklist ads.example, listen on 0.0.0.0, Name: pool").is_empty(),
         "Homographen dürfen nicht anschlagen"
+    );
+}
+
+#[test]
+fn check_shows_nested_zone_precedence_in_english() {
+    let dir = TempDir::new("nested-check");
+    let dns_port = free_port();
+    let metrics_port = free_port();
+    let cache = dir.0.join("cache");
+    std::fs::create_dir_all(&cache).expect("cache directory");
+    let mut text = config_text(dns_port, metrics_port);
+    text.push_str(&format!(
+        "\n[blocking]\ncache_dir = \"{}\"\n\
+         \n[[local_zone]]\nzone = \"168.192.in-addr.arpa\"\nfallback = \"nxdomain\"\n\
+         \n[[forward_zone]]\nzone = \"1.168.192.in-addr.arpa\"\n\
+         upstream = \"udp://192.168.1.10:53\"\n\
+         \n[[forward_zone]]\nzone = \"1.168.192.in-addr.arpa\"\n\
+         upstream = \"udp://192.168.1.11:53\"\n\
+         \n[[forward_zone]]\nzone = \"foo.resolver.arpa\"\n\
+         upstream = \"udp://192.168.1.12:53\"\n",
+        cache.display()
+    ));
+    let config = dir.file("alpendns.toml", &text);
+    let (status, stdout, stderr) = run_status(&["-c", &config, "check"]);
+
+    assert!(status.success(), "{stderr}\n{stdout}");
+    assert_english("nested check (stdout)", &stdout);
+    assert_english("nested check (stderr)", &stderr);
+    assert!(
+        stdout.contains("Forward:     1.168.192.in-addr.arpa → udp://192.168.1.10:53"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains(
+            "duplicate forward_zone 1.168.192.in-addr.arpa — only the first one is asked."
+        ),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains(
+            "foo.resolver.arpa → udp://192.168.1.12:53 (not asked: resolver.arpa is answered locally)"
+        ),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains(
+            "1.168.192.in-addr.arpa (forward) lies inside local zone 168.192.in-addr.arpa"
+        ),
+        "{stdout}"
+    );
+
+    // Die Gegenrichtung: eine offene lokale Zone in einer Weiterleitung.
+    let mut open = config_text(dns_port, metrics_port);
+    open.push_str(&format!(
+        "\n[blocking]\ncache_dir = \"{}\"\n\
+         \n[[local_zone]]\nzone = \"sub.miloo.at\"\n\
+         records = [{{ name = \"nas\", type = \"A\", value = \"192.168.1.5\" }}]\n\
+         \n[[forward_zone]]\nzone = \"miloo.at\"\n\
+         upstream = \"udp://192.168.1.11:53\"\n",
+        cache.display()
+    ));
+    let open_config = dir.file("open.toml", &open);
+    let (status, stdout, stderr) = run_status(&["-c", &open_config, "check"]);
+    assert!(status.success(), "{stderr}\n{stdout}");
+    assert_english("open nested check (stdout)", &stdout);
+    assert_english("open nested check (stderr)", &stderr);
+    assert!(
+        stdout.contains(
+            "Names without an entry follow normal resolution (see the forward zone below)."
+        ),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains(
+            "local zone sub.miloo.at lies inside forward zone miloo.at: its entries are answered \
+             locally, except under a more specific forward zone; the rest goes on to normal \
+             resolution; a more specific zone still wins."
+        ),
+        "{stdout}"
     );
 }
 

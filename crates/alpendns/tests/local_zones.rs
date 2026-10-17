@@ -28,6 +28,7 @@ use alpendns::logging::QueryLog;
 use alpendns::policy::rules::RegexRules;
 use alpendns::policy::{Blueprint, Engine, PolicyBackend, PolicyBlueprint};
 use alpendns::privacy;
+use alpendns::router::ZoneRouter;
 use alpendns::server::Server;
 use alpendns::upstream::ForwardBackend;
 use hickory_proto::op::{Message, MessageType, OpCode, Query, ResponseCode};
@@ -147,6 +148,7 @@ async fn start(local_zone: &str, blocked: &[&str]) -> Harness {
         CachingBackend::new(
             LocalBackend::new(
                 zones,
+                Vec::new(),
                 ForwardBackend::new(
                     upstream,
                     Duration::from_secs(2),
@@ -177,26 +179,31 @@ async fn start(local_zone: &str, blocked: &[&str]) -> Harness {
     }
 }
 
+/// Eine DNS-Anfrage über UDP, mit Frist. Von beiden Harnesses benutzt.
+async fn ask(addr: SocketAddr, name: &str, qtype: RecordType) -> Message {
+    let socket = UdpSocket::bind("127.0.0.1:0").await.expect("bind");
+    socket.connect(addr).await.expect("connect");
+    let mut message = Message::new(0x4242, MessageType::Query, OpCode::Query);
+    message.metadata.recursion_desired = true;
+    message.add_query(Query::query(
+        Name::from_ascii(name).expect("gültiger Name"),
+        qtype,
+    ));
+    socket
+        .send(&message.to_vec().expect("kodierbar"))
+        .await
+        .expect("send");
+    let mut buf = vec![0_u8; 4096];
+    let len = tokio::time::timeout(Duration::from_secs(2), socket.recv(&mut buf))
+        .await
+        .expect("Antwort innerhalb von zwei Sekunden")
+        .expect("recv");
+    Message::from_vec(&buf[..len]).expect("lesbare Antwort")
+}
+
 impl Harness {
     async fn ask(&self, name: &str, qtype: RecordType) -> Message {
-        let socket = UdpSocket::bind("127.0.0.1:0").await.expect("bind");
-        socket.connect(self.addr).await.expect("connect");
-        let mut message = Message::new(0x4242, MessageType::Query, OpCode::Query);
-        message.metadata.recursion_desired = true;
-        message.add_query(Query::query(
-            Name::from_ascii(name).expect("gültiger Name"),
-            qtype,
-        ));
-        socket
-            .send(&message.to_vec().expect("kodierbar"))
-            .await
-            .expect("send");
-        let mut buf = vec![0_u8; 4096];
-        let len = tokio::time::timeout(Duration::from_secs(2), socket.recv(&mut buf))
-            .await
-            .expect("Antwort innerhalb von zwei Sekunden")
-            .expect("recv");
-        Message::from_vec(&buf[..len]).expect("lesbare Antwort")
+        ask(self.addr, name, qtype).await
     }
 
     fn upstream_hits(&self) -> usize {
@@ -221,6 +228,178 @@ const CLOSED: &str = r#"
 zone = "miloo.at"
 fallback = "nxdomain"
 "#;
+
+/// Der dns1-Fall: das `/16` ist lokal geschlossen, das `/24` der DCs geht an
+/// den LAN-Server (ADR-0029, auf diesem Branch).
+const NESTED: &str = r#"
+[[local_zone]]
+zone = "168.192.in-addr.arpa"
+fallback = "nxdomain"
+
+[[forward_zone]]
+zone = "1.168.192.in-addr.arpa"
+upstream = "udp://192.168.1.10:53"
+"#;
+
+/// Eine offene lokale Zone in einer weniger spezifischen Weiterleitung.
+const OPEN_PARENT: &str = r#"
+[[local_zone]]
+zone = "sub.miloo.at"
+records = [{ name = "nas", type = "A", value = "192.168.1.5" }]
+
+[[forward_zone]]
+zone = "miloo.at"
+upstream = "udp://192.168.1.11:53"
+"#;
+
+struct NestedHarness {
+    addr: SocketAddr,
+    lan_hits: Arc<AtomicUsize>,
+    upstream_hits: Arc<AtomicUsize>,
+    shutdown: CancellationToken,
+}
+
+impl Drop for NestedHarness {
+    fn drop(&mut self) {
+        self.shutdown.cancel();
+    }
+}
+
+/// Wie [`start`], aber mit einer lokalen Zone, einer verschachtelten
+/// Weiterleitung und zwei Fakes: einer fürs LAN, einer für den Upstream.
+async fn start_nested(config_text: &str) -> NestedHarness {
+    let lan_hits = Arc::new(AtomicUsize::new(0));
+    let upstream_hits = Arc::new(AtomicUsize::new(0));
+    let lan = fake_upstream(Arc::clone(&lan_hits)).await;
+    let upstream = fake_upstream(Arc::clone(&upstream_hits)).await;
+
+    let config: Config =
+        toml::from_str(&format!("{BASE}\n{config_text}")).expect("Testkonfiguration parst");
+    let local = build_zones(&config.local_zone).expect("lokale Zonen");
+    let forward_names = config
+        .forward_zone
+        .iter()
+        .map(|zone| zone.zone.0.clone())
+        .collect();
+    let forward_zone = config
+        .forward_zone
+        .first()
+        .expect("eine Weiterleitung")
+        .zone
+        .0
+        .clone();
+    assert_eq!(
+        config.forward_zone.len(),
+        1,
+        "der Harness baut genau eine Weiterleitung"
+    );
+    let zones = vec![(
+        forward_zone,
+        ForwardBackend::new(lan, Duration::from_secs(2), privacy::Settings::default()),
+    )];
+    let backend = LocalBackend::new(
+        local,
+        forward_names,
+        ZoneRouter::new(
+            zones,
+            ForwardBackend::new(
+                upstream,
+                Duration::from_secs(2),
+                privacy::Settings::default(),
+            ),
+        ),
+    );
+
+    let bound = Server::new(
+        backend,
+        config.server.edns.udp_payload_size,
+        Arc::new(QueryLog::new(&config.privacy.logging).expect("QueryLog")),
+    )
+    .bind(&config.server)
+    .await
+    .expect("bind");
+    let addr = *bound.udp_addrs().first().expect("ein UDP-Listener");
+    let shutdown = CancellationToken::new();
+    tokio::spawn(bound.run(shutdown.clone()));
+    NestedHarness {
+        addr,
+        lan_hits,
+        upstream_hits,
+        shutdown,
+    }
+}
+
+impl NestedHarness {
+    async fn ask(&self, name: &str, qtype: RecordType) -> Message {
+        ask(self.addr, name, qtype).await
+    }
+}
+
+#[tokio::test]
+async fn a_nested_forward_zone_reaches_the_lan_server_and_not_the_upstream() {
+    let server = start_nested(NESTED).await;
+    let response = server
+        .ask("20.1.168.192.in-addr.arpa.", RecordType::PTR)
+        .await;
+
+    assert_eq!(response.metadata.response_code, ResponseCode::NoError);
+    assert_eq!(
+        server.lan_hits.load(Ordering::SeqCst),
+        1,
+        "der LAN-Server wurde nicht gefragt"
+    );
+    assert_eq!(
+        server.upstream_hits.load(Ordering::SeqCst),
+        0,
+        "der Upstream wurde gefragt"
+    );
+}
+
+#[tokio::test]
+async fn a_name_outside_the_nested_forward_zone_stays_closed() {
+    let server = start_nested(NESTED).await;
+    let response = server
+        .ask("13.2.168.192.in-addr.arpa.", RecordType::PTR)
+        .await;
+
+    assert_eq!(response.metadata.response_code, ResponseCode::NXDomain);
+    assert!(response.answers.is_empty());
+    assert_eq!(
+        server.lan_hits.load(Ordering::SeqCst),
+        0,
+        "der LAN-Server wurde gefragt"
+    );
+    assert_eq!(
+        server.upstream_hits.load(Ordering::SeqCst),
+        0,
+        "der Upstream wurde gefragt"
+    );
+}
+
+#[tokio::test]
+async fn an_open_local_zone_keeps_its_fallback_under_a_forward_parent() {
+    // Der Eintrag ist lokal; der Rest der offenen Zone geht normal weiter und
+    // trifft dabei die weniger spezifische Weiterleitung (ADR-0029).
+    let server = start_nested(OPEN_PARENT).await;
+
+    let local = server.ask("nas.sub.miloo.at.", RecordType::A).await;
+    assert_eq!(
+        local.answers.first().map(|record| &record.data),
+        Some(&RData::A(A(Ipv4Addr::new(192, 168, 1, 5))))
+    );
+    assert_eq!(server.lan_hits.load(Ordering::SeqCst), 0);
+    assert_eq!(server.upstream_hits.load(Ordering::SeqCst), 0);
+
+    let rest = server.ask("www.sub.miloo.at.", RecordType::A).await;
+    assert_eq!(rest.metadata.response_code, ResponseCode::NoError);
+    assert_eq!(
+        rest.answers.first().map(|record| &record.data),
+        Some(&RData::A(A(Harness::UPSTREAM))),
+        "der offene Rest ging nicht an die Weiterleitung"
+    );
+    assert_eq!(server.lan_hits.load(Ordering::SeqCst), 1);
+    assert_eq!(server.upstream_hits.load(Ordering::SeqCst), 0);
+}
 
 #[tokio::test]
 async fn a_local_name_never_reaches_the_upstream() {

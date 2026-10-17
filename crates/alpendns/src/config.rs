@@ -1293,19 +1293,22 @@ impl Config {
     /// Baut die Tabellen wirklich, statt die Konfiguration nur anzusehen: so
     /// fällt ein Tippfehler beim Start auf (`alpendns check` ruft dieselbe
     /// Validierung) und nicht erst, wenn die Zone das erste Mal greifen soll.
+    ///
+    /// Verschachtelte Zonen sind erlaubt (ADR-0029): die spezifischere Zone
+    /// gewinnt, unabhängig davon, ob sie lokal oder weitergeleitet ist. Nur
+    /// dieselbe Zone in beiden Listen bleibt ein Fehler — dort gibt es keinen
+    /// longest match, und wer gewinnt, wäre geraten.
     fn validate_local_zones(&self) -> Result<(), ConfigError> {
         build_zones(&self.local_zone)?;
         for local in &self.local_zone {
             for forward in &self.forward_zone {
-                // Eine Zone ist entweder lokal oder weitergeleitet. Beides
-                // zugleich wäre eine Frage der Reihenfolge — und die soll
-                // niemand raten müssen.
-                if local.zone.0.zone_of(&forward.zone.0) || forward.zone.0.zone_of(&local.zone.0) {
+                if local.zone.0 == forward.zone.0 {
                     return Err(ConfigError::Invalid(format!(
-                        "local_zone '{}' and forward_zone '{}' overlap. local_zone \
-                         answers itself, forward_zone passes on to another nameserver — \
-                         for the same zone only one of them can apply. One of the two \
-                         zones has to go elsewhere.",
+                        "local_zone '{}' and forward_zone '{}' are the same zone. A local \
+                         zone answers itself, a forward zone passes on to another \
+                         nameserver — for the same zone only one of them can apply. One \
+                         of the two entries has to go, or one of them has to name a more \
+                         specific zone.",
                         local.zone.0, forward.zone.0
                     )));
                 }
@@ -1946,22 +1949,34 @@ odoh = { enabled = true, proxy = "https://proxy.example/p" }
     }
 
     #[test]
-    fn a_local_zone_may_not_overlap_a_forward_zone() {
-        // Gleich, enthalten, enthaltend — in allen drei Fällen wäre nicht
-        // vorhersagbar, wer gewinnt.
+    fn a_more_specific_zone_may_lie_inside_the_other() {
+        // ADR-0029: die spezifischere Zone gewinnt, unabhängig vom Typ.
         for (local, forward) in [
-            ("miloo.at", "miloo.at"),
-            ("sub.miloo.at", "miloo.at"),
+            ("168.192.in-addr.arpa", "1.168.192.in-addr.arpa"),
             ("miloo.at", "sub.miloo.at"),
+            ("sub.miloo.at", "miloo.at"),
         ] {
             let text = format!(
-                "{MINIMAL}\n[[forward_zone]]\nzone = \"{forward}\"\n\
-                 upstream = \"udp://10.0.0.1:53\"\n\
-                 \n[[local_zone]]\nzone = \"{local}\"\n"
+                "{MINIMAL}\n[[local_zone]]\nzone = \"{local}\"\nfallback = \"nxdomain\"\n\
+                 \n[[forward_zone]]\nzone = \"{forward}\"\nupstream = \"udp://10.0.0.1:53\"\n"
             );
-            let err = valid_err(&text);
-            assert!(err.contains("overlap"), "{local} / {forward}: {err}");
+            let config = valid(&text);
+            assert_eq!(config.local_zone.len(), 1);
+            assert_eq!(config.forward_zone.len(), 1);
         }
+    }
+
+    #[test]
+    fn the_same_zone_as_local_and_forward_is_a_startup_error() {
+        // Gleich spezifisch bleibt mehrdeutig: keine der beiden Zonen ist
+        // spezifischer, also gibt es keinen longest match.
+        let text = format!(
+            "{MINIMAL}\n[[forward_zone]]\nzone = \"miloo.at\"\n\
+             upstream = \"udp://10.0.0.1:53\"\n\
+             \n[[local_zone]]\nzone = \"miloo.at\"\n"
+        );
+        let err = valid_err(&text);
+        assert!(err.contains("same zone"), "{err}");
     }
 
     #[test]

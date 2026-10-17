@@ -1,6 +1,6 @@
 # ADR-0023: A local zone is a table, not a zone
 
-**Status:** accepted · **Date:** 2026-09-23 · **Affects:**
+**Status:** accepted · refined by [ADR-0029](0029-nested-forward-zone.md) (proposed) · **Date:** 2026-09-23 · **Affects:**
 `crates/alpendns/src/local.rs`, `crates/alpendns/src/config.rs` (`[[local_zone]]`),
 the pipeline in [ARCHITECTURE.md](../ARCHITECTURE.md) §1
 
