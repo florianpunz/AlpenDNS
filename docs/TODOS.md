@@ -963,7 +963,9 @@ here; the direction is named.
   sequence for the test (a `rotate_to(seed)` helper or a `cfg(test)` counter)
   instead of entropy, or a bound derived from the sample size — with 10,000 names
   and three buckets the deviation *is* the measurement, not a property of the
-  code.
+  code. **Done:** the test now rotates through the fixed seeds 1–5 via a private
+  `rotate_to(seed)` that `rotate_seed()` also uses; a sweep over seeds 0–1999
+  found 3 above 5 % (seed 592: 5.12 %), i.e. roughly one draw in 700.
 * **`throughput_with_and_without_rate_limiting`**
   ([tests/load.rs](../crates/alpendns/tests/load.rs), `#[ignore]`). It measures
   queries/s once without and once with the limiter and asserts

@@ -159,7 +159,14 @@ impl<B: ResolveBackend, C: Clock> Pool<B, C> {
     /// Der Antwort-Cache bleibt unberührt — er liegt vor dem Pool und kennt
     /// keine Upstreams (ARCHITECTURE.md §1).
     pub fn rotate_seed(&self) {
-        self.seed.store(rand::random(), Ordering::Relaxed);
+        self.rotate_to(rand::random());
+    }
+
+    /// Der eigentliche Wurf, mit vorgegebenem Seed. Getrennt von
+    /// [`Self::rotate_seed`], damit Tests eine feste Seed-Folge würfeln können
+    /// statt frischer Entropie.
+    fn rotate_to(&self, seed: u64) {
+        self.seed.store(seed, Ordering::Relaxed);
         let count = self
             .rotations
             .fetch_add(1, Ordering::Relaxed)
@@ -709,6 +716,11 @@ mod tests {
         // Eine Rotation, die die Verteilung schief macht, wäre eine
         // Verschlechterung. Nach jedem Wurf muss das Abnahmekriterium aus
         // Schritt 1 weiter gelten.
+        //
+        // Feste Seeds statt `rotate_seed()`: mit 10 000 Namen auf drei Töpfe ist
+        // die Abweichung selbst eine Stichprobe. Etwa einer von 700 Zufalls-Seeds
+        // landet über 5 % (Seed 592: [3504, 3258, 3238], 5,12 %) — das ist
+        // Rauschen der Stichprobe, keine Eigenschaft des Codes (TODOS.md 12).
         let fakes: Vec<Arc<Fake>> = (0..3).map(|_| Fake::new(0)).collect();
         let clock = Arc::new(TestClock::new());
         let pool = pool_of(&fakes, clock, 0x5eed);
@@ -716,8 +728,8 @@ mod tests {
             .map(|i| Name::from_ascii(format!("www.site{i}.com.")).expect("gültiger Name"))
             .collect();
 
-        for _ in 0..5 {
-            pool.rotate_seed();
+        for seed in 1..=5 {
+            pool.rotate_to(seed);
             let buckets = strategy::distribution(pool.seed(), domains.iter(), 3);
             let deviation = strategy::max_deviation(&buckets);
             assert!(deviation < 0.05, "{deviation} — {buckets:?}");
