@@ -44,3 +44,4 @@
 # nur von den --ignored-Messläufen in tests/detect_corpus.rs. Woher sie
 # kommen, steht in docs/TESTING.md.
 /corpus/
+.claude/
