@@ -135,6 +135,11 @@ h2 = "0.4"
 http = "1"
 bytes = "1"
 
+# Zeilentabellen reichen für Backtraces; volle Debuginfo machte target/ bei
+# den vielen Integrationstests zweistellig GB groß.
+[profile.dev]
+debug = "line-tables-only"
+
 [profile.release]
 lto = "thin"
 codegen-units = 1
