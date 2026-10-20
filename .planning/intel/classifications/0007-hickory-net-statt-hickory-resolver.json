@@ -1,0 +1,13 @@
+{
+  "source_path": "/home/punf/Desktop/AlpenDNS/docs/adr/0007-hickory-net-statt-hickory-resolver.md",
+  "type": "ADR",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "ADR-0007: Transports from `hickory-net`; pool and selection stay ours",
+  "summary": "Uses hickory-net for DoT/DoH/DoQ transports while keeping upstream pool, selection, cache, and privacy handling in AlpenDNS; hickory-resolver is not used.",
+  "scope": ["hickory-net", "hickory-resolver", "upstream transports", "DoT", "DoH", "DoQ", "connection lifecycle", "upstream pool and selection", "cache", "crypto backend"],
+  "cross_refs": ["0002-hickory-proto-statt-eigenem-parser.md", "ARCHITECTURE.md", "FEATURES.md", "ROADMAP.md"],
+  "locked": true,
+  "precedence": null,
+  "notes": ""
+}

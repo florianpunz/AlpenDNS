@@ -1,0 +1,13 @@
+{
+  "source_path": "/home/punf/Desktop/AlpenDNS/docs/adr/0021-rebinding-nur-erreichbare-adressen.md",
+  "type": "ADR",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "ADR-0021: Rebinding flags only addresses where a device can sit",
+  "summary": "Restricts the rebinding detector's private-address list to ranges a local device can occupy, removing 0.0.0.0, :: and 192.0.0.0/16 after the observation week.",
+  "scope": ["rebinding detector", "private address ranges", "0.0.0.0", "::", "192.0.0.0/16", "RFC 1918", "loopback", "link-local", "CGNAT", "NAT64", "ipv4only.arpa", "allow_zones"],
+  "cross_refs": ["docs/ROADMAP.md", "crates/alpendns/src/detect/rebinding.rs"],
+  "locked": true,
+  "precedence": null,
+  "notes": ""
+}

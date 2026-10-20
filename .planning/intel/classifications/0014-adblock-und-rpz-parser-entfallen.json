@@ -1,0 +1,13 @@
+{
+  "source_path": "/home/punf/Desktop/AlpenDNS/docs/adr/0014-adblock-und-rpz-parser-entfallen.md",
+  "type": "ADR",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "ADR-0014: The parsers for Adblock syntax and RPZ are dropped",
+  "summary": "Removes the Adblock and RPZ blocklist parsers because their supported subsets silently dropped exception rules; hosts, domains and wildcard remain.",
+  "scope": ["Adblock parser", "RPZ parser", "blocklist formats", "exception rules", "wildcard", "hosts", "domains", "configuration Format"],
+  "cross_refs": ["config/alpendns.example.toml"],
+  "locked": true,
+  "precedence": null,
+  "notes": ""
+}

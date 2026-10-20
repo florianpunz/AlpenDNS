@@ -1,0 +1,13 @@
+{
+  "source_path": "/home/punf/Desktop/AlpenDNS/docs/adr/0011-eine-upstream-strategie.md",
+  "type": "ADR",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "ADR-0011: `split_by_zone` is the only upstream strategy",
+  "summary": "Removes the `fastest` and `round_robin` upstream strategies, leaving `split_by_zone` as the only value for `upstream_pool.strategy`.",
+  "scope": ["upstream_pool.strategy", "split_by_zone", "fastest", "round_robin", "upstream selection", "EWMA / RTT", "alpendns_upstream_rtt_seconds"],
+  "cross_refs": ["../ARCHITECTURE.md", "FEATURES.md"],
+  "locked": true,
+  "precedence": null,
+  "notes": ""
+}

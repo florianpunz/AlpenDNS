@@ -1,0 +1,13 @@
+{
+  "source_path": "/home/punf/Desktop/AlpenDNS/docs/adr/0012-fanout-entfaellt.md",
+  "type": "ADR",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "ADR-0012: `fanout` is dropped — exactly one upstream is always queried",
+  "summary": "Removed upstream_pool.fanout so the pool queries upstreams sequentially in split_by_zone order, stopping at first success; also rolls back the trace Mutex.",
+  "scope": ["fanout", "upstream_pool", "split_by_zone", "upstream selection", "decision trace", "ResolveBackend", "Mutex"],
+  "cross_refs": ["0009-decision-trace-mit-mutex.md", "FEATURES.md", "BENCHMARKS.md", "ARCHITECTURE.md"],
+  "locked": true,
+  "precedence": null,
+  "notes": ""
+}

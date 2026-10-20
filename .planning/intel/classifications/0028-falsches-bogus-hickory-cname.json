@@ -1,0 +1,13 @@
+{
+  "source_path": "/home/punf/Desktop/AlpenDNS/docs/adr/0028-falsches-bogus-hickory-cname.md",
+  "type": "ADR",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "ADR-0028: False `bogus` from hickory for a CNAME into another zone",
+  "summary": "Accepts a hickory false Bogus verdict for NODATA after a CNAME into another zone, keeps DNSSEC validation on, documents it as a known false-alarm source.",
+  "scope": ["DNSSEC validation", "Bogus verdict", "NODATA", "CNAME", "NSEC", "hickory-net", "AD bit", "serve_stale"],
+  "cross_refs": ["docs/adr/0016-dnssec-validierung-im-forwarder.md", "docs/OPERATIONS.md"],
+  "locked": true,
+  "precedence": null,
+  "notes": ""
+}

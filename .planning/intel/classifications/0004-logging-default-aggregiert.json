@@ -1,0 +1,13 @@
+{
+  "source_path": "/home/punf/Desktop/AlpenDNS/docs/adr/0004-logging-default-aggregiert.md",
+  "type": "ADR",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "ADR-0004: Aggregated logging as the default, query log only on request",
+  "summary": "Sets aggregate logging as the default of four modes, with k-anonymity threshold and full logging only by explicit operator decision.",
+  "scope": ["logging", "privacy", "query log modes", "aggregate mode", "k-anonymity", "ring buffer"],
+  "cross_refs": ["0015-exakte-zaehlung-statt-sketch.md", "ARCHITECTURE.md"],
+  "locked": true,
+  "precedence": null,
+  "notes": ""
+}

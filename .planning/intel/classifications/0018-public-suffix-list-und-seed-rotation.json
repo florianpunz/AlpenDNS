@@ -1,0 +1,13 @@
+{
+  "source_path": "/home/punf/Desktop/AlpenDNS/docs/adr/0018-public-suffix-list-und-seed-rotation.md",
+  "type": "ADR",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "ADR-0018: Public Suffix List and seed rotation for `split_by_zone`",
+  "summary": "Registrable domains derive from the compiled-in Public Suffix List and the split_by_zone seed rotates every 24h by default.",
+  "scope": ["split_by_zone", "Public Suffix List", "psl crate", "seed rotation", "upstream pool", "registrable domain"],
+  "cross_refs": ["0011-eine-upstream-strategie.md", "../FEATURES.md", "ARCHITECTURE.md"],
+  "locked": true,
+  "precedence": null,
+  "notes": ""
+}

@@ -1,0 +1,13 @@
+{
+  "source_path": "/home/punf/Desktop/AlpenDNS/docs/adr/0010-api-ui-und-metriken.md",
+  "type": "ADR",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "ADR-0010: Two listeners, one token, and a UI without a build step",
+  "summary": "Separate token-protected API and tokenless metrics listeners, a startup-generated token, and a build-free embedded web UI.",
+  "scope": ["HTTP API", "Prometheus metrics", "web UI", "authentication token", "Server-Sent Events"],
+  "cross_refs": ["web/index.html", "web/app.css", "web/app.js"],
+  "locked": true,
+  "precedence": null,
+  "notes": ""
+}

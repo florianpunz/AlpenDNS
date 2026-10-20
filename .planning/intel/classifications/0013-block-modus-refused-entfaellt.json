@@ -1,0 +1,13 @@
+{
+  "source_path": "/home/punf/Desktop/AlpenDNS/docs/adr/0013-block-modus-refused-entfaellt.md",
+  "type": "ADR",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "ADR-0013: The block mode `refused` is dropped",
+  "summary": "Drops the `refused` block mode because clients retry other resolvers on REFUSED, bypassing filtering invisibly.",
+  "scope": ["blocking.mode", "refused", "REFUSED / RCODE 5", "BlockMode", "nxdomain", "zero_ip", "sinkhole"],
+  "cross_refs": ["ADR-0011"],
+  "locked": true,
+  "precedence": null,
+  "notes": ""
+}

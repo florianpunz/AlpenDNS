@@ -1,0 +1,13 @@
+{
+  "source_path": "/home/punf/Desktop/AlpenDNS/docs/adr/0017-oblivious-doh.md",
+  "type": "ADR",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "ADR-0017: Oblivious DoH via `odoh-rs`, key fetch direct",
+  "summary": "Uses Cloudflare's odoh-rs for ODoH crypto, fetches target keys directly, requires DoH for all pool resolvers, and wraps DNSSEC over ODoH.",
+  "scope": ["Oblivious DoH (ODoH)", "odoh-rs", "HPKE", "key fetch", "DNSSEC", "DoH"],
+  "cross_refs": ["../FEATURES.md", "0002-hickory-proto-statt-eigenem-parser.md"],
+  "locked": true,
+  "precedence": null,
+  "notes": ""
+}

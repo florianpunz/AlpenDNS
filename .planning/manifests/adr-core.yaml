@@ -1,0 +1,51 @@
+docs:
+  - path: docs/adr/0001-adr-prozess.md
+    type: ADR
+  - path: docs/adr/0002-hickory-proto-statt-eigenem-parser.md
+    type: ADR
+  - path: docs/adr/0003-forwarder-first.md
+    type: ADR
+  - path: docs/adr/0004-logging-default-aggregiert.md
+    type: ADR
+  - path: docs/adr/0006-tsig-panic-in-hickory-behoben.md
+    type: ADR
+  - path: docs/adr/0007-hickory-net-statt-hickory-resolver.md
+    type: ADR
+  - path: docs/adr/0008-hashmap-statt-bloom-und-trie.md
+    type: ADR
+  - path: docs/adr/0010-api-ui-und-metriken.md
+    type: ADR
+  - path: docs/adr/0011-eine-upstream-strategie.md
+    type: ADR
+  - path: docs/adr/0012-fanout-entfaellt.md
+    type: ADR
+  - path: docs/adr/0013-block-modus-refused-entfaellt.md
+    type: ADR
+  - path: docs/adr/0014-adblock-und-rpz-parser-entfallen.md
+    type: ADR
+  - path: docs/adr/0016-dnssec-validierung-im-forwarder.md
+    type: ADR
+  - path: docs/adr/0017-oblivious-doh.md
+    type: ADR
+  - path: docs/adr/0018-public-suffix-list-und-seed-rotation.md
+    type: ADR
+  - path: docs/adr/0019-heuristiken-melden-statt-blocken.md
+    type: ADR
+  - path: docs/adr/0020-rate-limiting-verwirft.md
+    type: ADR
+  - path: docs/adr/0021-rebinding-nur-erreichbare-adressen.md
+    type: ADR
+  - path: docs/adr/0022-glas-als-flaeche.md
+    type: ADR
+  - path: docs/adr/0024-config-kompatibilitaet-bei-umbenennungen.md
+    type: ADR
+  - path: docs/adr/0025-rebinding-auf-block.md
+    type: ADR
+  - path: docs/adr/0026-andere-detektoren-bleiben-auf-flag.md
+    type: ADR
+  - path: docs/adr/0027-aufloesungsfehler-kurz-cachen.md
+    type: ADR
+  - path: docs/adr/0028-falsches-bogus-hickory-cname.md
+    type: ADR
+  - path: docs/adr/0029-nested-forward-zone.md
+    type: ADR

@@ -1,0 +1,13 @@
+{
+  "source_path": "/home/punf/Desktop/AlpenDNS/docs/adr/0029-nested-forward-zone.md",
+  "type": "ADR",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "ADR-0029: The more specific zone wins, whatever its type",
+  "summary": "Resolves local/forward zone overlap by letting the most specific configured zone win regardless of type; only equal-name zones remain a startup error.",
+  "scope": ["local_zone", "forward_zone", "zone precedence", "LocalBackend", "ZoneRouter", "config validation", "alpendns check", "RFC 6303 reverse zones"],
+  "cross_refs": ["0023-lokale-zonen.md", "crates/alpendns/src/config.rs", "crates/alpendns/src/local.rs", "crates/alpendns/src/main.rs", "config/alpendns.example.toml", "docs/ARCHITECTURE.md", "docs/OPERATIONS.md", "docs/TODOS.md", "ADR-0028"],
+  "locked": true,
+  "precedence": null,
+  "notes": ""
+}

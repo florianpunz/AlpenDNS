@@ -1,0 +1,13 @@
+{
+  "source_path": "/home/punf/Desktop/AlpenDNS/docs/adr/0026-andere-detektoren-bleiben-auf-flag.md",
+  "type": "ADR",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "ADR-0026: DGA, tunneling, typosquat, NRD stay on flag",
+  "summary": "Proposal to keep the DGA, tunneling, typosquat and NRD detectors on flag until each meets its observation criteria, with rationale and reversal conditions.",
+  "scope": ["DGA detector", "tunneling detector", "typosquat detector", "NRD detector", "detector defaults", "flag mode", "block mode", "false-positive rate", "observation period"],
+  "cross_refs": ["docs/adr/0019-heuristiken-melden-statt-blocken.md", "docs/adr/0021-rebinding-nur-erreichbare-adressen.md", "docs/adr/0025-rebinding-auf-block.md", "docs/ROADMAP.md", "docs/BENCHMARKS.md"],
+  "locked": false,
+  "precedence": null,
+  "notes": "Status is 'proposed'; the document states the decision is not made, so locked is false. Filename written as slug only, matching existing classifier outputs in this directory (no hash tooling available to compute the path hash)."
+}

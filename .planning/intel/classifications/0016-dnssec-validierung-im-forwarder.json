@@ -1,0 +1,13 @@
+{
+  "source_path": "/home/punf/Desktop/AlpenDNS/docs/adr/0016-dnssec-validierung-im-forwarder.md",
+  "type": "ADR",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "ADR-0016: Validate DNSSEC yourself, even as a forwarder",
+  "summary": "AlpenDNS recomputes the DNSSEC signature chain itself by default instead of trusting upstream AD bits; describes follow-on decisions, costs, tests and addenda.",
+  "scope": ["DNSSEC validation", "forwarder", "signature chain", "AD bit", "DO bit", "CD bit", "NSEC", "negative answers", "answer cache", "dnssec-ring", "RUSTSEC-2026-0009"],
+  "cross_refs": ["docs/adr/0002-hickory-proto-statt-eigenem-parser.md", "docs/adr/0003-forwarder-first.md", "docs/THREAT-MODEL.md", "docs/ARCHITECTURE.md"],
+  "locked": true,
+  "precedence": null,
+  "notes": ""
+}

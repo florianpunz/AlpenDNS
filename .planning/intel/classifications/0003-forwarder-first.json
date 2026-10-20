@@ -1,0 +1,13 @@
+{
+  "source_path": "/home/punf/Desktop/AlpenDNS/docs/adr/0003-forwarder-first.md",
+  "type": "ADR",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "ADR-0003: Forwarder in v1, recursion left open — but not pre-built",
+  "summary": "v1 resolves by forwarding only; recursion stays behind the ResolveBackend trait but is not pre-built.",
+  "scope": ["forwarding resolver", "recursion", "ResolveBackend", "ForwardBackend", "DNSSEC validation"],
+  "cross_refs": ["FEATURES.md"],
+  "locked": true,
+  "precedence": null,
+  "notes": ""
+}

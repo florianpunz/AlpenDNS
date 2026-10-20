@@ -1,0 +1,13 @@
+{
+  "source_path": "/home/punf/Desktop/AlpenDNS/docs/adr/0025-rebinding-auf-block.md",
+  "type": "ADR",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "ADR-0025: Rebinding detector switches to block",
+  "summary": "Proposes making the rebinding detector default to block after the corrected address list produced zero findings in the second observation period.",
+  "scope": ["rebinding detector", "block default", "flag default", "observation period", "false positives", "private address ranges", "allow_zones"],
+  "cross_refs": ["0019-heuristiken-melden-statt-blocken.md", "0021-rebinding-nur-erreichbare-adressen.md"],
+  "locked": false,
+  "precedence": null,
+  "notes": "Status is proposed, not accepted: explicitly not decided, code default stays flag (ADR-0019). Not locked."
+}

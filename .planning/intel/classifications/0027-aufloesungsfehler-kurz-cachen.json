@@ -1,0 +1,13 @@
+{
+  "source_path": "/home/punf/Desktop/AlpenDNS/docs/adr/0027-aufloesungsfehler-kurz-cachen.md",
+  "type": "ADR",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "ADR-0027: Resolve failures are cached briefly, with a backoff",
+  "summary": "Caches resolution failures for 5 seconds with per-key exponential backoff up to 60 seconds, protecting the upstream pool from dead names.",
+  "scope": ["resolution failure cache", "CachingBackend", "backoff", "SERVFAIL", "upstream pool", "RFC 9520", "FAILURE_TTL", "FAILURE_TTL_MAX", "Step::FailureCached"],
+  "cross_refs": ["crates/alpendns/src/caching.rs", "crates/alpendns/src/cache.rs", "ADR-0023", "https://www.rfc-editor.org/rfc/rfc9520#section-3.2"],
+  "locked": true,
+  "precedence": null,
+  "notes": ""
+}

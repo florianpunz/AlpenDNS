@@ -1,0 +1,13 @@
+{
+  "source_path": "/home/punf/Desktop/AlpenDNS/docs/adr/0022-glas-als-flaeche.md",
+  "type": "ADR",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "ADR-0022: Glass as a surface",
+  "summary": "Permits a four-field coloured sky as the only colour without meaning in the web UI, and replaces flat panes with glass surfaces.",
+  "scope": ["web UI", "glassmorphism", "colour fields", "backdrop-filter", "data-theme", "contrast", "prefers-reduced-transparency"],
+  "cross_refs": ["../ROADMAP.md", "web/index.html", "web/app.css", "web/app.js", "crates/alpendns/src/api/ui.rs", "CLAUDE.md", "web/preview.html"],
+  "locked": true,
+  "precedence": null,
+  "notes": ""
+}

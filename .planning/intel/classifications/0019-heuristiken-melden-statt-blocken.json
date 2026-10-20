@@ -1,0 +1,13 @@
+{
+  "source_path": "/home/punf/Desktop/AlpenDNS/docs/adr/0019-heuristiken-melden-statt-blocken.md",
+  "type": "ADR",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "ADR-0019: Heuristics report, they do not block",
+  "summary": "All five detection heuristics default to flag rather than block; thresholds live in code and detectors run last in the policy engine.",
+  "scope": ["detection heuristics", "DGA", "tunneling", "rebinding", "typosquatting", "newly registered domains", "flag mode", "thresholds", "NameDetector", "AnswerDetector", "forward_zone exemption"],
+  "cross_refs": ["../FEATURES.md", "../ROADMAP.md", "../BENCHMARKS.md", "ARCHITECTURE.md", "crates/alpendns/tests/detect_corpus.rs", "src/detect/dga/model.bin.md"],
+  "locked": true,
+  "precedence": null,
+  "notes": ""
+}

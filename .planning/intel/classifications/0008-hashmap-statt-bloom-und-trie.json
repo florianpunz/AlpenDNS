@@ -1,0 +1,13 @@
+{
+  "source_path": "/home/punf/Desktop/AlpenDNS/docs/adr/0008-hashmap-statt-bloom-und-trie.md",
+  "type": "ADR",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "ADR-0008: The `HashMap` stays — Bloom filter and inverted trie are not coming",
+  "summary": "Keeps the HashMap with suffix lookup for blocklists; Bloom filter and inverted trie are not built based on measured performance.",
+  "scope": ["blocklist matching", "HashMap suffix lookup", "Bloom filter", "inverted trie", "memory footprint", "lookup latency"],
+  "cross_refs": ["docs/ARCHITECTURE.md", "docs/BENCHMARKS.md", "tests/load.rs"],
+  "locked": true,
+  "precedence": null,
+  "notes": ""
+}

@@ -1,0 +1,13 @@
+{
+  "source_path": "/home/punf/Desktop/AlpenDNS/docs/adr/0001-adr-prozess.md",
+  "type": "ADR",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "ADR-0001: Architecture decisions are written down",
+  "summary": "Mandates a short, numbered ADR in docs/adr for every hard-to-reverse or externally odd decision.",
+  "scope": ["ADR process", "docs/adr", "decision documentation", "architecture decisions"],
+  "cross_refs": ["docs/adr/"],
+  "locked": true,
+  "precedence": null,
+  "notes": ""
+}

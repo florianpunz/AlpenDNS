@@ -1,0 +1,13 @@
+{
+  "source_path": "/home/punf/Desktop/AlpenDNS/docs/adr/0024-config-kompatibilitaet-bei-umbenennungen.md",
+  "type": "ADR",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "ADR-0024: Config compatibility on renames",
+  "summary": "Config key renames stay backward compatible via serde aliases with deprecation warnings; no automatic migration or version field.",
+  "scope": ["config parsing", "configuration keys", "serde alias", "deprecation warning", "deny_unknown_fields", "unknown-key error messages", "Levenshtein suggestions", "Debian conffile"],
+  "cross_refs": ["../TODOS.md"],
+  "locked": true,
+  "precedence": null,
+  "notes": ""
+}

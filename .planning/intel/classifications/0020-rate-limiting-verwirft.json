@@ -1,0 +1,13 @@
+{
+  "source_path": "/home/punf/Desktop/AlpenDNS/docs/adr/0020-rate-limiting-verwirft.md",
+  "type": "ADR",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "ADR-0020: Above the limit, packets are dropped, not refused",
+  "summary": "Per-client rate limiting drops excess queries silently instead of refusing them; IPv6 aggregated per /64; token-bucket state in 16 mutex-guarded drawers with LRU cap.",
+  "scope": ["rate limiting", "packet dropping", "amplification reflection", "IPv6 /64 aggregation", "token bucket", "LRU", "query pipeline"],
+  "cross_refs": ["docs/ROADMAP.md", "docs/OPERATIONS.md", "docs/BENCHMARKS.md", "CLAUDE.md"],
+  "locked": true,
+  "precedence": null,
+  "notes": ""
+}

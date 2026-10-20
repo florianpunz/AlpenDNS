@@ -1,0 +1,13 @@
+{
+  "source_path": "/home/punf/Desktop/AlpenDNS/docs/adr/0002-hickory-proto-statt-eigenem-parser.md",
+  "type": "ADR",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "ADR-0002: DNS wire format via `hickory-proto`, not written ourselves",
+  "summary": "Uses hickory-proto for DNS message parsing and serialization; cache, filtering, policy, upstream selection, heuristics, API and UI remain own code.",
+  "scope": ["hickory-proto", "DNS wire format", "message parsing", "serialization", "hickory-resolver", "upstream transports", "hickory-server"],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": null,
+  "notes": "Status line reads 'partly superseded by ADR-0007 (transport crate)', not plain Accepted. Per the classifier contract locked is true only for Accepted ADRs, so the superseded transport clause is not locked; the core parser decision is uncontested. The status link to ADR-0007 is a supersession pointer: the cross-ref graph keeps only the newer-to-older edge ADR-0007 -> ADR-0002, per the conflict engine's cycle remediation, so this doc carries no outgoing cross_ref."
+}
