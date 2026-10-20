@@ -75,7 +75,8 @@ state before.
 run DNS rebinding against other devices in the LAN.
 
 **AlpenDNS against it:** per-client rate limiting, a tunneling heuristic,
-rebinding protection (private IPs in answers for public names are discarded).
+rebinding protection (private IPs in answers for public names are reported by
+default; only a configured `block` discards them — ADR-0019).
 
 **Remains:** a device in the LAN can bypass AlpenDNS by asking 1.1.1.1
 directly, or by opening DoH to a provider of its own. The only thing that helps

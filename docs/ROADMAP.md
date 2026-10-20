@@ -117,7 +117,7 @@ are `sleep`-based and slow. Do not call `SystemTime::now()` directly in the cach
 strategy.
 
 ```
-1. DoT transport (hickory-resolver, rustls) → verify: tcpdump shows port 853 TLS, no cleartext DNS
+1. DoT transport (hickory-net, rustls) → verify: tcpdump shows port 853 TLS, no cleartext DNS
 2. DoH transport (HTTP/2) → verify: integration test against a local DoH fake
 3. Upstream pool with several resolvers, strategy fastest → verify: test with two fakes of different latency, the faster one wins
 4. Passive health tracking, a dead upstream is skipped → verify: fake stops answering, queries go to the second, the metric shows the outage
@@ -173,7 +173,7 @@ replaces a Pi-hole on your own network.
 2. Parser for domains and wildcard → verify: unit tests, leading dots and *. are normalized correctly
 3. ~~Parser for Adblock syntax~~ → removed again in phase 7, [ADR-0014](adr/0014-adblock-und-rpz-parser-entfallen.md)
 4. ~~Parser for RPZ zone files~~ → removed again in phase 7, [ADR-0014](adr/0014-adblock-und-rpz-parser-entfallen.md)
-5. Matcher, v1 as a HashSet with suffix lookup, returns a RuleRef → verify: property test wildcard semantics; notexample.com never matches because of example.com
+5. Matcher, v1 as a HashMap with suffix lookup, returns a RuleRef → verify: property test wildcard semantics; notexample.com never matches because of example.com
 6. Allowlist with precedence over blocklists → verify: integration test, a domain on both lists is let through
 7. Synthesize the block answer (nxdomain / zero_ip / sinkhole) → verify: one test each, RCODE and answer content correct
 8. List download with ETag/If-Modified-Since, cache on disk → verify: the second fetch against a local HTTP fake returns 304, no reprocessing

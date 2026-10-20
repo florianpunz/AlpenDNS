@@ -159,5 +159,5 @@ body that is not the DNS wire format**: the TCP body in
 [tcp.rs](../crates/alpendns/src/server/tcp.rs) and the HTTP body of the
 blocklists in [source.rs](../crates/alpendns/src/filter/source.rs). Both were
 closable with limited effort, neither was critical; both have since been closed.
-What remains open are the two Low findings, both of which require local access
-to the host.
+The two Low findings have since been fixed as well (`ecec90d`); no finding
+remains open.

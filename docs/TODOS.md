@@ -630,10 +630,12 @@ Three obstacles, all real:
    `*Directory=` paths. `/etc/alpendns/` is **not** among them. A writing wizard therefore
    demands `ReadWritePaths=/etc/alpendns` — a softening of the hardening that belongs
    justified and accepted per B.5.
-2. **No reload** (finding B1). Even a written config only takes effect after `systemctl
-   restart` — and the service cannot trigger that itself without getting a way to systemd
-   that `SystemCallFilter` and `CapabilityBoundingSet` precisely prevent. A wizard that
-   writes and then says "please restart now" is half a wizard.
+2. **Only the policy layer reloads** (finding B1). `SIGHUP` reloads clients, policies,
+   regexes, schedules and list sources; listeners, upstreams/TLS, cache, rate limiting,
+   block mode and detectors still need `systemctl restart` — and the service cannot
+   trigger that itself without getting a way to systemd that `SystemCallFilter` and
+   `CapabilityBoundingSet` precisely prevent. A wizard that writes and then says "please
+   restart now" is half a wizard for those settings.
 3. **conffile.** The same trap as in item 7.
 
 **Design — a wizard that does not write.** That sounds like retreat and is the better

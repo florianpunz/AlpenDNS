@@ -31,7 +31,7 @@ order:
                  ┌────────────────────┐  ┌──────────────────────┐
                  │ synthetic answer   │  │ 3  Cache             │
                  │ (NXDOMAIN/0.0.0.0/ │  │    Hit → return      │
-                 │  REFUSED/sinkhole) │  │    Miss → continue   │
+                 │  sinkhole)         │  │    Miss → continue   │
                  │                    │  │    Stale → parallel  │
                  └─────────┬──────────┘  └──────────┬───────────┘
                            │                        │ Miss
@@ -195,10 +195,12 @@ the new one. No lock in the hot path.
 A pool is a list of resolvers plus a strategy — and there is only one left:
 
 * `split_by_zone` — the upstream is determined by
-  `hash(registrable_domain) % n`, with a seed drawn randomly at startup.
+  `hash(seed, registrable_domain) % n`. The registrable domain comes from the
+  Public Suffix List; the seed is drawn at startup and rotates every 24 hours
+  (`[[upstream_pool]] seed_rotation`, `0s` = startup only, ADR-0018).
   Consequences: the same name always goes to the same resolver (the cache stays
-  effective), but each resolver sees only ~1/n of your domains, and which third
-  it sees differs on every restart. Details and limits:
+  effective), but at any moment each resolver sees only ~1/n of your domains,
+  and none of them keeps a stable picture across rotations. Details and limits:
   [FEATURES.md](FEATURES.md), P2.
 
 **Removed:** `fastest` (EWMA of the RTT) and `round_robin`. Both are classic,

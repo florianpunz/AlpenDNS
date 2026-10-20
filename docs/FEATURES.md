@@ -141,7 +141,8 @@ it.
 
 ### D1 · DNS rebinding protection `Effort S` `Novel ○` `Phase 8`
 
-Answers with private IPs (RFC 1918, loopback, link-local) for public names are discarded.
+Answers with private IPs (RFC 1918, loopback, link-local) for public names are detected.
+By default they are flagged; only a configured `block` discards them (ADR-0019).
 Classic protection against attacks in which a website reaches devices in the LAN through
 the browser. `dnsmasq` and `unbound` can do it; it is missing from many blocklist
 solutions. Needs an exception list for internal zones and for services that do this
