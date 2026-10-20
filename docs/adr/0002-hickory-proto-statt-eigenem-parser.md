@@ -1,6 +1,6 @@
 # ADR-0002: DNS wire format via `hickory-proto`, not written ourselves
 
-**Status:** accepted · **Date:** 2026-08-29
+**Status:** partly superseded by [ADR-0007](0007-hickory-net-statt-hickory-resolver.md) (transport crate) · **Date:** 2026-08-29
 
 ## Context
 
