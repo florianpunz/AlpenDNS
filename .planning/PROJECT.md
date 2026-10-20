@@ -126,6 +126,10 @@ Known technical debt, defects and open concerns are catalogued in
 The ADR set in `docs/adr/` is the source. Full text and consequences live there;
 the entries below are the locked constraints that planning must not contradict.
 Where an ADR's own status line is not "accepted", that is stated explicitly.
+D-26 and D-27 come from ADR-0009 and ADR-0023, which the ingest manifest
+excluded to keep the cross-reference graph acyclic; their rules were checked
+against the code on 2026-10-20 and remain live constraints, even though they do
+not appear in `.planning/intel/decisions.md`.
 
 <decisions>
 ### Resolution and architecture
@@ -137,6 +141,7 @@ Where an ADR's own status line is not "accepted", that is stated explicitly.
 - **D-05:** The TSIG panic in `hickory-proto 0.26.1` is a documented known crash; acceptance is proven by a five-minute fuzz run in the delivery configuration (release profile, overflow checks off), the case stays in `fuzz/known-crashes/`, no upstream issue is opened, and 0.27 is awaited without moving to an alpha. (locked, ADR-0006)
 - **D-06:** `split_by_zone` is the only upstream strategy; `fastest` and `round_robin` are removed; the EWMA remains only for metrics and status display. (locked, ADR-0011)
 - **D-07:** `fanout` is removed; exactly one upstream is queried per request; the pool walks `split_by_zone` order and stops at the first success; the trace mutex is gone and `Ctx` is passed as `&mut`. (locked, ADR-0012)
+- **D-26:** The decision trace carries the name with the step (`Arc<str>`), not an ID with a lookup table: a step names the list, policy, schedule, resolver or zone it came from, so a trace is readable without the configuration; matchers return a `RuleRef`, not a boolean. (locked, ADR-0009; ADR-0012 later removed the trace mutex, see D-07, and left this decision unchanged)
 - **D-08:** The registrable domain for `split_by_zone` comes from the compiled-in Public Suffix List; the seed rotates every 24 hours by default via `seed_rotation`, and `"0s"` disables rotation. (locked, ADR-0018)
 - **D-09:** Failed resolutions are cached per `(name, type, class)` for 5 s, doubling to 60 s, capped at 1024 entries; a stale answer wins over the failure memory; there is no configuration key. (locked, ADR-0027)
 
@@ -146,6 +151,7 @@ Where an ADR's own status line is not "accepted", that is stated explicitly.
 - **D-11:** Block mode `refused` is removed; `nxdomain` (default), `zero_ip` and `sinkhole` remain; no block mode produces REFUSED. (locked, ADR-0013)
 - **D-12:** The Adblock and RPZ parsers are removed; `hosts`, `domains` and `wildcard` remain; old format names are recognized with an explanation pointing to `wildcard` and `hosts`. (locked, ADR-0014)
 - **D-13:** For local and forward zones the longest (most specific) match wins regardless of type; a deeper forward zone is delegated from `LocalBackend` to `ZoneRouter`; duplicate zone names are a startup error. (locked, ADR-0029)
+- **D-27:** `[[local_zone]]` is a static table in the configuration file, served from a `HashMap` of name to records in `LocalBackend`: it is not an authoritative zone (no SOA/NS/AXFR/IXFR/NOTIFY, `AA` stays unset), entries are not chased through CNAMEs, and there is no dynamic loader — a changed table needs a restart. (locked, ADR-0023; ADR-0029 replaced only its overlap rule, now D-13)
 - **D-14:** On a config rename the old key remains as a `serde(alias)` for at least one major version with a deprecation warning; there is no automatic migration and no version field; `deny_unknown_fields` stays and unknown keys get Levenshtein-based suggestions. (locked, ADR-0024)
 
 ### Privacy and logging
@@ -170,4 +176,5 @@ Where an ADR's own status line is not "accepted", that is stated explicitly.
 </decisions>
 
 ---
-*Last updated: 2026-10-20 after brownfield ingest and initial GSD roadmap creation.*
+*Last updated: 2026-10-20 after brownfield ingest, initial GSD roadmap creation
+and the two live-constraint addenda (D-26, D-27).*

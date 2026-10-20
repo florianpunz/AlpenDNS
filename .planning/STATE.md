@@ -58,11 +58,16 @@ running; phase 10 optional).
 
 ### Decisions
 
-Decisions are logged in PROJECT.md as D-01 to D-25, derived from the ADR intel
-in `.planning/intel/decisions.md`; full text and consequences live in
-`docs/adr/`.
+Decisions are logged in PROJECT.md as D-01 to D-27. D-01 to D-25 come from the
+ADR intel in `.planning/intel/decisions.md`; D-26 and D-27 come from ADR-0009
+and ADR-0023, which the ingest manifest excluded to keep the cross-reference
+graph acyclic. Full text and consequences live in `docs/adr/`.
 
 Recent decisions affecting current work:
+- D-26 (ADR-0009) and D-27 (ADR-0023): the trace carries names rather than IDs,
+  and local zones are a static table with no dynamic loader. Both were verified
+  in the code on 2026-10-20 and constrain later phases even though their ADRs
+  were outside the ingest manifest.
 - D-19 (ADR-0019): all five detectors default to `flag` and block nothing.
 - D-21 and D-22 (ADR-0025, ADR-0026): both are proposed, not decided; the code
   default stays `flag` until the maintainer decides after the false-positive
