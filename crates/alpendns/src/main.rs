@@ -5,6 +5,7 @@ use std::process::ExitCode;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
+use alpendns::api::block_page::BlockPageSource;
 use alpendns::api::{ApiState, HistoryView, ListInfo, PolicyInfo, StatusSource};
 use alpendns::caching::CachingBackend;
 use alpendns::clock::{SystemClock, SystemWallClock};
@@ -212,6 +213,7 @@ fn run() -> anyhow::Result<()> {
     let privacy = privacy::Settings::from(&privacy_config);
     let api_config = config.api;
     let metrics_config = config.metrics;
+    let block_page_config = config.block_page;
     let timeout = server_config.query_timeout;
 
     // Ein Pool; mehrere auszuwählen ist Sache der Policies in Phase 5.
@@ -516,7 +518,9 @@ fn run() -> anyhow::Result<()> {
         // haben: die API zeigt Namen und braucht einen Token, die Metriken
         // enthalten keine und werden von einem Scraper ohne Token abgeholt.
         let history = Arc::new(Mutex::new(History::new(std::time::Instant::now())));
-        let source: Arc<dyn StatusSource> = Arc::new(Runtime {
+        // Zuerst der konkrete Arc: dieselbe Instanz dient der API als
+        // `StatusSource` und der Blockseite als `BlockPageSource`.
+        let runtime = Arc::new(Runtime {
             cache: Arc::clone(&cache),
             pool: Arc::clone(&pool),
             engine: Arc::clone(&engine),
@@ -533,6 +537,7 @@ fn run() -> anyhow::Result<()> {
             limiter: limiter.clone(),
             tcp_stats: Arc::clone(&tcp_stats),
         });
+        let source: Arc<dyn StatusSource> = runtime.clone();
         tokio::spawn(sample_history(
             Arc::clone(&source),
             history,
@@ -573,6 +578,30 @@ fn run() -> anyhow::Result<()> {
             let signal = shutdown.clone();
             tokio::spawn(async move {
                 let _ = axum::serve(listener, router)
+                    .with_graceful_shutdown(async move { signal.cancelled().await })
+                    .await;
+            });
+        }
+
+        // Die Erklärseite auf der Sinkhole-Adresse. Eigener Listener, weil sie
+        // offen ist: die API zeigt Namen und verlangt dafür einen Token.
+        if block_page_config.enabled {
+            let listener = tokio::net::TcpListener::bind(block_page_config.listen)
+                .await
+                .with_context(|| format!("block page listener on {}", block_page_config.listen))?;
+            // Kein Name, kein Kopf: der Host steht im Antwortkörper, nirgends
+            // im Log (B.1 Regel 3).
+            tracing::info!(listen = %block_page_config.listen, "block page (HTTP, no token)");
+            let page_source: Arc<dyn BlockPageSource> = runtime.clone();
+            let router = alpendns::api::block_page::router(page_source);
+            let signal = shutdown.clone();
+            tokio::spawn(async move {
+                // Connect-Info ist nicht optional: der Handler liest die
+                // Peer-Adresse für die Policy-Auswertung. Mit dem blanken
+                // Router käme dort zur Laufzeit ein 500er.
+                let service =
+                    router.into_make_service_with_connect_info::<std::net::SocketAddr>();
+                let _ = axum::serve(listener, service)
                     .with_graceful_shutdown(async move { signal.cancelled().await })
                     .await;
             });
@@ -859,6 +888,18 @@ impl StatusSource for Runtime {
                 .ok_or_else(|| format!("no client named '{name}'"))?,
         };
         alpendns::policy::explain(&self.engine, domain, peer)
+    }
+}
+
+impl BlockPageSource for Runtime {
+    /// Der Grund für die Blockseite, ohne Zähler und ohne Detektoren.
+    ///
+    /// Ein Parse-Fehler ist kein Block: der Handler hat den Namen aus dem
+    /// `Host`-Kopf bereits geprüft, und wenn hier doch etwas scheitert, ist der
+    /// neutrale Text die sichere Antwort.
+    fn cause(&self, name: &str, peer: std::net::IpAddr) -> alpendns::policy::BlockCause {
+        alpendns::policy::block_cause(&self.engine, name, peer)
+            .unwrap_or(alpendns::policy::BlockCause::NotBlocked)
     }
 }
 
@@ -1209,6 +1250,16 @@ fn check(path: &std::path::Path) -> anyhow::Result<()> {
                  without rate limiting is an amplification reflector (CLAUDE.md B.5)."
             );
         }
+    }
+    // Eigene Zeile und nicht in `public_listeners`: dessen Text spricht vom
+    // offenen Resolver, und eine HTTP-Seite ist keiner. Trotzdem soll niemand
+    // übersehen, dass hier ein unauthentifizierter Port aufgeht.
+    if config.block_page.enabled {
+        println!(
+            "  Block page:  http://{} — HTTP, no token; it shows the blocked name and the \
+             matched list.",
+            config.block_page.listen
+        );
     }
     Ok(())
 }

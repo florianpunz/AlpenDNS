@@ -200,3 +200,23 @@ token_file = "/var/lib/alpendns/api.token"
 enabled = false
 listen = "127.0.0.1:9153"
 path = "/metrics"
+
+# The "Blocked by AlpenDNS" page on the sinkhole address. Off by default: a
+# freshly installed server opens no additional port.
+#
+# To turn it on:
+#   1. blocking.mode = "sinkhole"
+#   2. blocking.sinkhole_ipv4 and sinkhole_ipv6 = this host's address
+#   3. block_page.enabled = true
+#
+# HTTP only. There is no certificate for a blocked name, so https:// sites show
+# a certificate error or abort through HSTS; that limitation is documented, not
+# worked around. The listener is IPv4 only (0.0.0.0:80), so IPv6-only clients
+# cannot reach it — [::]:80 would carry IPv4 too, but v4-mapped peers break the
+# per-client policy matching (ADR-0031).
+#
+# The port is open and unauthenticated. It belongs behind the router's WAN
+# firewall, like the DNS listener.
+[block_page]
+enabled = false
+listen = "0.0.0.0:80"

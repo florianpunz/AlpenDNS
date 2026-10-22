@@ -179,6 +179,56 @@ with the unit failed.
 Finally, switch the clients over: point the DHCP DNS server in your router at
 this machine's address.
 
+### A page for blocked names
+
+With `blocking.mode = "sinkhole"` a blocked name resolves to an address you
+choose. Point it at this machine and the browser lands here; without something
+listening, it gets a connection error. AlpenDNS can serve a page that shows the
+blocked name and the blocklist that matched it.
+
+Three changes in `/etc/alpendns/alpendns.toml`:
+
+```toml
+[blocking]
+mode = "sinkhole"
+sinkhole_ipv4 = "192.168.1.10"
+sinkhole_ipv6 = "fd00::10"
+
+[block_page]
+enabled = true
+listen = "0.0.0.0:80"
+```
+
+Enter this machine's LAN address in both sinkhole keys. Then:
+
+```bash
+sudo alpendns -c /etc/alpendns/alpendns.toml check
+sudo systemctl restart alpendns
+```
+
+`check` prints the block-page listener on its own line — not in the
+open-resolver note, which is about DNS.
+
+The page shows the name and the matched list, nothing else: no client address,
+no policy name, no rule text, no counters, no link to the interface. A name
+with no list entry gets a neutral page that says only that. Page views do not
+appear in the DNS statistics and do not feed the heuristics.
+
+Two limitations:
+
+- **HTTP only, no port 443.** There is no certificate for a blocked name, so an
+  `https://` site shows a certificate error or aborts through HSTS before the
+  page is reached. Plain `http://` works.
+- **IPv4 only.** The listener binds one IPv4 address (`0.0.0.0:80` by default),
+  so an IPv6-only client cannot reach the page. `[::]:80` would also carry
+  IPv4, but its v4-mapped peers defeat the per-client policy matching
+  (ADR-0031).
+
+The listener is an open, unauthenticated port. Like port 53, it belongs behind
+the router's WAN firewall. The shipped configuration leaves `[block_page]
+enabled = false` and `blocking.mode = "nxdomain"`: a fresh install opens no new
+port.
+
 ### Names of your own
 
 Two things look similar and are not. Both keep a name in the house; a zone of

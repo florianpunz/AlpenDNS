@@ -83,6 +83,9 @@ pub struct Config {
     pub api: ApiConfig,
     #[serde(default)]
     pub metrics: MetricsConfig,
+    /// Die "Blocked by AlpenDNS"-Seite für Sinkhole-Antworten.
+    #[serde(default)]
+    pub block_page: BlockPageConfig,
 }
 
 /// Die Heuristiken aus Phase 8.
@@ -337,6 +340,38 @@ fn default_metrics_listen() -> SocketAddr {
 
 fn default_metrics_path() -> String {
     "/metrics".to_owned()
+}
+
+/// Die Erklärseite auf der Sinkhole-Adresse.
+///
+/// Aus, solange niemand sie einschaltet: ein frisch installierter Server soll
+/// keinen zusätzlichen Port öffnen. Der Weg dorthin führt über
+/// `blocking.mode = "sinkhole"` und eine Sinkhole-Adresse dieses Hosts; beides
+/// prüft [`Config::validate`].
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BlockPageConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_block_page_listen")]
+    pub listen: SocketAddr,
+}
+
+fn default_block_page_listen() -> SocketAddr {
+    // Auf allen Schnittstellen wie der DNS-Listener (ADR-0031): die
+    // Sinkhole-Adresse ist die LAN-Adresse dieses Hosts, also muss die Seite
+    // von dort erreichbar sein. Port 80 ist das, was ein Browser ohne Angabe
+    // einem `http://`-Ziel voranstellt.
+    SocketAddr::from(([0, 0, 0, 0], 80))
+}
+
+impl Default for BlockPageConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            listen: default_block_page_listen(),
+        }
+    }
 }
 
 impl Default for ApiConfig {
@@ -1321,6 +1356,50 @@ impl Config {
                     .to_owned(),
             ));
         }
+        if self.block_page.enabled {
+            // In nxdomain oder zero_ip kommt kein Browser je auf der Seite an;
+            // eine Einstellung, die nichts verspricht, ist ein Startfehler
+            // (B.1 Regel 5), kein stiller Leerlauf.
+            if self.blocking.mode != crate::filter::block::BlockMode::Sinkhole {
+                return Err(ConfigError::Invalid(format!(
+                    "block_page.enabled = true needs blocking.mode = \"sinkhole\", but \
+                     blocking.mode is \"{}\". With nxdomain or zero_ip the blocked name \
+                     resolves to nothing or to 0.0.0.0 and never reaches the page. \
+                     Either switch the block mode or turn block_page.enabled off.",
+                    self.blocking.mode.as_str()
+                )));
+            }
+            if self.api.enabled && self.block_page.listen == self.api.listen {
+                return Err(ConfigError::Invalid(
+                    "block_page.listen and api.listen are the same — the block page is \
+                     open and unauthenticated, the API shows names behind a token; they \
+                     must not share a port. Move one of the two."
+                        .to_owned(),
+                ));
+            }
+            if self.metrics.enabled && self.block_page.listen == self.metrics.listen {
+                return Err(ConfigError::Invalid(
+                    "block_page.listen and metrics.listen are the same — the block page is \
+                     open and unauthenticated and must not sit on the metrics port. Move \
+                     one of the two."
+                        .to_owned(),
+                ));
+            }
+            // Eine Sinkhole-Antwort an 0.0.0.0 oder :: führt den Client nirgendwo
+            // hin; die Seite wäre eingerichtet und unerreichbar. Loopback bleibt
+            // erlaubt: ein Einzelhost darf von sich aus nachsehen.
+            if self.blocking.sinkhole_ipv4.is_unspecified()
+                || self.blocking.sinkhole_ipv6.is_unspecified()
+            {
+                return Err(ConfigError::Invalid(
+                    "block_page.enabled = true needs blocking.sinkhole_ipv4 and \
+                     blocking.sinkhole_ipv6 to name this host, but at least one of them is \
+                     unspecified (0.0.0.0 or ::). That answer sends the client nowhere and \
+                     the page can never be reached."
+                        .to_owned(),
+                ));
+            }
+        }
         for zone in &self.forward_zone {
             for upstream in zone.upstream.servers() {
                 if upstream.is_encrypted() {
@@ -2245,6 +2324,66 @@ odoh = { enabled = true, proxy = "https://proxy.example/p" }
         }
     }
 
+    /// Die Blockseite braucht Sinkhole-Antworten auf eine Adresse dieses Hosts.
+    const SINKHOLE: &str = r#"
+[blocking]
+mode = "sinkhole"
+sinkhole_ipv4 = "192.168.1.10"
+sinkhole_ipv6 = "fd00::10"
+"#;
+
+    #[test]
+    fn block_page_defaults_to_off_on_port_80() {
+        let config = valid(MINIMAL);
+        assert!(!config.block_page.enabled);
+        assert_eq!(
+            config.block_page.listen,
+            SocketAddr::from(([0, 0, 0, 0], 80))
+        );
+    }
+
+    #[test]
+    fn block_page_enabled_requires_sinkhole_mode() {
+        let text = format!("{MINIMAL}\n[block_page]\nenabled = true\n");
+        let err = valid_err(&text);
+        assert!(err.contains("block_page.enabled"), "{err}");
+        assert!(err.contains("blocking.mode"), "{err}");
+        assert!(err.contains("sinkhole"), "{err}");
+    }
+
+    #[test]
+    fn block_page_listen_collides_with_api() {
+        let text = format!(
+            "{MINIMAL}\n{SINKHOLE}\n[api]\nenabled = true\nlisten = \"127.0.0.1:8053\"\n\
+             [block_page]\nenabled = true\nlisten = \"127.0.0.1:8053\"\n"
+        );
+        let err = valid_err(&text);
+        assert!(err.contains("block_page.listen"), "{err}");
+        assert!(err.contains("api.listen"), "{err}");
+    }
+
+    #[test]
+    fn block_page_listen_collides_with_metrics() {
+        let text = format!(
+            "{MINIMAL}\n{SINKHOLE}\n[metrics]\nenabled = true\nlisten = \"127.0.0.1:9153\"\n\
+             [block_page]\nenabled = true\nlisten = \"127.0.0.1:9153\"\n"
+        );
+        let err = valid_err(&text);
+        assert!(err.contains("block_page.listen"), "{err}");
+        assert!(err.contains("metrics.listen"), "{err}");
+    }
+
+    #[test]
+    fn block_page_rejects_an_unspecified_sinkhole() {
+        let text = format!(
+            "{MINIMAL}\n[blocking]\nmode = \"sinkhole\"\nsinkhole_ipv4 = \"0.0.0.0\"\n\
+             sinkhole_ipv6 = \"fd00::10\"\n[block_page]\nenabled = true\n"
+        );
+        let err = valid_err(&text);
+        assert!(err.contains("sinkhole_ipv4"), "{err}");
+        assert!(err.contains("block_page.enabled"), "{err}");
+    }
+
     #[test]
     fn a_removed_fanout_says_what_applies_instead() {
         // Nicht nur "unbekanntes Feld": wer fanout gesetzt hatte, soll lesen,
@@ -2279,6 +2418,18 @@ odoh = { enabled = true, proxy = "https://proxy.example/p" }
         config
             .validate()
             .expect("die ausgelieferte Datei muss gültig sein");
+        // Ein frisch installierter Server öffnet keinen zusätzlichen Port. Der
+        // Wert steht in der Datei, damit man die Option sieht, ohne den
+        // Kommentar zu suchen.
+        assert!(
+            !config.block_page.enabled,
+            "the block page is on by default"
+        );
+        assert_eq!(
+            config.block_page.listen,
+            SocketAddr::from(([0, 0, 0, 0], 80)),
+            "the shipped block-page listen address changed"
+        );
     }
 
     /// Die Unit-Datei, die neben der Konfiguration ausgeliefert wird.

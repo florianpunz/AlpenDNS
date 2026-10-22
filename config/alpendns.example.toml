@@ -406,3 +406,24 @@ token_file = "/etc/alpendns/api.token"
 enabled = true
 listen = "127.0.0.1:9153"
 path = "/metrics"
+
+# The "Blocked by AlpenDNS" page. With blocking.mode = "sinkhole" a blocked
+# name resolves to the sinkhole address; if that address is this host, the
+# browser lands here and gets an explanation instead of a blank response.
+#
+# Three steps to turn it on:
+#   1. blocking.mode = "sinkhole"
+#   2. blocking.sinkhole_ipv4 and sinkhole_ipv6 = this host's address
+#   3. block_page.enabled = true
+#
+# HTTP only: there is no certificate for a blocked name, so an https:// site
+# shows a certificate error or aborts through HSTS before this page is
+# reached. That is a documented limitation, not something TLS would fix here.
+#
+# One IPv4 listen address. An IPv6-only client cannot reach the page; [::]:80
+# would also carry IPv4, but its v4-mapped peers break the per-client policy
+# matching (ADR-0031). Loopback is allowed as the sinkhole address for a
+# single-host setup.
+[block_page]
+enabled = false
+listen = "0.0.0.0:80"
