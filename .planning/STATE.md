@@ -4,10 +4,10 @@ current_phase: 10
 current_phase_name: no obligation; phases 0 to 9 accepted
 status: executing
 stopped_at: UAT for phases 8 and 9 completed; both accepted and recorded in
-last_updated: "2026-10-22T18:44:33.929Z"
+last_updated: "2026-10-22T19:59:53.276Z"
 last_activity: 2026-10-22
 last_activity_desc: UAT for phases 8 and 9 completed; both accepted
-state_head: dc57b437cd5f841b2044f3c1dd1090787659a378
+state_head: 64284021b42989701f93458981e68ad8f2d5c94c
 progress:
   total_phases: 11
   completed_phases: 10
@@ -33,7 +33,7 @@ optional stockpile.
 Phase: 10 of 11 (Optional stockpile) — no obligation; phases 0 to 9 accepted
 Plan: none — implementation is complete
 Status: v1 accepted on 2026-10-22; phase 10 (optional) is the only phase left
-Last activity: 2026-10-22 - Completed quick task 261022-s4q: RFC 6303 defaults for the private reverse zones
+Last activity: 2026-10-22 - Completed quick task 261022-t0a: A blocked-by-AlpenDNS page for sinkholed names
 
 Progress: [█████████░] 91% — 10 of 11 phases accepted (phase 10 is optional and
 unscheduled).
@@ -111,6 +111,7 @@ Recent decisions affecting current work:
 | # | Description | Date | Commit | Status | Directory |
 |---|-------------|------|--------|--------|-----------|
 | 261022-s4q | RFC 6303 defaults for the private reverse zones | 2026-10-22 | dc57b43 | Verified | [261022-s4q-rfc-6303-defaults-for-the-private-revers](./quick/261022-s4q-rfc-6303-defaults-for-the-private-revers/) |
+| 261022-t0a | A blocked-by-AlpenDNS page for sinkholed names | 2026-10-22 | 6428402 | Needs Review | [261022-t0a-add-a-blocked-by-alpendns-local-website-](./quick/261022-t0a-add-a-blocked-by-alpendns-local-website-/) |
 
 ## Deferred Items
 
