@@ -308,8 +308,8 @@ The page renders the `Host` header. Two separate problems:
    blocked" without checking. Verify at request time with `block_cause`; the
    lookup is an `ArcSwap::load()` plus a `HashMap` suffix probe of at most the
    label count (`matcher.rs:126-154`), i.e. the same work as one DNS query, no
-   lock. If the result is `NotBlocked`, render a neutral sentence ("this name is
-   not on a blocklist on this network") and name nothing. The page reveals only
+   lock. If the result is `NotBlocked`, render the neutral sentence "No
+   blocklist entry applies to this name." and name nothing. The page reveals only
    name + list for a name the *requester's own address* is actually blocked
    from — no client IP, no policy name, no rule text, no counts.
 
