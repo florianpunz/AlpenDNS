@@ -45,6 +45,12 @@ the evenings and irregularly, that can be weeks. When that run fails it opens a
 single issue, *"cargo deny schlägt fehl — neue Advisory?"*, and comments on that
 one instead of opening a new one every week.
 
+On top of that, Dependabot opens one grouped pull request per ecosystem
+(`cargo`, `github-actions`) once a month, and a separate one as soon as a
+security update appears — see [`.github/dependabot.yml`](.github/dependabot.yml).
+The weekly issue stays the backstop for what no bot catches, and every pull
+request runs the same CI, `cargo deny` included.
+
 Three steps, in this order:
 
 1. **Is the vulnerable path reachable from here?** The question is not "is the

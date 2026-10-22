@@ -1,0 +1,32 @@
+# Dependabot öffnet Pull Requests, aber wenige: ein gruppierter je Ökosystem
+# und Monat. Security-Updates laufen davon getrennt und sofort — sie zählen
+# nicht gegen open-pull-requests-limit.
+#
+# Warum nicht jede Woche und nicht ungruppiert: Bei den rund 200 transitiven
+# Crates wären das Dutzende PRs im Monat, und der eine sicherheitsrelevante
+# ginge darin unter. Der wöchentliche cargo-deny-Lauf mit seinem Issue bleibt
+# die erste Instanz; Dependabot ist der bequeme Weg, die Ursache zu beheben.
+# Jeder PR läuft durch dieselbe CI, inklusive cargo deny.
+#
+# Die Version wird nicht hier gehoben: das macht scripts/bump-version.sh vor
+# dem Push (CLAUDE.md B.7). Ein Dependabot-PR auf Cargo.lock hebt sie nicht.
+version: 2
+
+updates:
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 5
+    groups:
+      cargo:
+        patterns: ["*"]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 5
+    groups:
+      actions:
+        patterns: ["*"]

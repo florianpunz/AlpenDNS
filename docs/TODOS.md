@@ -464,17 +464,15 @@ on:
 plus in the `deny` job `issues: write` and a step that on failure creates **one** issue —
 or updates an existing one, instead of generating a new one every week.
 
-**Why no Dependabot and no Renovate.** Both create pull requests. In a one-person project,
-a flood of PRs that nobody merges is worse than no bot: after three months there are forty
-open PRs, and the one security-relevant among them gets lost — the report becomes noise,
-and noise gets ignored. Add the supply-chain side: a bot with write access in the repo is
-another way for code to come in that no human wrote. For this project the order holds:
-**first the report, then maybe the automation.**
-
-If later it is to be Dependabot after all, then like this:
-`open-pull-requests-limit: 0` (security updates only, no version upkeep), `groups` for the
-rest, `interval: monthly`. That is the compromise that does not litter. But only after
-that.
+**Why the report came before the bot.** The first sketch was: no Dependabot and no
+Renovate, because both create pull requests, and a flood of unmerged PRs drowns the one
+security-relevant among them. That reasoning still holds for *ungrouped, weekly* bots.
+On 2026-10-22 the operator said pull requests are no problem, so the automation came
+anyway — in the form that cannot flood: [`.github/dependabot.yml`](../.github/dependabot.yml)
+is **monthly and grouped**, one pull request per ecosystem (`cargo`,
+`github-actions`) instead of dozens, with `open-pull-requests-limit: 5`. Security
+updates are separate from that and arrive immediately. The weekly issue remains the
+backstop, and every PR runs the same CI, including `cargo deny`.
 
 **The triage flow**, three sentences for OPERATIONS.md:
 
