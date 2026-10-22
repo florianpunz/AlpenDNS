@@ -1,6 +1,13 @@
 ---
-gsd_state_version: '1.0'
+gsd_state_version: "1.0"
+current_phase: 10
+current_phase_name: no obligation; phases 0 to 9 accepted
 status: executing
+stopped_at: UAT for phases 8 and 9 completed; both accepted and recorded in
+last_updated: "2026-10-22T18:44:33.929Z"
+last_activity: 2026-10-22
+last_activity_desc: UAT for phases 8 and 9 completed; both accepted
+state_head: dc57b437cd5f841b2044f3c1dd1090787659a378
 progress:
   total_phases: 11
   completed_phases: 10
@@ -26,9 +33,9 @@ optional stockpile.
 Phase: 10 of 11 (Optional stockpile) — no obligation; phases 0 to 9 accepted
 Plan: none — implementation is complete
 Status: v1 accepted on 2026-10-22; phase 10 (optional) is the only phase left
-Last activity: 2026-10-22 — UAT for phases 8 and 9 completed; both accepted
+Last activity: 2026-10-22 - Completed quick task 261022-s4q: RFC 6303 defaults for the private reverse zones
 
-Progress: 91% — 10 of 11 phases accepted (phase 10 is optional and
+Progress: [█████████░] 91% — 10 of 11 phases accepted (phase 10 is optional and
 unscheduled).
 
 ## Performance Metrics
@@ -99,6 +106,12 @@ Recent decisions affecting current work:
   listeners and forward-zone failover exist only as target/backlog material;
   recursion is explicitly out of v1.
 
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Status | Directory |
+|---|-------------|------|--------|--------|-----------|
+| 261022-s4q | RFC 6303 defaults for the private reverse zones | 2026-10-22 | dc57b43 | Verified | [261022-s4q-rfc-6303-defaults-for-the-private-revers](./quick/261022-s4q-rfc-6303-defaults-for-the-private-revers/) |
+
 ## Deferred Items
 
 Items acknowledged and deferred, most recent first:
@@ -107,7 +120,7 @@ Items acknowledged and deferred, most recent first:
 |----------|------|--------|-------------|-----------|
 | Scope | Encrypted client listeners (DoT/DoH/DoQ) | Not implemented; client traffic is cleartext UDP/TCP | Pre-GSD | v1 |
 | Scope | Forward-zone failover | Open (TODOS item 13) | Pre-GSD | v1 |
-| Scope | RFC 6303 built-in local zones | Open (TODOS item 11) | Pre-GSD | v1 |
+| Scope | RFC 6303 built-in local zones | Done 2026-10-22 (ADR-0032, quick task 261022-s4q) | Pre-GSD | v1 |
 | Scope | Recursion, DDR/DNR, blocklist diff review, two instances, local-zone build-out, own parser as learning project | Optional stockpile | 2026-10-20 | Phase 10 |
 | Config | Per-list `refresh` is parsed but ignored; `max_inflight`, EDNS `padding`, `doh_token` are documented but unimplemented | Open (CONCERNS.md) | Pre-GSD | unassigned |
 
