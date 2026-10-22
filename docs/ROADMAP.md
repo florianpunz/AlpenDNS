@@ -698,7 +698,7 @@ the false positives that break the internet are the biggest risk to acceptance
 
 **Accepted on 2026-10-22.** The observation ran from 30.08. to 22.10., well beyond
 the required week. Operator statement: *"No complaints in practical operation."*
-— to be confirmed by the operator, with date.
+— Operator, 2026-10-22.
 
 **Period 4 (a further confirmation week with the final configuration) was not
 started** — decision of the operator on 2026-10-22. The acceptance rests on the
