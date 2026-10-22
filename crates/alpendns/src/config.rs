@@ -1160,6 +1160,16 @@ fn is_local_address(addr: std::net::IpAddr) -> bool {
     }
 }
 
+/// Ob zwei Listener beim Binden kollidieren.
+///
+/// Gleiche Adresse auf demselben Port — oder eine Wildcard-Adresse
+/// (`0.0.0.0`/`[::]`), die jede Adresse dieses Ports abdeckt. `SocketAddr`
+/// kennt die Wildcard nicht als "jede", deshalb der Vergleich über `port()`.
+fn listeners_collide(a: SocketAddr, b: SocketAddr) -> bool {
+    a.port() == b.port()
+        && (a.ip() == b.ip() || a.ip().is_unspecified() || b.ip().is_unspecified())
+}
+
 const fn default_per_client_qps() -> u32 {
     100
 }
@@ -1368,6 +1378,42 @@ impl Config {
                      Either switch the block mode or turn block_page.enabled off.",
                     self.blocking.mode.as_str()
                 )));
+            }
+            // ADR-0031 und die Beispieldateien sagen IPv4-only zu. Ein
+            // IPv6-Listener reicht IPv4-Clients als v4-mapped Adressen herein,
+            // und die Client-Erkennung (`IpNet::contains`) sieht darin keine
+            // IPv4-Adresse — die Seite würde dann die Default-Policy zeigen.
+            if !self.block_page.listen.is_ipv4() {
+                return Err(ConfigError::Invalid(
+                    "block_page.listen must be an IPv4 address: an IPv6 listener \
+                     delivers IPv4 clients as v4-mapped addresses, which the \
+                     per-client policy matching does not recognise (ADR-0031). Use \
+                     0.0.0.0:80 or a LAN IPv4."
+                        .to_owned(),
+                ));
+            }
+            if self.block_page.listen.port() == 0 {
+                return Err(ConfigError::Invalid(
+                    "block_page.listen must name a fixed port; :0 binds an ephemeral \
+                     port and the page cannot be reached."
+                        .to_owned(),
+                ));
+            }
+            for (label, listeners) in [
+                ("server.listen_udp", &self.server.listen_udp),
+                ("server.listen_tcp", &self.server.listen_tcp),
+            ] {
+                for listener in listeners {
+                    if listeners_collide(self.block_page.listen, *listener) {
+                        return Err(ConfigError::Invalid(format!(
+                            "block_page.listen {} collides with {label} {listener} — two \
+                             listeners cannot bind the same address; an unspecified \
+                             address covers every address on that port. Move one of the \
+                             two.",
+                            self.block_page.listen
+                        )));
+                    }
+                }
             }
             if self.api.enabled && self.block_page.listen == self.api.listen {
                 return Err(ConfigError::Invalid(
@@ -2371,6 +2417,43 @@ sinkhole_ipv6 = "fd00::10"
         let err = valid_err(&text);
         assert!(err.contains("block_page.listen"), "{err}");
         assert!(err.contains("metrics.listen"), "{err}");
+    }
+
+    #[test]
+    fn block_page_listen_must_be_ipv4() {
+        // `[::]:80` reicht IPv4-Clients als v4-mapped Adressen herein; die
+        // Client-Erkennung vergleicht IPv4-Netze und erkennt sie nicht
+        // (ADR-0031). Dokumentiert ist IPv4-only, also muss die Konfiguration
+        // es durchsetzen statt es nur zu empfehlen.
+        let text = format!(
+            "{MINIMAL}\n{SINKHOLE}\n[block_page]\nenabled = true\nlisten = \"[::]:80\"\n"
+        );
+        let err = valid_err(&text);
+        assert!(err.contains("block_page.listen"), "{err}");
+        assert!(err.contains("IPv4"), "{err}");
+    }
+
+    #[test]
+    fn block_page_listen_rejects_an_ephemeral_port() {
+        let text = format!(
+            "{MINIMAL}\n{SINKHOLE}\n[block_page]\nenabled = true\nlisten = \"0.0.0.0:0\"\n"
+        );
+        let err = valid_err(&text);
+        assert!(err.contains("block_page.listen"), "{err}");
+        assert!(err.contains("port"), "{err}");
+    }
+
+    #[test]
+    fn block_page_listen_collides_with_a_dns_listener() {
+        // 0.0.0.0 deckt auch die konkrete 127.0.0.1 ab: gleicher Port, aber
+        // die Adressen sind nicht gleich. Beim Binden fiele es auf, beim
+        // Start soll es auffallen (B.1 Regel 5).
+        let text = format!(
+            "{MINIMAL}\n{SINKHOLE}\n[block_page]\nenabled = true\nlisten = \"0.0.0.0:5353\"\n"
+        );
+        let err = valid_err(&text);
+        assert!(err.contains("block_page.listen"), "{err}");
+        assert!(err.contains("server.listen_udp"), "{err}");
     }
 
     #[test]
