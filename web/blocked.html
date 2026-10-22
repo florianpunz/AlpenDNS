@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Blocked — AlpenDNS</title>
+<link rel="stylesheet" href="/app.css">
+<script>
+// Vor dem ersten Zeichnen, und deshalb hier oben statt am Ende des Dokuments:
+// stünde die Wahl erst dort, blitzte beim Laden kurz das helle Thema auf
+// (ADR-0022, Punkt 2). Ohne Skript bleibt es beim hellen Thema, das :root
+// festlegt — lesbar, nur ohne die Wahl des Systems.
+document.documentElement.dataset.theme =
+  matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+</script>
+<style>
+/* Nur die Seitenaufteilung. Farben, Typografie und Abstände kommen aus
+   app.css; hier steht kein eigener Ton und kein Ad-hoc-Pixelwert. */
+.block-page {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding-block: var(--s-32);
+}
+.block-page .panel {
+  max-width: 38rem;
+  padding: var(--s-32);
+}
+.subject { font-size: var(--t-lead); }
+.is-blocked { color: var(--danger); }
+</style>
+</head>
+<body>
+
+<!-- Derselbe Himmel wie in der UI: er trägt keine Aussage, nur Material. -->
+<div class="sky" aria-hidden="true"></div>
+
+<main class="wrap block-page">
+  <section class="panel">
+    <h1 class="mark">
+      <svg class="logo" viewBox="0 0 44 26" role="img" aria-label="Alpen">
+        <path class="ridge-back" d="M0 26 L12 6 L19 16 L23 10 L44 26 Z"/>
+        <path class="ridge-front" d="M6 26 L20 1 L34 26 Z"/>
+        <path class="snow" d="M20 1 L26 11.5 L22.9 9.6 L20 12 L17.1 9.6 L14 11.5 Z"/>
+      </svg>
+      <span class="wordmark"><b>Alpen</b>DNS</span>
+    </h1>
+
+    <p class="subject"><code>{{NAME}}</code></p>
+    {{BODY}}
+    <p class="note">This page comes from the DNS filter on this network. It
+    says nothing else about this installation.</p>
+  </section>
+</main>
+
+</body>
+</html>

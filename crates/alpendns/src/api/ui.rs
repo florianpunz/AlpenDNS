@@ -13,7 +13,7 @@ use axum::response::{IntoResponse as _, Response};
 use axum::routing::get;
 
 const INDEX: &str = include_str!("../../../../web/index.html");
-const STYLE: &str = include_str!("../../../../web/app.css");
+pub(super) const STYLE: &str = include_str!("../../../../web/app.css");
 const SCRIPT: &str = include_str!("../../../../web/app.js");
 
 pub fn router() -> Router<super::ApiState> {

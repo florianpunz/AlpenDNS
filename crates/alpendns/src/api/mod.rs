@@ -11,6 +11,7 @@
 //! [`StatusSource`]. Sonst wäre der ganze Router generisch über Cache-, Uhr- und
 //! Backend-Typ.
 
+pub mod block_page;
 mod ui;
 
 use std::sync::Arc;
