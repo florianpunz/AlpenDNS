@@ -1035,6 +1035,22 @@ fn zone_label(name: &hickory_proto::rr::Name) -> String {
 /// Geprüft wird ausdrücklich **nichts, was Netz braucht**: kein Listen-Download,
 /// keine Upstream-Verbindung. Ein Startskript, das auf das Internet wartet, ist
 /// ein Startskript, das irgendwann hängt.
+/// Die Zusammenfassung, die `check` über die Erreichbarkeit druckt.
+///
+/// Die DNS-Listener sind das eine; der Block-Port ist keine offene Rekursion,
+/// aber unauthentifiziert. Steht er auf einer nicht nur lokalen Adresse, darf
+/// die Zeile nicht "nur aus dem eigenen Netz" behaupten — der Operator liest
+/// die Zusammenfassung, nicht unbedingt die Zeile darunter.
+fn reachability_verdict(config: &Config) -> &'static str {
+    if !config.public_listeners().is_empty() {
+        "\nOK — with one note:"
+    } else if config.block_page_is_exposed() {
+        "\nOK — DNS reachable only from your own network; the block page is not."
+    } else {
+        "\nOK — reachable only from your own network."
+    }
+}
+
 fn check(path: &std::path::Path) -> anyhow::Result<()> {
     let config = Config::load(path)?;
     // Der Blueprint liest quer über Clients, Policies und Listennamen; ohne ihn
@@ -1234,10 +1250,8 @@ fn check(path: &std::path::Path) -> anyhow::Result<()> {
     // sich dafür entschieden. Ungefragt darf das nur nicht passieren
     // (ROADMAP Phase 9, Schritt 6).
     let public = config.public_listeners();
-    if public.is_empty() {
-        println!("\nOK — reachable only from your own network.");
-    } else {
-        println!("\nOK — with one note:");
+    println!("{}", reachability_verdict(&config));
+    if !public.is_empty() {
         for addr in &public {
             println!(
                 "  {addr} is not restricted to a private address. If this port is \n\
@@ -1523,5 +1537,48 @@ mod tests {
         assert_eq!(mode(&path), 0o400);
         let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Ein `Config` nur für die Frage, welche Zusammenfassung `check` druckt.
+    /// `validate` bleibt außen vor: hier zählt allein, was im Feld steht.
+    fn config_with(listen_udp: &str, block_page: Option<&str>) -> Config {
+        let block = match block_page {
+            Some(listen) => format!("[block_page]\nenabled = true\nlisten = \"{listen}\"\n"),
+            None => String::new(),
+        };
+        toml::from_str(&format!(
+            "[server]\nlisten_udp = [\"{listen_udp}\"]\n{block}"
+        ))
+        .expect("Testkonfiguration parst")
+    }
+
+    /// `public_listeners` lässt die Blockseite bewusst aus, damit deren Text
+    /// nicht vom offenen Resolver spricht. Für die Zusammenfassung zählt aber,
+    /// dass der unauthentifizierte Port offen ist: "nur aus dem eigenen Netz
+    /// erreichbar" wäre für diesen Aufbau schlicht falsch.
+    #[test]
+    fn check_does_not_call_an_open_block_page_private() {
+        let config = config_with("127.0.0.1:5353", Some("0.0.0.0:80"));
+        let verdict = reachability_verdict(&config);
+        assert!(verdict.contains("block page is not"), "{verdict}");
+        assert!(!verdict.contains("reachable only from your own network."), "{verdict}");
+    }
+
+    #[test]
+    fn check_keeps_the_plain_line_when_the_block_page_is_local() {
+        let config = config_with("127.0.0.1:5353", Some("127.0.0.1:80"));
+        assert_eq!(
+            reachability_verdict(&config),
+            "\nOK — reachable only from your own network."
+        );
+    }
+
+    #[test]
+    fn check_keeps_the_plain_line_without_a_block_page() {
+        let config = config_with("127.0.0.1:5353", None);
+        assert_eq!(
+            reachability_verdict(&config),
+            "\nOK — reachable only from your own network."
+        );
     }
 }

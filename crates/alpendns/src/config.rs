@@ -1549,6 +1549,17 @@ impl Config {
             .collect()
     }
 
+    /// Ob die Blockseite auf einer Adresse lauscht, die nicht nur lokal ist.
+    ///
+    /// [`Self::public_listeners`] führt sie bewusst nicht: dessen Text spricht
+    /// vom offenen Resolver, und eine HTTP-Seite ist keiner. Für die
+    /// Zusammenfassung von `alpendns check` zählt aber, dass dieser Port offen
+    /// und unauthentifiziert ist — "nur aus dem eigenen Netz erreichbar" wäre
+    /// dann eine falsche Zusage an den Operator.
+    pub fn block_page_is_exposed(&self) -> bool {
+        self.block_page.enabled && !is_local_address(self.block_page.listen.ip())
+    }
+
     /// Die Zonen und Namen, in denen private Adressen erlaubt sind.
     ///
     /// Die konfigurierten plus **alle `forward_zone`-Einträge** plus die
