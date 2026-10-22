@@ -784,6 +784,25 @@ mod tests {
     }
 
     #[test]
+    fn block_cause_error_does_not_repeat_the_name() {
+        // B.1 Regel 3: ein öffentlicher Fehlerwert ist ein fertiger Weg ins
+        // Log. Der Name gehört in den Antwortkörper zum Fragenden, in keinen
+        // Wert, den ein Aufrufer protokollieren könnte.
+        let loaded = LoadedLists::from_matchers(Vec::new());
+        let engine = engine(
+            Vec::new(),
+            vec![policy("default", &[], &[])],
+            &loaded,
+            Detectors::new(),
+        );
+        let peer: IpAddr = "127.0.0.1".parse().expect("address");
+
+        let error = crate::policy::block_cause(&engine, "not a name", peer)
+            .expect_err("an invalid name is an error");
+        assert!(!error.contains("not a name"), "{error}");
+    }
+
+    #[test]
     fn block_cause_leaves_the_policy_counters_unchanged() {
         let loaded = lists(&[("ads-list", "ads.example\n")]);
         let engine = engine(
