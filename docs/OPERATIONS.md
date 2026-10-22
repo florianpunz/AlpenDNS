@@ -248,84 +248,45 @@ Three things to know before the first entry:
   a validating client rejects — the well-known split-horizon problem. It only
   concerns clients that validate DNSSEC themselves.
 
-### Private reverse zones are not asked outward — unless a nested zone claims part of them
+### Private reverse zones are answered locally
 
-A PTR query for `192.168.1.5` leaves the house today: there is no reverse zone
-for it, so the question "which device is 192.168.1.5" is asked at the upstream
-resolver. That is a privacy leak, and it is also where unstable answers come
-from — upstreams treat those ranges differently, some answer NXDOMAIN, some
-SERVFAIL.
+A PTR query for `192.168.1.5` must not leave the house. The question "which
+device is 192.168.1.5" is nobody else's business, and upstreams treat these
+ranges differently — some answer NXDOMAIN, some SERVFAIL, which is where the
+unstable answers in the observation period came from.
 
-[RFC 6303](https://www.rfc-editor.org/rfc/rfc6303#section-4) §4 lists the reverse
-zones that must never be asked outward. Closing them is one line per zone:
-`fallback = "nxdomain"` without records, so AlpenDNS answers "does not exist"
-and, except for a more specific zone inside it (a forward zone forwards it, an
-open local zone sends it upstream), nothing goes to an upstream
-([ADR-0023](adr/0023-lokale-zonen.md), a closed zone is the one-liner for "this
-is nobody else's business").
+The reverse zones of
+[RFC 6303](https://www.rfc-editor.org/rfc/rfc6303#section-4) §4 are compiled
+into the binary: the IPv4 `in-addr.arpa` entries and the IPv6 `ip6.arpa`
+entries, 33 zones in all. A name inside one is answered like a closed local
+zone — NXDOMAIN without a synthetic SOA, never asked outward
+([ADR-0032](adr/0032-rfc-6303-eingebaut.md)). Without an SOA the answer is also
+not negatively cached (RFC 2308 §5), exactly as for a closed `[[local_zone]]`;
+that is intentional, because a synthetic SOA would make AlpenDNS look
+authoritative, which it is not.
 
-```toml
-# 10/8
-[[local_zone]]
-zone = "10.in-addr.arpa"
-fallback = "nxdomain"
+**A configured zone always wins.** If a `[[local_zone]]` or a `[[forward_zone]]`
+contains the name, the built-in default steps aside, whatever that zone's
+`fallback` is. The shipped example config does exactly this: its explicit
+`168.192.in-addr.arpa` and `10.in-addr.arpa` forward zones remain legitimate
+overrides, because on those networks a LAN server answers part of the range.
+There is no switch to turn the built-in default off — "do not ask strangers
+about my LAN" is not a preference.
 
-# 172.16/12 — 172.16.0.0 to 172.31.255.255
-[[local_zone]]
-zone = "16.172.in-addr.arpa"
-fallback = "nxdomain"
-# … the same for 17.172.in-addr.arpa through 31.172.in-addr.arpa …
-
-# 192.168/16
-[[local_zone]]
-zone = "168.192.in-addr.arpa"
-fallback = "nxdomain"
-
-# 169.254/16 (link-local)
-[[local_zone]]
-zone = "254.169.in-addr.arpa"
-fallback = "nxdomain"
-
-# 127/8 (loopback)
-[[local_zone]]
-zone = "127.in-addr.arpa"
-fallback = "nxdomain"
-
-# fd00::/8 (unique local)
-[[local_zone]]
-zone = "d.f.ip6.arpa"
-fallback = "nxdomain"
-
-# fe80::/10 (link-local): fe80:: to febf::
-[[local_zone]]
-zone = "8.e.f.ip6.arpa"
-fallback = "nxdomain"
-
-[[local_zone]]
-zone = "9.e.f.ip6.arpa"
-fallback = "nxdomain"
-
-[[local_zone]]
-zone = "a.e.f.ip6.arpa"
-fallback = "nxdomain"
-
-[[local_zone]]
-zone = "b.e.f.ip6.arpa"
-fallback = "nxdomain"
-```
+**Migration:** a configuration from before this change starts unchanged.
+Explicit local and forward zones keep winning over the built-in default, and the
+old copy-paste block of `[[local_zone]] … fallback = "nxdomain"` entries may
+simply be deleted; leaving it in place is harmless.
 
 **A `forward_zone` inside a closed zone is allowed, and the more specific zone
 wins.** The chain is `Cache → Local → ZoneRouter → Pool`, so `LocalBackend`
 hands a name to the `ZoneRouter` when a forward zone lies deeper than the
 local zone that would otherwise answer ([ADR-0029](adr/0029-nested-forward-zone.md)).
-A `/24` of the `/16` above can therefore go to the domain
-controllers while the rest stays closed:
+A `/24` of the `192.168/16` range can therefore go to the domain controllers
+while the rest stays closed — and with the built-in default the `[[local_zone]]`
+half is no longer needed:
 
 ```toml
-[[local_zone]]
-zone = "168.192.in-addr.arpa"
-fallback = "nxdomain"
-
 [[forward_zone]]
 zone = "1.168.192.in-addr.arpa"
 upstream = "udp://192.168.1.10:53"
@@ -371,6 +332,11 @@ readable, just without the material.
 cargo deb -p alpendns                            # build the new package
 sudo apt install ./alpendns_<version>_amd64.deb  # install it
 ```
+
+The built-in RFC 6303 reverse zones need no configuration change: an existing
+configuration starts unchanged, explicit local and forward zones keep winning,
+and the old copy-paste block may be deleted (see
+[Private reverse zones are answered locally](#private-reverse-zones-are-answered-locally)).
 
 What happens:
 

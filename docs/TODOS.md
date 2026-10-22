@@ -922,18 +922,27 @@ For completeness, because it belongs to the decision:
 
 ---
 
-## 11. RFC 6303 defaults for the private reverse zones
+## 11. RFC 6303 defaults for the private reverse zones — done.
 
 > A PTR query for `192.168.1.5` leaves the house. Closing the RFC 6303 zones is possible
 > per `[[local_zone]]` today — but only if someone writes 25 blocks.
 
-**Finding.** `[[local_zone]]` with `fallback = "nxdomain"` closes a zone
+**Finding (at the time).** `[[local_zone]]` with `fallback = "nxdomain"` closes a zone
 ([ADR-0023](adr/0023-lokale-zonen.md)), and [OPERATIONS.md](OPERATIONS.md) now
 carries the copy-paste block for the RFC 6303 §4 list. Built in is nothing:
 without those entries a PTR query for a private address goes to the upstream
 (`local.rs`, `LocalZone::is_closed` only knows configured zones). On dns1 that
 showed up twice — as a privacy leak and as unstable NXDOMAIN/SERVFAIL answers,
 because upstreams treat the ranges differently.
+
+**Built.** `RFC6303_ZONES` in `local.rs` holds the 33 names of RFC 6303 §4;
+`LocalBackend` keeps the full forward-zone list in `configured_forward` and a
+pre-parsed `builtin` table, and answers a matching name NXDOMAIN without a
+synthetic SOA (and therefore uncached), exactly like a closed local zone. A
+configured `[[local_zone]]` or `[[forward_zone]]` claims the name first.
+`Config::validate` stays configured-only, so existing configurations keep
+starting. OPERATIONS.md now documents the built-in default instead of the
+copy-paste block. Decision: [ADR-0032](adr/0032-rfc-6303-eingebaut.md).
 
 **Design.** The list from RFC 6303 §4 as a table compiled into the binary, used
 when no configured zone claims the name. Two things have to be decided first:
