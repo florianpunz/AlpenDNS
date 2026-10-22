@@ -196,6 +196,59 @@ impl LocalZone {
 /// beschreiben könnte — NODATA ist damit auch inhaltlich richtig.
 const DDR_ZONE: &str = "resolver.arpa.";
 
+/// Die Reverse-Zonen aus RFC 6303 §4 — der Bereich, den niemand draußen
+/// etwas angeht.
+///
+/// AlpenDNS beantwortet sie wie eine geschlossene lokale Zone: NXDOMAIN, kein
+/// synthetisches SOA. Eingebaut ist die Liste, damit eine PTR-Abfrage nach
+/// `192.168.1.5` nicht beim Upstream landet, ohne dass jemand 25 Blöcke
+/// schreiben muss. Eine konfigurierte `[[local_zone]]` oder `[[forward_zone]]`
+/// geht weiterhin vor (ADR-0032).
+///
+/// Die Liste ist die des RFC, nicht die lebende IANA-Registry — genau die 33
+/// Namen aus §4.1 bis §4.6, absolut und kleingeschrieben.
+const RFC6303_ZONES: &[&str] = &[
+    // §4.1 — RFC 1918 (18)
+    "10.in-addr.arpa.",
+    "16.172.in-addr.arpa.",
+    "17.172.in-addr.arpa.",
+    "18.172.in-addr.arpa.",
+    "19.172.in-addr.arpa.",
+    "20.172.in-addr.arpa.",
+    "21.172.in-addr.arpa.",
+    "22.172.in-addr.arpa.",
+    "23.172.in-addr.arpa.",
+    "24.172.in-addr.arpa.",
+    "25.172.in-addr.arpa.",
+    "26.172.in-addr.arpa.",
+    "27.172.in-addr.arpa.",
+    "28.172.in-addr.arpa.",
+    "29.172.in-addr.arpa.",
+    "30.172.in-addr.arpa.",
+    "31.172.in-addr.arpa.",
+    "168.192.in-addr.arpa.",
+    // §4.2 — RFC 5735 / RFC 5737 (7)
+    "0.in-addr.arpa.",
+    "127.in-addr.arpa.",
+    "254.169.in-addr.arpa.",
+    "2.0.192.in-addr.arpa.",
+    "100.51.198.in-addr.arpa.",
+    "113.0.203.in-addr.arpa.",
+    "255.255.255.255.in-addr.arpa.",
+    // §4.3 — IPv6 unspecified and loopback (2)
+    "0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.ip6.arpa.",
+    "1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.ip6.arpa.",
+    // §4.4 — IPv6 unique-local (1)
+    "d.f.ip6.arpa.",
+    // §4.5 — IPv6 link-local (4)
+    "8.e.f.ip6.arpa.",
+    "9.e.f.ip6.arpa.",
+    "a.e.f.ip6.arpa.",
+    "b.e.f.ip6.arpa.",
+    // §4.6 — IPv6 example prefix (1)
+    "8.b.d.0.1.0.0.2.ip6.arpa.",
+];
+
 /// Beantwortet Namen aus den lokalen Zonen und reicht alles andere weiter.
 ///
 /// Steht **unter** dem Cache (lokale Antworten sollen wie jede andere ihre TTL
@@ -213,6 +266,17 @@ pub struct LocalBackend<B> {
     /// (ADR-0029). Die Weiterleitung selbst bleibt im
     /// [`ZoneRouter`](crate::router::ZoneRouter) unter diesem Layer.
     forward_zones: Vec<Name>,
+    /// Dieselbe Liste, aber ungefiltert.
+    ///
+    /// `forward_zones` wird im Konstruktor auf die Einträge reduziert, die
+    /// unter einer lokalen Zone liegen. Für die eingebauten RFC-6303-Zonen
+    /// gilt aber jede konfigurierte Weiterleitung als Übersteuerung — auch
+    /// eine, die keine lokale Zone über sich hat. Deshalb wird die vollständige
+    /// Liste vor dem `retain` hier festgehalten.
+    configured_forward: Vec<Name>,
+    /// Die eingebaute RFC-6303-Tabelle, nach Tiefe sortiert und mit
+    /// vorberechnetem Trace-Label.
+    builtin: Vec<(Name, Arc<str>)>,
     /// `resolver.arpa` mit vorberechnetem Trace-Label. `None` nur, wenn das
     /// Literal nicht parsebar wäre — das kann nicht eintreten, und ein
     /// Prozess, der deswegen nicht startet, wäre die schlechtere Antwort.
@@ -223,6 +287,11 @@ pub struct LocalBackend<B> {
 impl<B: ResolveBackend> LocalBackend<B> {
     pub fn new(mut zones: Vec<LocalZone>, mut forward_zones: Vec<Name>, inner: B) -> Self {
         zones.sort_by_key(|zone| std::cmp::Reverse(zone.zone.num_labels()));
+        // Die ungefilterte Liste für die RFC-6303-Prüfung festhalten: der
+        // `retain` darunter wirft genau die Weiterleitungen weg, die keine
+        // lokale Zone über sich haben — und die muss die eingebaute Tabelle
+        // trotzdem respektieren.
+        let configured_forward = forward_zones.clone();
         // Nur eine Weiterleitung, die tiefer liegt als eine lokale Zone, kann
         // diese überstimmen. Alles andere sieht der ZoneRouter ohnehin; diese
         // Schicht muss es nicht wissen und soll den heißen Pfad nicht belasten.
@@ -231,12 +300,26 @@ impl<B: ResolveBackend> LocalBackend<B> {
                 forward.num_labels() > local.zone.num_labels() && local.zone.zone_of(forward)
             })
         });
+        // `.ok()` ist hier erlaubt: die Literale stehen im Quelltext, es sind
+        // keine Bytes aus dem Netz (B.1 Regel 1). Ein Test hält die Liste
+        // vollständig, damit ein Tippfehler nicht still eine Zone verliert.
+        let mut builtin: Vec<(Name, Arc<str>)> = RFC6303_ZONES
+            .iter()
+            .filter_map(|text| {
+                Name::from_ascii(text)
+                    .ok()
+                    .map(|name| (name, Arc::from(text.trim_end_matches('.'))))
+            })
+            .collect();
+        builtin.sort_by_key(|(name, _)| std::cmp::Reverse(name.num_labels()));
         let ddr = Name::from_ascii(DDR_ZONE)
             .ok()
             .map(|zone| (zone, Arc::from(DDR_ZONE)));
         Self {
             zones,
             forward_zones,
+            configured_forward,
+            builtin,
             ddr,
             inner,
         }
@@ -346,6 +429,34 @@ impl<B: ResolveBackend> ResolveBackend for LocalBackend<B> {
                 response.metadata.response_code = ResponseCode::NXDomain;
                 ctx.record(Step::LocalAnswer {
                     zone: zone.label(),
+                    records: 0,
+                });
+                return Ok(response);
+            }
+
+            // 4. Die eingebaute RFC-6303-Liste — aber nur, wenn keine
+            //    konfigurierte Zone den Namen beansprucht. `local_zone.is_none()`
+            //    deckt die lokale Seite ab, auch eine *offene* Zone: wer sie
+            //    konfiguriert, will den Rest weiterhin von draußen.
+            //    `configured_forward` deckt die Weiterleitungen ab, die der
+            //    `retain` oben weggeworfen hat (ADR-0032).
+            if local_zone.is_none()
+                && !self
+                    .configured_forward
+                    .iter()
+                    .any(|forward| forward.zone_of(query.name()))
+                && let Some((_, label)) = self
+                    .builtin
+                    .iter()
+                    .find(|(zone, _)| zone.zone_of(query.name()))
+            {
+                // Dieselbe Form wie eine geschlossene lokale Zone: NXDOMAIN,
+                // kein SOA, kein AA. Ohne SOA wird die Antwort nicht negativ
+                // gecacht (RFC 2308 §5) — das ist so gewollt.
+                let mut response = response_to(request);
+                response.metadata.response_code = ResponseCode::NXDomain;
+                ctx.record(Step::LocalAnswer {
+                    zone: Arc::clone(label),
                     records: 0,
                 });
                 return Ok(response);
@@ -1282,5 +1393,252 @@ records = [{ name = "nas", type = "A", value = "192.168.1.5" }]
             !response.metadata.authoritative,
             "AA wäre eine Autorität, die wir nicht haben"
         );
+    }
+
+    // --- Die eingebaute RFC-6303-Tabelle ---------------------------------
+
+    /// Fragt ein Backend mit den übergebenen Zonen und Weiterleitungen.
+    async fn query_private(
+        zones: Vec<LocalZone>,
+        forward: Vec<Name>,
+        name: &str,
+        qtype: RecordType,
+        class: DNSClass,
+    ) -> (Message, usize, Ctx) {
+        let inner = Arc::new(Counter::default());
+        let backend = LocalBackend::new(zones, forward, Arc::clone(&inner));
+        let mut ctx = ctx();
+        let response = backend
+            .resolve(&ask(name, qtype, class), &mut ctx)
+            .await
+            .expect("Antwort");
+        (response, inner.hits.load(Ordering::SeqCst), ctx)
+    }
+
+    #[test]
+    fn rfc6303_the_table_has_33_parseable_zones() {
+        // Ein Tippfehler in einem Literal darf die Liste nicht still
+        // verkleinern: `.ok()` würde die Zone sonst einfach fallen lassen.
+        assert_eq!(
+            RFC6303_ZONES.len(),
+            33,
+            "die RFC-6303-Liste ist unvollständig"
+        );
+        for text in RFC6303_ZONES {
+            assert!(text.ends_with('.'), "'{text}' ist nicht absolut");
+            assert!(
+                *text == text.to_ascii_lowercase().as_str(),
+                "'{text}' ist nicht kleingeschrieben"
+            );
+            assert!(Name::from_ascii(text).is_ok(), "'{text}' parst nicht");
+        }
+        let backend = LocalBackend::new(Vec::new(), Vec::new(), Arc::new(Counter::default()));
+        assert_eq!(
+            backend.builtin.len(),
+            33,
+            "eine Zone ist beim Bauen verloren gegangen"
+        );
+    }
+
+    #[tokio::test]
+    async fn rfc6303_a_private_reverse_name_is_answered_nxdomain_without_asking_anyone() {
+        for (name, label) in [
+            ("5.1.168.192.in-addr.arpa.", "168.192.in-addr.arpa"),
+            ("10.in-addr.arpa.", "10.in-addr.arpa"),
+        ] {
+            let (response, hits, ctx) =
+                query_private(Vec::new(), Vec::new(), name, RecordType::PTR, DNSClass::IN).await;
+            assert_eq!(hits, 0, "{name}: die Abfrage ging hinaus");
+            assert_eq!(
+                response.metadata.response_code,
+                ResponseCode::NXDomain,
+                "{name}"
+            );
+            assert!(response.answers.is_empty(), "{name}");
+            assert!(response.authorities.is_empty(), "{name}: es gibt ein SOA");
+            assert!(!response.metadata.authoritative, "{name}: AA gesetzt");
+            assert!(response.metadata.recursion_available, "{name}");
+            assert!(response.metadata.recursion_desired, "{name}: RD fehlt");
+            assert!(
+                ctx.steps().iter().any(|step| matches!(
+                    step,
+                    Step::LocalAnswer { zone, records: 0 } if zone.as_ref() == label
+                )),
+                "{name}: der Trace nennt die eingebaute Zone nicht"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn rfc6303_an_ipv6_private_reverse_name_is_answered_locally() {
+        let (response, hits, _) = query_private(
+            Vec::new(),
+            Vec::new(),
+            "5.4.3.2.1.d.f.ip6.arpa.",
+            RecordType::PTR,
+            DNSClass::IN,
+        )
+        .await;
+        assert_eq!(hits, 0, "fd00::/8 ging nach draußen");
+        assert_eq!(response.metadata.response_code, ResponseCode::NXDomain);
+        assert!(response.answers.is_empty());
+    }
+
+    // --- Konfigurierte Zonen überstimmen die eingebaute Tabelle ----------
+
+    #[tokio::test]
+    async fn override_a_non_nested_forward_zone_beats_the_builtin() {
+        // Genau der Fall, den der `retain` im Konstruktor wegwirft: eine
+        // Weiterleitung ohne lokale Zone darüber. Der Gate muss deshalb
+        // `configured_forward` lesen, nicht `forward_zones`.
+        let (_, hits, _) = query_private(
+            Vec::new(),
+            vec![zone("168.192.in-addr.arpa")],
+            "5.1.168.192.in-addr.arpa.",
+            RecordType::PTR,
+            DNSClass::IN,
+        )
+        .await;
+        assert_eq!(
+            hits, 1,
+            "die eingebaute Tabelle hat die Weiterleitung überstimmt"
+        );
+    }
+
+    #[tokio::test]
+    async fn override_an_open_local_zone_keeps_its_upstream_fallback() {
+        let zones =
+            build_zones(&[config(r#"zone = "168.192.in-addr.arpa""#)]).expect("gültige Zonen");
+        let (_, hits, _) = query_private(
+            zones,
+            Vec::new(),
+            "5.1.168.192.in-addr.arpa.",
+            RecordType::PTR,
+            DNSClass::IN,
+        )
+        .await;
+        assert_eq!(
+            hits, 1,
+            "die eingebaute Tabelle hat eine offene Zone geschlossen"
+        );
+    }
+
+    #[tokio::test]
+    async fn override_a_closed_local_zone_answers_with_its_own_label() {
+        let closed = r#"
+zone = "168.192.in-addr.arpa"
+fallback = "nxdomain"
+records = [{ name = "5.1", type = "PTR", value = "nas.miloo.at." }]
+"#;
+        let zones = build_zones(&[config(closed)]).expect("gültige Zonen");
+        let (response, hits, _) = query_private(
+            zones,
+            Vec::new(),
+            "5.1.168.192.in-addr.arpa.",
+            RecordType::PTR,
+            DNSClass::IN,
+        )
+        .await;
+        assert_eq!(hits, 0);
+        assert_eq!(response.metadata.response_code, ResponseCode::NoError);
+        assert_eq!(response.answers.len(), 1, "der Eintrag fehlt");
+        assert!(matches!(
+            response.answers.first().map(|record| &record.data),
+            Some(RData::PTR(_))
+        ));
+
+        let zones = build_zones(&[config(closed)]).expect("gültige Zonen");
+        let (response, hits, ctx) = query_private(
+            zones,
+            Vec::new(),
+            "13.2.168.192.in-addr.arpa.",
+            RecordType::PTR,
+            DNSClass::IN,
+        )
+        .await;
+        assert_eq!(hits, 0);
+        assert_eq!(response.metadata.response_code, ResponseCode::NXDomain);
+        assert!(ctx.steps().iter().any(|step| matches!(
+            step,
+            Step::LocalAnswer { zone, records: 0 } if zone.as_ref() == "168.192.in-addr.arpa"
+        )));
+    }
+
+    #[tokio::test]
+    async fn override_the_172_edges_are_16_through_31() {
+        for (name, expected_hits) in [
+            ("16.172.in-addr.arpa.", 0),
+            ("31.172.in-addr.arpa.", 0),
+            ("15.172.in-addr.arpa.", 1),
+            ("32.172.in-addr.arpa.", 1),
+        ] {
+            let (response, hits, _) =
+                query_private(Vec::new(), Vec::new(), name, RecordType::PTR, DNSClass::IN).await;
+            assert_eq!(hits, expected_hits, "{name}");
+            if expected_hits == 0 {
+                assert_eq!(
+                    response.metadata.response_code,
+                    ResponseCode::NXDomain,
+                    "{name}"
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn override_suffix_matching_respects_label_boundaries() {
+        for name in ["not10.in-addr.arpa.", "10.in-addr.arpa.example.com."] {
+            let (_, hits, _) =
+                query_private(Vec::new(), Vec::new(), name, RecordType::PTR, DNSClass::IN).await;
+            assert_eq!(hits, 1, "{name}: ein Präfix wurde als Zone gelesen");
+        }
+        let (response, hits, _) = query_private(
+            Vec::new(),
+            Vec::new(),
+            "10.in-addr.arpa.",
+            RecordType::PTR,
+            DNSClass::IN,
+        )
+        .await;
+        assert_eq!(hits, 0, "der Apex ging nach draußen");
+        assert_eq!(response.metadata.response_code, ResponseCode::NXDomain);
+    }
+
+    #[tokio::test]
+    async fn override_a_class_other_than_in_is_passed_through() {
+        let (_, hits, _) = query_private(
+            Vec::new(),
+            Vec::new(),
+            "5.1.168.192.in-addr.arpa.",
+            RecordType::PTR,
+            DNSClass::CH,
+        )
+        .await;
+        assert_eq!(
+            hits, 1,
+            "die RFC-6303-Liste hat eine CH-Abfrage beantwortet"
+        );
+    }
+
+    #[tokio::test]
+    async fn override_the_builtin_answer_is_not_cached() {
+        // Ohne SOA in der Authority-Section gibt es für den Cache keinen
+        // Anhaltspunkt für eine negative TTL (RFC 2308 §5) — dieselbe Regel wie
+        // bei einer geschlossenen lokalen Zone. `CachingBackend` ist von diesem
+        // Modul aus nicht erreichbar; geprüft wird deshalb die Vertragsseite.
+        let (response, _, _) = query_private(
+            Vec::new(),
+            Vec::new(),
+            "5.1.168.192.in-addr.arpa.",
+            RecordType::PTR,
+            DNSClass::IN,
+        )
+        .await;
+        assert_eq!(response.metadata.response_code, ResponseCode::NXDomain);
+        assert!(
+            response.authorities.is_empty(),
+            "ein SOA würde die Antwort cachebar machen"
+        );
+        assert!(response.answers.is_empty());
     }
 }

@@ -2091,6 +2091,24 @@ odoh = { enabled = true, proxy = "https://proxy.example/p" }
     }
 
     #[test]
+    fn a_forward_zone_inside_rfc6303_space_still_validates() {
+        // Die eingebauten RFC-6303-Zonen sind keine konfigurierten Einträge.
+        // Eine Weiterleitung in diesen Bereich — die ausgelieferte
+        // Beispielkonfiguration hat genau das (168.192 und 10) — muss
+        // weiterhin starten, und die eingebaute Liste darf nicht in den
+        // konfigurierten Vektoren auftauchen (ADR-0032).
+        let text = format!(
+            "{MINIMAL}\n[[forward_zone]]\nzone = \"168.192.in-addr.arpa\"\n\
+             upstream = \"udp://10.0.0.1:53\"\n\
+             \n[[forward_zone]]\nzone = \"10.in-addr.arpa\"\n\
+             upstream = \"udp://10.0.0.1:53\"\n"
+        );
+        let config = valid(&text);
+        assert!(config.local_zone.is_empty());
+        assert_eq!(config.forward_zone.len(), 2);
+    }
+
+    #[test]
     fn default_ports_are_filled_in_per_transport() {
         assert_eq!(
             UpstreamAddr::try_from("dot://9.9.9.9".to_owned()),

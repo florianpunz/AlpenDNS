@@ -252,6 +252,14 @@ zone = "miloo.at"
 upstream = "udp://192.168.1.11:53"
 "#;
 
+/// Eine Weiterleitung ohne lokale Zone darüber — genau der Fall, den die
+/// eingebaute RFC-6303-Tabelle nicht überstimmen darf.
+const FORWARD_ONLY_REVERSE: &str = r#"
+[[forward_zone]]
+zone = "168.192.in-addr.arpa"
+upstream = "udp://192.168.1.10:53"
+"#;
+
 struct NestedHarness {
     addr: SocketAddr,
     lan_hits: Arc<AtomicUsize>,
@@ -599,4 +607,56 @@ async fn the_answer_claims_no_authority() {
     );
     assert!(response.metadata.recursion_available);
     assert_eq!(response.metadata.id, 0x4242);
+}
+
+#[tokio::test]
+async fn private_reverse_names_answer_nxdomain_and_never_reach_the_upstream() {
+    // Die eingebaute RFC-6303-Liste: `dig -x 192.168.1.5` bleibt im Haus,
+    // auch ohne konfigurierte Reverse-Zone.
+    let server = start("", &[]).await;
+    let response = server
+        .ask("5.1.168.192.in-addr.arpa.", RecordType::PTR)
+        .await;
+
+    assert_eq!(response.metadata.response_code, ResponseCode::NXDomain);
+    assert!(response.answers.is_empty());
+    assert_eq!(
+        server.upstream_hits(),
+        0,
+        "die private Adresse wurde draußen gefragt"
+    );
+}
+
+#[tokio::test]
+async fn private_reverse_names_outside_the_list_still_reach_the_upstream() {
+    // Die Gegenprobe: die Liste ist kein Rundumschlag gegen alle
+    // Reverse-Namen. `5.5.5.5` ist öffentlicher Adressraum (5.0.0.0/8).
+    let server = start("", &[]).await;
+    let response = server.ask("5.5.5.5.in-addr.arpa.", RecordType::PTR).await;
+
+    assert_eq!(response.metadata.response_code, ResponseCode::NoError);
+    assert_eq!(server.upstream_hits(), 1);
+}
+
+#[tokio::test]
+async fn private_reverse_configured_forward_zone_wins_over_the_builtin() {
+    // Der `retain` in `LocalBackend::new` wirft eine Weiterleitung ohne lokale
+    // Zone darüber weg; der eingebaute Standard darf sie trotzdem nicht
+    // überstimmen.
+    let server = start_nested(FORWARD_ONLY_REVERSE).await;
+    let response = server
+        .ask("5.1.168.192.in-addr.arpa.", RecordType::PTR)
+        .await;
+
+    assert_eq!(response.metadata.response_code, ResponseCode::NoError);
+    assert_eq!(
+        server.lan_hits.load(Ordering::SeqCst),
+        1,
+        "der LAN-Server wurde nicht gefragt"
+    );
+    assert_eq!(
+        server.upstream_hits.load(Ordering::SeqCst),
+        0,
+        "die eingebaute Tabelle hat geantwortet"
+    );
 }
