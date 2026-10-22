@@ -267,11 +267,17 @@ authoritative, which it is not.
 
 **A configured zone always wins.** If a `[[local_zone]]` or a `[[forward_zone]]`
 contains the name, the built-in default steps aside, whatever that zone's
-`fallback` is. The shipped example config does exactly this: its explicit
+`fallback` is. `config/alpendns.example.toml` does exactly this: its explicit
 `168.192.in-addr.arpa` and `10.in-addr.arpa` forward zones remain legitimate
 overrides, because on those networks a LAN server answers part of the range.
-There is no switch to turn the built-in default off — "do not ask strangers
-about my LAN" is not a preference.
+That override rule is also the only way to send one of these ranges outward
+again — a `[[local_zone]]` with `fallback = "upstream"` for the zone. There is
+no global switch; "do not ask strangers about my LAN" is not a preference.
+
+**The zone name itself answers NXDOMAIN too**, where RFC 6303 §3 would return
+an SOA or "no data". Deliberate: AlpenDNS hosts no zone and invents no record
+([ADR-0032](adr/0032-rfc-6303-eingebaut.md)). `dig 10.in-addr.arpa SOA` therefore
+says "does not exist"; that is not a sign of a broken installation.
 
 **Migration:** a configuration from before this change starts unchanged.
 Explicit local and forward zones keep winning over the built-in default, and the

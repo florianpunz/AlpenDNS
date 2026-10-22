@@ -16,9 +16,10 @@ measured twice in the observation period (ADR-0029).
 
 [RFC 6303](https://www.rfc-editor.org/rfc/rfc6303#section-4) §4 lists the reverse
 zones that must never be asked outward. Closing them was already possible with
-`[[local_zone]] fallback = "nxdomain"`, but it took 25 hand-written blocks, and
-the copy-paste block in OPERATIONS.md carried only 14 of the 33 zones. A
-default that depends on the operator copying a list correctly is not a default.
+`[[local_zone]] fallback = "nxdomain"`, but it took ten hand-written blocks —
+twenty-five zones once the `172.16/12` ellipsis was filled in — and even then
+eight of the 33 zones stayed uncovered. A default that depends on the operator
+copying a list correctly is not a default.
 
 ## Decision
 
@@ -47,8 +48,20 @@ The details, in the order the request passes through:
   ADR-0029 overlap rule is unchanged and a configuration that starts today keeps
   starting — including the shipped example's `168.192.in-addr.arpa` and
   `10.in-addr.arpa` forward zones, which stay legitimate overrides.
-* **No switch.** There is no configuration key to turn the default off. "Do not
-  ask strangers about my LAN" is not a preference.
+* **No dedicated switch, but the configured zones are one.** RFC 6303 §3 says an
+  implementation "MUST provide a mechanism to disable this new behaviour, and
+  SHOULD allow this decision on a zone-by-zone basis". That mechanism is the
+  override rule itself: a `[[local_zone]]` with `fallback = "upstream"` for
+  `10.in-addr.arpa` makes the built-in step aside and sends the name outward
+  again. There is no global off key; "do not ask strangers about my LAN" is not
+  a preference.
+* **Two deliberate deviations from §3, both about authority.** §3 asks for
+  `AA=1` on these answers and excepts "queries for the zone name itself", where
+  SOA, NS or NODATA should come back. AlpenDNS sets no `AA` and answers
+  NXDOMAIN at the apex too. The reason is the same one that forbids a synthetic
+  SOA: AlpenDNS hosts no zone, so it claims no authority and invents no record —
+  and the apex of `10.in-addr.arpa` is not a name anyone resolves. A client that
+  needs the distinction is asking the wrong server.
 * **No PTR records derived from `local_zone` A records.** That stays as
   ADR-0023 decided; the built-in table answers NXDOMAIN and invents nothing.
 * **The trace says so.** The answer records `Step::LocalAnswer` with the
