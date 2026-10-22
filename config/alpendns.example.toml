@@ -100,9 +100,17 @@ tls_name = "dnsforge.de"
 
 # Conditional forwarding: internal zones never go to the internet. The only
 # place where cleartext DNS is allowed — and it does not leave your own network.
+#
+# Several servers for one zone are a list: asked in this order, and the next
+# one only when the one before did not answer. A dead domain controller thus
+# costs a timeout, not the zone. One server may stay a plain string.
 [[forward_zone]]
 zone = "home.arpa"
 upstream = "udp://10.0.0.1:53"
+
+[[forward_zone]]
+zone = "168.192.in-addr.arpa"
+upstream = ["udp://10.0.0.1:53", "udp://10.0.0.2:53"]
 
 [[forward_zone]]
 zone = "10.in-addr.arpa"

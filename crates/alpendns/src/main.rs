@@ -18,6 +18,7 @@ use alpendns::policy::{Blueprint, Engine, Explanation, PolicyBackend};
 use alpendns::privacy;
 use alpendns::ratelimit::RateLimiter;
 use alpendns::reload::PolicySource;
+use alpendns::resolve::Failover;
 use alpendns::router::ZoneRouter;
 use alpendns::server::{Server, TcpStats};
 use alpendns::upstream::odoh::{OdohBackend, OdohTransport};
@@ -275,14 +276,19 @@ fn run() -> anyhow::Result<()> {
         .collect::<anyhow::Result<Vec<_>>>()?;
     let strategy = pool_config.strategy;
     let seed_rotation = pool_config.seed_rotation;
-    let zones: Vec<(hickory_proto::rr::Name, ForwardBackend)> = config
+    let zones: Vec<(hickory_proto::rr::Name, Failover<ForwardBackend>)> = config
         .forward_zone
         .iter()
         .map(|zone| {
-            (
-                zone.zone.0.clone(),
-                ForwardBackend::new(zone.upstream.socket_addr(), timeout, privacy),
-            )
+            // Ein Backend je Server: jeder führt seinen eigenen Cookie- und
+            // 0x20-Zustand. Gefragt wird in der Reihenfolge der Konfiguration.
+            let backends = zone
+                .upstream
+                .servers()
+                .iter()
+                .map(|server| ForwardBackend::new(server.socket_addr(), timeout, privacy))
+                .collect();
+            (zone.zone.0.clone(), Failover::new(backends))
         })
         .collect();
     let zone_names: Vec<String> = config
@@ -1063,16 +1069,22 @@ fn check(path: &std::path::Path) -> anyhow::Result<()> {
     for zone in &config.forward_zone {
         if !seen.insert(zone.zone.0.clone()) {
             println!(
-                "               duplicate forward_zone {} — only the first one is asked.",
+                "               duplicate forward_zone {} — only the first entry is used.",
                 zone_label(&zone.zone.0)
             );
         }
         let dead = ddr.as_ref().is_some_and(|ddr| ddr.zone_of(&zone.zone.0));
+        let servers = zone
+            .upstream
+            .servers()
+            .iter()
+            .map(|server| format!("{}://{}", server.scheme(), server.socket_addr()))
+            .collect::<Vec<_>>()
+            .join(", ");
         println!(
-            "  Forward:     {} → {}://{}{}",
+            "  Forward:     {} → {}{}",
             zone_label(&zone.zone.0),
-            zone.upstream.scheme(),
-            zone.upstream.socket_addr(),
+            servers,
             if dead {
                 " (not asked: resolver.arpa is answered locally)"
             } else {

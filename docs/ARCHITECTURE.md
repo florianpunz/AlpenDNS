@@ -68,7 +68,9 @@ trait ResolveBackend: Send + Sync {
 
 The layer behind it is a chain, outside in:
 `LocalBackend` → `ZoneRouter` → `Pool` → `Encrypted` (DoT/DoH/DoQ), and
-`ForwardBackend` (cleartext) for `forward_zone`. Every link is one
+`ForwardBackend` (cleartext) for `forward_zone` — several servers for one
+forward zone sit behind a `Failover` that asks them in the configured order.
+Every link is one
 implementation of the trait and knows only the one below it; which links exist
 is decided once, when `main` wires them up. `LocalBackend` answers the names in
 `[[local_zone]]` and passes everything else down — a static table, not an

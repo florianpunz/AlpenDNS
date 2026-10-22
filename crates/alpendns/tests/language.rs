@@ -323,7 +323,7 @@ fn check_shows_nested_zone_precedence_in_english() {
     );
     assert!(
         stdout.contains(
-            "duplicate forward_zone 1.168.192.in-addr.arpa — only the first one is asked."
+            "duplicate forward_zone 1.168.192.in-addr.arpa — only the first entry is used."
         ),
         "{stdout}"
     );
@@ -366,6 +366,35 @@ fn check_shows_nested_zone_precedence_in_english() {
             "local zone sub.miloo.at lies inside forward zone miloo.at: its entries are answered \
              locally, except under a more specific forward zone; the rest goes on to normal \
              resolution; a more specific zone still wins."
+        ),
+        "{stdout}"
+    );
+}
+
+#[test]
+fn check_lists_every_server_of_a_forward_zone() {
+    // Die Liste ist die Ausweichordnung; `check` soll sie vollständig zeigen,
+    // sonst sieht eine Zwei-Server-Zone wie eine Ein-Server-Zone aus.
+    let dir = TempDir::new("forward-list");
+    let dns_port = free_port();
+    let metrics_port = free_port();
+    let cache = dir.0.join("cache");
+    std::fs::create_dir_all(&cache).expect("cache directory");
+    let mut text = config_text(dns_port, metrics_port);
+    text.push_str(&format!(
+        "\n[blocking]\ncache_dir = \"{}\"\n\
+         \n[[forward_zone]]\nzone = \"10.in-addr.arpa\"\n\
+         upstream = [\"udp://192.168.1.10:53\", \"udp://192.168.1.11:53\"]\n",
+        cache.display()
+    ));
+    let config = dir.file("alpendns.toml", &text);
+    let (status, stdout, stderr) = run_status(&["-c", &config, "check"]);
+
+    assert!(status.success(), "{stderr}\n{stdout}");
+    assert_english("forward list check (stdout)", &stdout);
+    assert!(
+        stdout.contains(
+            "Forward:     10.in-addr.arpa → udp://192.168.1.10:53, udp://192.168.1.11:53"
         ),
         "{stdout}"
     );

@@ -179,6 +179,11 @@ A `[[local_zone]]` is a table, not a zone file: no SOA, no transfer, and
 AlpenDNS does not become authoritative for it
 ([ADR-0023](adr/0023-lokale-zonen.md)).
 
+A `[[forward_zone]]` may name several servers — `upstream = ["udp://…",
+"udp://…"]`, or a single string as before. They are asked in the order written;
+the next one only when the one before did not answer. A dead domain controller
+then costs its timeout, not the whole zone.
+
 A name that should be answered here and *only* here:
 
 ```toml

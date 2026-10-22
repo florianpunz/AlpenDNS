@@ -774,7 +774,54 @@ pub struct ResolverConfig {
 #[serde(deny_unknown_fields)]
 pub struct ForwardZone {
     pub zone: ZoneName,
-    pub upstream: UpstreamAddr,
+    /// Ein Server als String oder mehrere als Liste. Die Reihenfolge ist die
+    /// Ausweichordnung: der nächste wird erst gefragt, wenn der vorige nicht
+    /// antwortet.
+    pub upstream: UpstreamList,
+}
+
+/// Einer oder mehrere Server für dieselbe Zone.
+///
+/// Die Kurzform `upstream = "udp://…"` bleibt gültig. Die Liste
+/// `upstream = ["udp://…", "udp://…"]` deckt den Fall ab, in dem eine Zone von
+/// zwei Servern bedient wird — etwa je einer pro Standort: fällt der erste
+/// aus, beantwortet der zweite die Anfrage, statt dass die Zone mit ihm
+/// verschwindet.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UpstreamList(Vec<UpstreamAddr>);
+
+impl UpstreamList {
+    /// Die Server in der Reihenfolge, in der sie gefragt werden. Nie leer.
+    pub fn servers(&self) -> &[UpstreamAddr] {
+        &self.0
+    }
+}
+
+impl<'de> Deserialize<'de> for UpstreamList {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum OneOrMany {
+            One(String),
+            Many(Vec<String>),
+        }
+
+        let servers = match OneOrMany::deserialize(deserializer)? {
+            OneOrMany::One(text) => {
+                vec![UpstreamAddr::try_from(text).map_err(serde::de::Error::custom)?]
+            }
+            OneOrMany::Many(texts) if texts.is_empty() => {
+                return Err(serde::de::Error::custom(
+                    "upstream = [] names no server; write one address or drop the entry",
+                ));
+            }
+            OneOrMany::Many(texts) => texts
+                .into_iter()
+                .map(|text| UpstreamAddr::try_from(text).map_err(serde::de::Error::custom))
+                .collect::<Result<Vec<_>, _>>()?,
+        };
+        Ok(Self(servers))
+    }
 }
 
 /// Ein Zonenname aus der Konfiguration.
@@ -1275,13 +1322,15 @@ impl Config {
             ));
         }
         for zone in &self.forward_zone {
-            if zone.upstream.is_encrypted() {
-                return Err(ConfigError::Invalid(format!(
-                    "forward_zone '{}': encrypted transports are not implemented here \
-                     yet. A forward_zone points at a nameserver in your own network; \
-                     udp:// is what is meant for that.",
-                    zone.zone.0
-                )));
+            for upstream in zone.upstream.servers() {
+                if upstream.is_encrypted() {
+                    return Err(ConfigError::Invalid(format!(
+                        "forward_zone '{}': encrypted transports are not implemented here \
+                         yet. A forward_zone points at a nameserver in your own network; \
+                         udp:// is what is meant for that.",
+                        zone.zone.0
+                    )));
+                }
             }
         }
         self.validate_local_zones()?;
@@ -1882,9 +1931,57 @@ odoh = { enabled = true, proxy = "https://proxy.example/p" }
         let zone = config.forward_zone.first().expect("eine Zone");
         assert_eq!(zone.zone.0.to_ascii(), "home.arpa.");
         assert_eq!(
-            zone.upstream,
-            UpstreamAddr::Udp("10.0.0.1:53".parse().expect("gültig"))
+            zone.upstream.servers(),
+            [UpstreamAddr::Udp("10.0.0.1:53".parse().expect("gültig"))]
         );
+    }
+
+    #[test]
+    fn a_forward_zone_may_name_several_servers() {
+        // Die Liste ist die Ausweichordnung: erst der erste, dann der nächste.
+        let text = format!(
+            "{MINIMAL}\n[[forward_zone]]\nzone = \"10.in-addr.arpa\"\n\
+             upstream = [\"udp://10.0.0.1:53\", \"udp://10.0.0.2:53\"]\n"
+        );
+        let config = valid(&text);
+        let zone = config.forward_zone.first().expect("eine Zone");
+        assert_eq!(
+            zone.upstream.servers(),
+            [
+                UpstreamAddr::Udp("10.0.0.1:53".parse().expect("gültig")),
+                UpstreamAddr::Udp("10.0.0.2:53".parse().expect("gültig")),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_single_upstream_stays_a_string() {
+        // Die Kurzform bleibt gültig; bestehende Konfigurationen ändern sich nicht.
+        let text = format!(
+            "{MINIMAL}\n[[forward_zone]]\nzone = \"home.arpa\"\nupstream = \"udp://10.0.0.1:53\"\n"
+        );
+        let config = valid(&text);
+        let zone = config.forward_zone.first().expect("eine Zone");
+        assert_eq!(zone.upstream.servers().len(), 1);
+    }
+
+    #[test]
+    fn an_empty_upstream_list_is_rejected() {
+        // Eine leere Liste sieht wie eine Weiterleitung aus und wäre keine.
+        let text = format!("{MINIMAL}\n[[forward_zone]]\nzone = \"home.arpa\"\nupstream = []\n");
+        let err = parse(&text).expect_err("eine leere Liste nennt keinen Server");
+        assert!(err.to_string().contains("no server"), "{err}");
+    }
+
+    #[test]
+    fn every_server_of_a_forward_zone_must_be_plaintext() {
+        // B.1 Regel 7 gilt für die ganze Liste, nicht nur den ersten Eintrag.
+        let text = format!(
+            "{MINIMAL}\n[[forward_zone]]\nzone = \"home.arpa\"\n\
+             upstream = [\"udp://10.0.0.1:53\", \"dot://10.0.0.2:853\"]\n"
+        );
+        let err = valid_err(&text);
+        assert!(err.contains("encrypted transports"), "{err}");
     }
 
     #[test]

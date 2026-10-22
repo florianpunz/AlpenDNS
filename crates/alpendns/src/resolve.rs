@@ -80,3 +80,142 @@ impl<B: ResolveBackend> ResolveBackend for std::sync::Arc<B> {
         (**self).resolve(request, ctx)
     }
 }
+
+/// Fragt mehrere Backends der Reihe nach und nimmt die erste Antwort.
+///
+/// Für eine `forward_zone` mit mehreren Servern: fällt einer aus, übernimmt der
+/// nächste. Gefragt wird dabei immer nur einer — die Anfrage verzweigt nicht,
+/// sie wird wiederholt, deshalb bleibt der [`Ctx`] exklusiv.
+///
+/// Der Preis der Einfachheit: ein toter erster Server kostet bei jeder Anfrage
+/// seinen Timeout. Die Reihenfolge in der Konfiguration ist die Priorität; wer
+/// das nicht warten will, trägt den erreichbaren Server zuerst ein.
+#[derive(Debug)]
+pub struct Failover<B> {
+    backends: Vec<B>,
+}
+
+impl<B> Failover<B> {
+    pub fn new(backends: Vec<B>) -> Self {
+        Self { backends }
+    }
+}
+
+impl<B: ResolveBackend> ResolveBackend for Failover<B> {
+    async fn resolve(&self, request: &Message, ctx: &mut Ctx) -> Result<Message, ResolveError> {
+        let mut last = ResolveError::NoUpstreamLeft;
+        for backend in &self.backends {
+            match backend.resolve(request, ctx).await {
+                Ok(answer) => return Ok(answer),
+                Err(error) => last = error,
+            }
+        }
+        Err(last)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use std::net::SocketAddr;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use hickory_proto::op::OpCode;
+
+    /// Ein Backend, das mitzählt und entweder antwortet oder unter seinem
+    /// Namen scheitert — damit lässt sich die Reihenfolge belegen.
+    struct Fake {
+        outcome: Result<(), &'static str>,
+        calls: AtomicUsize,
+    }
+
+    impl Fake {
+        fn answering() -> Arc<Self> {
+            Arc::new(Self {
+                outcome: Ok(()),
+                calls: AtomicUsize::new(0),
+            })
+        }
+
+        fn failing(label: &'static str) -> Arc<Self> {
+            Arc::new(Self {
+                outcome: Err(label),
+                calls: AtomicUsize::new(0),
+            })
+        }
+
+        fn calls(&self) -> usize {
+            self.calls.load(Ordering::SeqCst)
+        }
+    }
+
+    impl ResolveBackend for Fake {
+        fn resolve(
+            &self,
+            request: &Message,
+            _ctx: &mut Ctx,
+        ) -> impl Future<Output = Result<Message, ResolveError>> + Send {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            let outcome = self.outcome;
+            let id = request.metadata.id;
+            async move {
+                match outcome {
+                    Ok(()) => Ok(Message::response(id, OpCode::Query)),
+                    Err(label) => Err(ResolveError::Upstream(label.to_owned())),
+                }
+            }
+        }
+    }
+
+    fn ctx() -> Ctx {
+        Ctx::new(SocketAddr::from(([127, 0, 0, 1], 5555)))
+    }
+
+    fn ask() -> Message {
+        Message::new(1, hickory_proto::op::MessageType::Query, OpCode::Query)
+    }
+
+    #[tokio::test]
+    async fn the_next_server_is_asked_when_the_first_one_fails() {
+        let first = Fake::failing("first");
+        let second = Fake::answering();
+        let failover = Failover::new(vec![Arc::clone(&first), Arc::clone(&second)]);
+
+        failover
+            .resolve(&ask(), &mut ctx())
+            .await
+            .expect("der zweite antwortet");
+        assert_eq!(first.calls(), 1);
+        assert_eq!(second.calls(), 1);
+    }
+
+    #[tokio::test]
+    async fn the_first_answer_wins_and_the_rest_stay_unasked() {
+        let first = Fake::answering();
+        let second = Fake::answering();
+        let failover = Failover::new(vec![Arc::clone(&first), Arc::clone(&second)]);
+
+        failover
+            .resolve(&ask(), &mut ctx())
+            .await
+            .expect("der erste antwortet");
+        assert_eq!(first.calls(), 1);
+        assert_eq!(second.calls(), 0);
+    }
+
+    #[tokio::test]
+    async fn when_all_fail_the_last_error_is_reported() {
+        let first = Fake::failing("first");
+        let second = Fake::failing("second");
+        let failover = Failover::new(vec![Arc::clone(&first), Arc::clone(&second)]);
+
+        match failover.resolve(&ask(), &mut ctx()).await {
+            Err(ResolveError::Upstream(label)) => assert_eq!(label, "second"),
+            other => panic!("erwartet war der letzte Fehler, gekommen ist {other:?}"),
+        }
+        assert_eq!(first.calls(), 1);
+        assert_eq!(second.calls(), 1);
+    }
+}

@@ -1002,9 +1002,9 @@ here; the direction is named.
   are measured alternately over five rounds, the medians are compared against
   the unchanged `0.8`; 15 runs with `--ignored` passed, share 95.6–100.7 %.
 
-## 13. `forward_zone` duplicates are accepted silently
+## 13. `forward_zone` duplicates are accepted silently — done.
 
-**Finding.** `ForwardZone` carries exactly one `upstream`
+**Finding (at the time).** `ForwardZone` carried exactly one `upstream`
 ([config.rs](../crates/alpendns/src/config.rs)); the `ZoneRouter` picks with
 `.find(|(zone, _)| zone.zone_of(question))`
 ([router.rs](../crates/alpendns/src/router.rs)) — the first hit wins. A second
@@ -1020,13 +1020,19 @@ duplicates (built with ADR-0029). A startup error would be an incompatible
 configuration change for everyone who has such a block today — B.8 says ask
 first, so warning first, error maybe later together with a migration note.
 
-**Possible extension.** Several servers per `forward_zone` with failover
+**Possible extension (then).** Several servers per `forward_zone` with failover
 (`upstream = [...]`, the router asks the next when the first one does not
-answer). Today the operator has to pick one nameserver per zone; a dead DC takes
-the reverse zone with it.
+answer). At the time the operator had to pick one nameserver per zone; a dead DC
+took the reverse zone with it.
 
-**Not built:** the failover between several servers per zone. The list output
-and the duplicate warning are built with ADR-0029.
+**Result.** Both parts stand. `alpendns check` lists every forward zone with all
+its servers and warns on a duplicate entry; that came with ADR-0029. The
+failover is built: `upstream` accepts a string or a list of strings,
+[`UpstreamList`](../crates/alpendns/src/config.rs) keeps the order, and
+[`resolve::Failover`](../crates/alpendns/src/resolve.rs) asks the servers one
+after another, moving on only when one fails. A duplicate entry stays a
+warning rather than an error — it would be an incompatible change for everyone
+who has such a block today (B.8).
 
 ## Order and bundles
 
