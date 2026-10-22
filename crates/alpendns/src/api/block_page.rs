@@ -22,7 +22,7 @@ use hickory_proto::rr::Name;
 
 use crate::policy::BlockCause;
 
-/// Die Seite, mit `{{NAME}}` und `{{BODY}}` als Platzhalter.
+/// Die Seite, mit `{{TITLE}}`, `{{NAME}}` und `{{BODY}}` als Platzhalter.
 const TEMPLATE: &str = include_str!("../../../../web/blocked.html");
 
 /// Woher die Seite ihren Grund bekommt.
@@ -128,22 +128,36 @@ fn fill(template: &str, values: &[(&str, &str)]) -> String {
 /// Seite darf nicht behaupten, der Name sei erlaubt: die Auswertung lässt die
 /// Detektoren aus, ein von einer Heuristik geblockter Name landet hier.
 fn render(name: &str, cause: &BlockCause) -> String {
-    let body = match cause {
-        BlockCause::List(list) => format!(
-            "<p class=\"verdict is-blocked\">This name is on the blocklist \
-             <code>{}</code> on this network.</p>",
-            escape(list)
+    // Der Titel folgt dem Grund. Für `NotBlocked` behauptet er nicht "blocked":
+    // der neutrale Satz im Körper ist die ganze Auskunft dieser Seite, und der
+    // Tab darf ihr nicht widersprechen.
+    let (title, body) = match cause {
+        BlockCause::List(list) => (
+            "Blocked — AlpenDNS",
+            format!(
+                "<p class=\"verdict is-blocked\">This name is on the blocklist \
+                 <code>{}</code> on this network.</p>",
+                escape(list)
+            ),
         ),
-        BlockCause::Rule => "<p class=\"verdict is-blocked\">This name is blocked by a rule \
-                             on this network.</p>"
-            .to_owned(),
-        BlockCause::NotBlocked => {
-            "<p class=\"verdict\">No blocklist entry applies to this name.</p>".to_owned()
-        }
+        BlockCause::Rule => (
+            "Blocked — AlpenDNS",
+            "<p class=\"verdict is-blocked\">This name is blocked by a rule \
+             on this network.</p>"
+                .to_owned(),
+        ),
+        BlockCause::NotBlocked => (
+            "AlpenDNS",
+            "<p class=\"verdict\">No blocklist entry applies to this name.</p>".to_owned(),
+        ),
     };
     fill(
         TEMPLATE,
-        &[("{{NAME}}", &escape(name)), ("{{BODY}}", &body)],
+        &[
+            ("{{NAME}}", &escape(name)),
+            ("{{BODY}}", &body),
+            ("{{TITLE}}", title),
+        ],
     )
 }
 
@@ -624,6 +638,28 @@ mod tests {
         // nicht erneut ersetzt werden.
         let filled = fill("[{{A}}|{{B}}]", &[("{{A}}", "x{{B}}"), ("{{B}}", "y")]);
         assert_eq!(filled, "[x{{B}}|y]");
+    }
+
+    #[test]
+    fn block_page_title_follows_the_cause() {
+        // Der neutrale Satz im Körper sagt ausdrücklich nur, dass keine Liste
+        // greift. Ein Titel, der "Blocked" behauptet, würde das im Tab
+        // widerrufen — und der Test `block_page_is_neutral_when_not_blocked`
+        // holt genau diese Seite.
+        let neutral = render("unlisted.example", &BlockCause::NotBlocked);
+        assert!(neutral.contains("<title>AlpenDNS</title>"), "{neutral}");
+        assert!(!neutral.contains("Blocked"), "{neutral}");
+
+        for cause in [
+            BlockCause::List(Arc::from("ads-list")),
+            BlockCause::Rule,
+        ] {
+            let blocked = render("ads.example", &cause);
+            assert!(
+                blocked.contains("<title>Blocked — AlpenDNS</title>"),
+                "{blocked}"
+            );
+        }
     }
 
     // -----------------------------------------------------------------------
