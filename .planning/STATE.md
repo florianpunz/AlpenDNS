@@ -3,10 +3,10 @@ gsd_state_version: '1.0'
 status: executing
 progress:
   total_phases: 11
-  completed_phases: 8
+  completed_phases: 9
   total_plans: 0
   completed_plans: 0
-  percent: 73
+  percent: 82
 ---
 
 # Project State
@@ -18,20 +18,21 @@ See: .planning/PROJECT.md (updated 2026-10-20)
 **Core value:** Queries are filtered on the operator's own machine and forwarded
 encrypted: no query name leaves the process unless the configured logging mode
 explicitly allows it.
-**Current focus:** Acceptance of phases 8 and 9 on the real network.
+**Current focus:** Acceptance of phase 9 on the real network (phase 8 accepted
+2026-10-22).
 
 ## Current Position
 
-Phase: 8 of 11 (Heuristics without a cloud), with 9 of 11 (Operation and
-packaging) running its acceptance in the same observation window
-Plan: none — implementation is complete; the remaining acceptance work is not
-yet planned
+Phase: 9 of 11 (Operation and packaging); phase 8 (Heuristics without a cloud)
+accepted on 2026-10-22
+Plan: none — implementation is complete; phase 9 acceptance runs in the same
+observation window
 Status: Verifying / acceptance in progress
 Last activity: 2026-10-20 — brownfield ingest, PROJECT/REQUIREMENTS/ROADMAP/STATE
 created from the ADR intel and `docs/ROADMAP.md`
 
-Progress: 73% — 8 of 11 phases accepted (phases 8 and 9 implemented, acceptance
-running; phase 10 optional).
+Progress: 82% — 9 of 11 phases accepted (phase 9 acceptance running; phase 10
+optional).
 
 ## Performance Metrics
 
@@ -79,10 +80,8 @@ Recent decisions affecting current work:
 
 ### Pending Todos
 
-- Phase 8: evaluate the second observation period (started 2026-09-16 16:24);
-  run a controlled tunneling test instead of another passive run; NRD remains
-  unevaluated without data from AlpenShield; decide on ADR-0025 and ADR-0026
-  after the false-positive review.
+- Phase 8: accepted 2026-10-22; NRD remains unevaluated without data from
+  AlpenShield, and the decision on ADR-0025/ADR-0026 stays proposed.
 - Phase 9: install the `.deb` on a fresh Debian VM (the Ubuntu container run is
   a documented deviation); finish the practical week; record anything notable
   as a false-alarm list or configuration change.

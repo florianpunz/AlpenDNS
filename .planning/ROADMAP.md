@@ -29,7 +29,7 @@ the ADR intel in `.planning/intel/decisions.md` and those acceptance criteria.
 - [x] **Phase 5: Clients and policies** - Per-client policies, schedules, temporary exemptions, regex rules and one explain path for CLI and API.
 - [x] **Phase 6: Visibility: API, metrics, web UI** - Token-protected API, Prometheus metrics, four log modes, SSE and the self-served glass UI.
 - [x] **Phase 7: Privacy build-out** - PSL-backed `split_by_zone` with seed rotation, privacy budget, local DNSSEC, ODoH and k-anonymity.
-- [ ] **Phase 8: Heuristics without a cloud** - Five local detectors, all defaulting to `flag`; the acceptance observation period is running.
+- [x] **Phase 8: Heuristics without a cloud** - Five local detectors, all defaulting to `flag`; accepted on 2026-10-22 after three observation periods.
 - [ ] **Phase 9: Operation and packaging** - systemd unit, `.deb`, rate limiting and safe defaults; the fresh-VM acceptance is outstanding.
 - [ ] **Phase 10: Optional stockpile** - Discardable items from `docs/ROADMAP.md` and `docs/TODOS.md`, item by item, no obligation.
 
@@ -150,7 +150,7 @@ the ADR intel in `.planning/intel/decisions.md` and those acceptance criteria.
 
 ### Phase 8: Heuristics without a cloud
 **Goal**: Detection of patterns no list knows: everything local, everything explainable, everything by default only `flag`.
-**State**: Implemented on 2026-08-30 with all seven steps. Acceptance is running: the first observation period was evaluated on 2026-09-16 (30.08. to 15.09., 220,659 queries, 4,025 distinct names); the second runs since 2026-09-16 16:24 with a filled `protect` list. Tunneling still needs a controlled test; NRD stays off without data from AlpenShield.
+**State**: Implemented on 2026-08-30 with all seven steps. **Accepted on 2026-10-22** after three observation periods (30.08. to 22.10., 988,425 queries), a controlled tunneling test on 2026-10-16 and a reviewed false-positive list; all five detectors stay on `flag`. NRD ran empty without a feed and remains unevaluated.
 **Depends on**: Phase 7
 **Requirements**: DETECT-01, DETECT-02, DETECT-03, DETECT-04, DETECT-05, DETECT-06, DETECT-07, DETECT-08, DETECT-09
 **Success Criteria** (what must be TRUE):
@@ -159,7 +159,7 @@ the ADR intel in `.planning/intel/decisions.md` and those acceptance criteria.
   3. Tunneling and DGA stay under 0.1% false positives on the top-100k corpus; typosquat never flags the originals; NRD works from a local file and a missing file is not a startup error.
   4. The "Flagged" panel shows detector, score and reason, with one click to allow and one to block.
   5. One week of real-network operation with all detectors on `flag` has produced a reviewed false-positive list, and no detector moves to `block` before that review.
-**Plans**: TBD — the remaining acceptance work can be planned.
+**Plans**: None — implemented in the pre-GSD history; acceptance recorded 2026-10-22.
 **UI hint**: yes
 
 ### Phase 9: Operation and packaging
@@ -203,6 +203,6 @@ Phase 10 has no order and no obligation.
 | 5. Clients and policies | — | Complete | 2026-08-29 |
 | 6. Visibility: API, metrics, web UI | — | Complete | 2026-08-31 |
 | 7. Privacy build-out | — | Complete | 2026-08-31 |
-| 8. Heuristics without a cloud | — | Implemented; acceptance in progress | — |
+| 8. Heuristics without a cloud | — | Complete | 2026-10-22 |
 | 9. Operation and packaging | — | Implemented; acceptance in progress | — |
 | 10. Optional stockpile | — | Not scheduled | — |
