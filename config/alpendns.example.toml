@@ -8,9 +8,17 @@
 # completely. Unknown keys are an error, not a warning (see CLAUDE.md).
 
 [server]
-# Listeners for unencrypted DNS in the LAN.
-listen_udp = ["0.0.0.0:53", "[::]:53"]
-listen_tcp = ["0.0.0.0:53", "[::]:53"]
+# Listeners for unencrypted DNS in the LAN. `0.0.0.0` binds every IPv4
+# interface — which on a host with a public address means an open resolver.
+# Restrict to a LAN address or to the firewall, as the shipping configuration
+# in packaging/alpendns.toml explains.
+#
+# Not `[::]` next to `0.0.0.0`: on Linux the v6 wildcard takes the v4 one
+# along, and the second bind fails with "address already in use". For IPv6
+# enter this machine's concrete address, or `[::]` alone (v4 clients then show
+# up as v4-mapped, which `[[client]]` nets do not match).
+listen_udp = ["0.0.0.0:53"]
+listen_tcp = ["0.0.0.0:53"]
 # Maximum queries in flight at the same time before SERVFAIL/drop.
 max_inflight = 4096
 # Timeout for one complete client query including the upstream.

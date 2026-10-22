@@ -92,8 +92,11 @@ cargo deb -p alpendns
 sudo apt install ./target/debian/alpendns_<version>_amd64.deb
 ```
 
-The resolver then runs unprivileged, loopback only. To serve your own network,
-add the LAN address to `/etc/alpendns/alpendns.toml` and run
+The resolver then runs unprivileged and listens on every IPv4 interface
+(`0.0.0.0`), so a client in the LAN only needs to be pointed at this machine's
+address. On a host that also has a public address that makes it an open
+resolver: keep port 53 closed from outside, or enter this machine's LAN address
+in `/etc/alpendns/alpendns.toml` and run
 `sudo alpendns -c /etc/alpendns/alpendns.toml check`.
 
 ## Documentation

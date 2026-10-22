@@ -1,9 +1,9 @@
 # AlpenDNS — shipping configuration of the Debian package.
 #
-# It is deliberately restrained: after `apt install` a working resolver runs
-# that is **reachable from this machine only**. Whoever wants to use it in the
-# LAN changes exactly one block — the first one. That is the only change normal
-# operation needs.
+# It works after `apt install` without an edit: the resolver answers on every
+# IPv4 interface of this machine, so a client in the LAN only has to be pointed
+# at its address. The price of that is in the first block — read it before the
+# first start.
 #
 # The full reference of all keys sits next to it:
 #   /usr/share/doc/alpendns/alpendns.example.toml
@@ -18,28 +18,40 @@
 
 [server]
 # ---------------------------------------------------------------------------
-# CHANGE HERE to make the resolver usable in the LAN.
+# ATTENTION — the resolver is reachable from every IPv4 interface.
 #
-# What ships is loopback: freshly installed, the server is not reachable from
-# outside. A resolver listening to the internet unasked is an amplification
-# reflector, and that must not be the state it ships in.
+# What ships is `0.0.0.0`: the resolver answers on every address of this
+# machine. In a home LAN that is what anyone installing a DNS server wants —
+# enter the address in the router and it works. Nothing in this file knows
+# whether the machine also has a public address; if it does, the same setting
+# makes it an **open resolver**, and an open resolver is an amplification
+# reflector. Two ways to keep it shut, both one change:
 #
-# For your own network enter the LAN address of this machine, for example:
-#   listen_udp = ["127.0.0.1:53", "192.168.1.10:53"]
-#   listen_tcp = ["127.0.0.1:53", "192.168.1.10:53"]
+#   * only the LAN — this machine's LAN address instead of the wildcard:
+#       listen_udp = ["192.168.1.10:53"]
+#       listen_tcp = ["192.168.1.10:53"]
+#   * everywhere, but closed from outside — leave the wildcard and drop port
+#     53 on the WAN side of the router (or with nftables on the host).
 #
-# A concrete address and not "0.0.0.0": the wildcard also binds to an interface
-# that may be facing the internet tomorrow.
+# Rate limiting below stays on either way. It is the brake for the packet that
+# still arrives, not a substitute for the firewall.
+#
+# IPv6 ships off, and deliberately not as `[::]:53` next to `0.0.0.0:53`: on
+# Linux the v6 wildcard takes the v4 one along, the second bind fails with
+# "address already in use", and the server does not start. Enter this machine's
+# concrete IPv6 address, or `[::]` alone — the latter also carries IPv4, but
+# then those clients appear as v4-mapped addresses, which `[[client]]` nets do
+# not match.
 # ---------------------------------------------------------------------------
-listen_udp = ["127.0.0.1:53", "[::1]:53"]
-listen_tcp = ["127.0.0.1:53", "[::1]:53"]
+listen_udp = ["0.0.0.0:53"]
+listen_tcp = ["0.0.0.0:53"]
 query_timeout = "3s"
 
 [server.edns]
 udp_payload_size = 1232
 
-# Rate limiting per client. On, on loopback as well — otherwise, when switching
-# to a LAN address, exactly the setting that is needed there would fall away.
+# Rate limiting per client. On, because the listeners above ship open: the brake
+# has to be in place before the first packet, not after the first incident.
 # 100 queries per second are a lot for one device and very little for one
 # attacker; the burst catches page loads with many embeds.
 [server.rate_limit]

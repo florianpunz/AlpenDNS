@@ -129,8 +129,9 @@ runs are `--ignored`. How-to: `docs/TESTING.md` §6.
 
 Since phase 9 there is operation as a service: the systemd unit in
 `packaging/systemd/`, the Debian package via `cargo deb -p alpendns`, the
-shipping configuration in `packaging/alpendns.toml` (loopback — freshly
-installed the server is not reachable from outside) and `alpendns check` as
+shipping configuration in `packaging/alpendns.toml` (`0.0.0.0` — freshly
+installed it answers the LAN; the open-resolver warning stands in the file, in
+OPERATIONS.md and in `check`, ADR-0031) and `alpendns check` as
 `ExecStartPre`. Plus per-client throttling in `crate::ratelimit`, on by default:
 over the limit queries are **dropped**, not refused (ADR-0020).
 

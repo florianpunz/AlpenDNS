@@ -2248,8 +2248,11 @@ odoh = { enabled = true, proxy = "https://proxy.example/p" }
 
     /// Die Datei, die das Debian-Paket nach `/etc/alpendns` legt. Sie ist der
     /// Auslieferungszustand, und der ist ein Abnahmekriterium (ROADMAP Phase 9,
-    /// Schritt 6): frisch installiert darf der Server von außen nicht
-    /// erreichbar sein.
+    /// Schritt 6): frisch installiert soll der Server im eigenen Netz ohne
+    /// weitere Änderung erreichbar sein. Bewusst die Wildcard — der Preis
+    /// (offener Resolver auf einem Host mit öffentlicher Adresse) steht als
+    /// Warnung in der Datei und in OPERATIONS.md, und der Bremsklotz davor ist
+    /// die Drosselung, die der Test darunter festhält.
     const PACKAGED: &str = include_str!("../../../packaging/alpendns.toml");
 
     #[test]
@@ -2308,18 +2311,25 @@ odoh = { enabled = true, proxy = "https://proxy.example/p" }
     }
 
     #[test]
-    fn the_packaged_configuration_listens_nowhere_public() {
+    fn the_packaged_configuration_listens_on_every_interface() {
         let config = valid(PACKAGED);
+        let public = config.public_listeners();
+        assert_eq!(
+            public.len(),
+            2,
+            "die ausgelieferte Datei soll UDP und TCP auf allen Adressen öffnen: {public:?}"
+        );
         assert!(
-            config.public_listeners().is_empty(),
-            "das Paket liefert einen von außen erreichbaren Listener aus: {:?}",
-            config.public_listeners()
+            public.iter().all(|addr| addr.ip().is_unspecified()),
+            "die ausgelieferte Datei soll die Wildcard binden, nicht eine einzelne \
+             Adresse: {public:?}"
         );
     }
 
-    /// Ohne Drosselung wäre der erste Handgriff nach der Installation — den
-    /// Listener auf die LAN-Adresse setzen — zugleich der Schritt, der einen
-    /// Amplification-Reflektor aufmacht (CLAUDE.md B.5).
+    /// Ohne Drosselung wäre der Auslieferungszustand ein Amplification-Reflektor
+    /// auf jedem Host, der eine öffentliche Adresse hat (CLAUDE.md B.5). Die
+    /// beiden Tests gehören deshalb zusammen: der obere öffnet, dieser hält den
+    /// Bremsklotz fest.
     #[test]
     fn the_packaged_configuration_throttles_per_client() {
         let config = valid(PACKAGED);

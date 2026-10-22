@@ -769,12 +769,16 @@ global lock in the request path, B.3 rule 5), LRU-capped. Above the limit it is
 grouped by /64, otherwise a laptop with privacy extensions would have a fresh
 allowance every hour. On by default.
 
-**Step 6 — safe defaults.** The shipped `packaging/alpendns.toml` listens on
-loopback; freshly installed, the server is not reachable from outside. That stands
-as a test (`the_packaged_configuration_listens_nowhere_public`), and `0.0.0.0`
-counts as public in it — the wildcard also binds to an interface that will be on
-the internet tomorrow. At the end, `alpendns check` says whether a listener
-reaches beyond your own network.
+**Step 6 — reachable defaults with a warning.** The shipped
+`packaging/alpendns.toml` listens on `0.0.0.0`: freshly installed, the server is
+reachable from the LAN without an edit. The price — on a host with a public
+address that is an open resolver,
+[ADR-0031](adr/0031-auslieferung-auf-allen-schnittstellen.md) — stands as a
+warning in the file itself and in [OPERATIONS.md](OPERATIONS.md) under "After
+installation", and `alpendns check` repeats it on every start, once per listener
+beyond the own network. Two tests pin the pair: the packaged configuration binds
+the wildcard (`the_packaged_configuration_listens_on_every_interface`) and keeps
+rate limiting on (`the_packaged_configuration_throttles_per_client`).
 
 **Step 7 — numbers.** 84,078 queries/s, p99 674 µs, RSS 39,732 KiB; throttling
 costs **2% throughput**. Under a flood of 274,000 packets/s from one source, the
@@ -792,8 +796,10 @@ observation week, uninstall. Ships in the package under `/usr/share/doc/alpendns
   `cargo deb -p alpendns`, installed with
   `apt install ./alpendns_4.0.1-1_amd64.deb`. Binary `/usr/bin/alpendns`, unit
   `/usr/lib/systemd/system/alpendns.service`, config `/etc/alpendns/alpendns.toml`
-  (conffile). Freshly installed it listens on loopback only; `alpendns check` is
-  green, `systemd-analyze security` 1.5, service active with `NRestarts=0`.
+  (conffile). At the time (4.0.1) it listened on loopback only; since the change
+  of the shipping default it listens on `0.0.0.0` and `alpendns check` reports
+  that as a note. `systemd-analyze security` 1.5, service active with
+  `NRestarts=0`.
 * **Load test (2 vCPU, cache hits).** With `logging.mode = "aggregate"` at 20,000
   qps: p50 0.167 ms, p99 0.287 ms, 0 lost; at 40,000 qps: p50 0.203 ms, p99
   3.135 ms, 620 of 400,000 lost (0.15 %), 145.8 % of one core, RSS 143–153 MB.

@@ -172,7 +172,7 @@ the ADR intel in `.planning/intel/decisions.md` and those acceptance criteria.
   2. `alpendns check` as `ExecStartPre` refuses a broken config while the old instance keeps running, and needs no network.
   3. The `.deb` installs on a fresh Debian VM and the service starts with no manual follow-up work.
   4. One client above the rate limit is dropped while other clients are unaffected; IPv6 is keyed by /64.
-  5. A fresh installation listens only on loopback/private addresses and is not reachable from outside.
+  5. A fresh installation listens on every IPv4 interface, is reachable from the LAN without an edit, warns about being an open resolver on a host with a public address, and keeps per-client rate limiting on (ADR-0031).
   6. The server runs a week as the only LAN resolver without complaints, and `docs/BENCHMARKS.md` plus `docs/OPERATIONS.md` are sufficient for a second person to install and operate it.
 **Plans**: TBD — the remaining acceptance work can be planned.
 

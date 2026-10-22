@@ -95,19 +95,33 @@ home directory.
 
 ### After installation
 
-Freshly installed, the server listens **on loopback only** — it is not
-reachable from outside. That is deliberate: a resolver listening to the internet
-unasked is an amplification reflector.
+Freshly installed, the server listens on **every IPv4 interface** (`0.0.0.0`).
+A client in the LAN reaches it by this machine's address; pointing the router's
+DHCP at that address is the whole setup. A resolver that nobody can reach was
+the more common installation mistake.
+
+> **Warning — open resolver.** The configuration cannot know whether this
+> machine also has a public IPv4 address. If it does, the wildcard listener is
+> an open resolver, and an open resolver is an amplification reflector. Rate
+> limiting is on by default (100 queries per second per client, IPv6 keyed by
+> /64), but it is the brake for the packet that gets through, not the
+> protection: keep port 53 closed on the WAN side of the router, or restrict
+> the listener as described below.
+
+`alpendns check` prints that warning again on every start, once per wildcard
+listener. It is not an error — on a machine behind a router it is the intended
+state.
 
 Checking that it answers:
 
 ```bash
 dig @127.0.0.1 example.com          # should return an address
 dig @127.0.0.1 doubleclick.net      # should return NXDOMAIN
+dig @192.168.1.10 example.com       # same, from another machine in the LAN
 systemctl status alpendns
 ```
 
-### Opening it up to your own network
+### Restricting the listener
 
 One change, in the first block of `/etc/alpendns/alpendns.toml`:
 
@@ -117,8 +131,10 @@ listen_udp = ["127.0.0.1:53", "192.168.1.10:53"]
 listen_tcp = ["127.0.0.1:53", "192.168.1.10:53"]
 ```
 
-Enter this machine's actual LAN address, **not** `0.0.0.0`: the wildcard also
-binds to an interface that may be facing the internet tomorrow.
+Enter this machine's actual LAN address. Do **not** add `[::]:53` next to
+`0.0.0.0:53`: on Linux the v6 wildcard already carries IPv4, and the second
+bind fails with "address already in use". For IPv6 enter the machine's concrete
+IPv6 address instead.
 
 If the machine itself resolves through AlpenDNS, keep a loopback listener
 (`127.0.0.1:53`, and `[::1]:53` where the host uses IPv6 loopback) in both
@@ -359,7 +375,12 @@ sudo apt install ./alpendns_<version>_amd64.deb  # install it
 What happens:
 
 * `/etc/alpendns/alpendns.toml` is a **conffile**. An edited file is not
-  overwritten; `dpkg` asks if both sides have changed.
+  overwritten; `dpkg` asks if both sides have changed. An **unmodified** one is
+  replaced — after the upgrade that carries
+  [ADR-0031](adr/0031-auslieferung-auf-allen-schnittstellen.md), an installation
+  that never left the old loopback default listens on `0.0.0.0`. Set the
+  listener explicitly before such an upgrade, or run `alpendns check` right
+  after it; the check lists every listener beyond your own network.
 * The service is restarted after the upgrade (`restart-after-upgrade`).
   `alpendns check` runs beforehand — a configuration the new version does not
   understand prevents the start, and the old instance keeps running until it is
@@ -442,7 +463,7 @@ not writable for the service.
 | Message | Meaning |
 |---|---|
 | `unknown field ...` | Typo in a key. Unknown keys are a startup error, not a warning — otherwise someone would sit unfiltered on the internet and not notice. |
-| `blocklists could not be loaded at startup` | No network on the very first start, and nothing in the cache yet — or a single list that cannot be read and has no cache yet, a `path` typo included. Seen in `journalctl -u alpendns` after a failed start, not in `check` (it neither downloads nor stats list files). On a host that resolves through itself, that is the case until every `url` list has a cached copy — see "Opening it up to your own network". Later, an outage is not critical: the cached version stays in force. |
+| `blocklists could not be loaded at startup` | No network on the very first start, and nothing in the cache yet — or a single list that cannot be read and has no cache yet, a `path` typo included. Seen in `journalctl -u alpendns` after a failed start, not in `check` (it neither downloads nor stats list files). On a host that resolves through itself, that is the case until every `url` list has a cached copy — see "Restricting the listener". Later, an outage is not critical: the cached version stays in force. |
 | `listeners could not be opened` | Port 53 is taken — see below. |
 | `... cannot write in ...` | Permissions under `/var` are off. `systemctl restart alpendns` resets them, because systemd manages the directories. |
 
@@ -468,7 +489,7 @@ sudo systemctl restart alpendns
 
 If the machine itself should resolve through AlpenDNS, afterwards point
 `/etc/resolv.conf` or the `DNS=` entry in `resolved.conf` at `127.0.0.1`; see
-the listener and cache caveat under "Opening it up to your own network".
+the listener and cache caveat under "Restricting the listener".
 
 ### Names do not resolve although the service is running
 
