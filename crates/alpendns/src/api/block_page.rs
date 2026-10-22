@@ -667,6 +667,18 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
+    fn block_page_wraps_a_long_name() {
+        // Ein DNS-Name darf 253 Byte lang sein und enthält keine
+        // Zeilenumbruchstelle (Punkte sind keine). Der Name kommt aus dem
+        // unauthentifizierten Host-Kopf; ohne Umbruch schiebt er das 38rem
+        // breite Panel über den Container und die Seite scrollt (B.6).
+        assert!(
+            TEMPLATE.contains(".subject code { overflow-wrap: anywhere; }"),
+            "the subject name does not wrap"
+        );
+    }
+
+    #[test]
     fn block_page_references_nothing_external() {
         for needle in [
             "http://",

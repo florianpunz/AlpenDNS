@@ -27,6 +27,12 @@ document.documentElement.dataset.theme =
   padding: var(--s-32);
 }
 .subject { font-size: var(--t-lead); }
+/* Der Name kommt aus dem Host-Kopf und kann 253 Byte ohne Umbruchstelle
+   enthalten; er darf das Panel nicht über den Container schieben (B.6). */
+.subject code { overflow-wrap: anywhere; }
+/* Listenname und Regel stammen vom Betreiber, sind aber ebenfalls lang
+   genug, um die Zeile zu sprengen. */
+.verdict code { overflow-wrap: anywhere; }
 .is-blocked { color: var(--danger); }
 </style>
 </head>
