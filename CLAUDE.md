@@ -84,8 +84,7 @@ the commit or in the answer, rather than building them in without comment. One
 line of "why this way and not the other" is worth more than three paragraphs of
 documentation.
 
-**Status:** phases 1–9 are implemented, 1–7 accepted; the acceptance run for 8
-and 9 is in progress in the real network. `docs/ROADMAP.md` is the canonical
+**Status:** phases 1–9 are implemented and accepted. `docs/ROADMAP.md` is the canonical
 source for the phase state, the numbers and the open gaps — do not restate it
 here. How to run and evaluate the observation period: `docs/OPERATIONS.md` §6.
 Benchmark figures: `docs/BENCHMARKS.md`.

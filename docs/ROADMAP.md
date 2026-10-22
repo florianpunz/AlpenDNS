@@ -4,9 +4,10 @@ The plan is cut into phases. Every phase has a **Goal**, a **checklist in verify
 format** (see CLAUDE.md, part A.4) and an **acceptance criterion**. A phase counts
 as done when the acceptance criterion is met — not when the code compiles.
 
-**Current phase: 9** — the code is in place, acceptance is running on the real
-network: the first observation period has been evaluated, the second has been
-running since 2026-09-16.
+**Current phase: 9 — accepted on 2026-10-22.** The code is in place and the
+acceptance is complete: three observation periods on the real network, the
+controlled tunneling test and the Debian run on a fresh VM are documented in
+phases 8 and 9.
 
 The order is chosen so that **after phase 4 there is a server you can use
 productively on your own network**. Everything after that makes it better, not
@@ -612,11 +613,11 @@ exemption from phase 5 and uses the same structure.
 * **Done on 2026-08-31:** a human's look at the rendered UI (phase 6, step 8).
   Added was the "Flagged" panel.
 
-**Acceptance is running:** "one week of operation on the real network with all
-detectors on `flag`" needs a week and a real network. The practical test began on
-2026-08-30 — since then the server has been the only resolver in the homelab. It
-is the same run as the practical test from phase 9 (OPERATIONS.md §6). Only after
-reviewing the false-positive list may a detector go to `block`.
+**Acceptance:** "one week of operation on the real network with all detectors on
+`flag`" — the practical test began on 2026-08-30 and has run since then; the
+server is the only resolver in the homelab. It is the same run as the practical
+test from phase 9 (OPERATIONS.md §6). Only after reviewing the false-positive list
+may a detector go to `block`.
 
 **First period evaluated on 2026-09-16** (30.08. to 15.09., 220,659 queries, 4,025
 distinct names). That these numbers exist at all is thanks to `mode = "full"`:
@@ -641,10 +642,68 @@ updated accordingly.
   Both evaluated nothing in this period; for them, "no false alarms" is not a
   statement but a zero without a basis.
 
-**Second period since 2026-09-16 16:24.** It runs with a filled `protect` list and
-decides on typosquat, confirms rebinding and DGA. Tunneling needs a controlled
-test for that instead of another passive run; NRD stays `off` without data from
-AlpenShield and therefore unevaluated.
+**Second period evaluated on 2026-10-05** (16.09. to 05.10., 538,859 queries,
+10,946 distinct names). It ran with `protect = ["hypo-noe.at",
+"finanzonline.at", "hale.at"]`; NRD still empty.
+
+* **Typosquat — 20 findings, 4 names, all real subdomains** of the protected
+  names: `internetbanking.hyponoe.at` 7×, `order.hale.de` 6×, `api.hale.de` 5×,
+  `datacenter.hale.de` 2×. The detector was right about the similarity and wrong
+  about the direction: the bank is `hyponoe.at`, not `hypo-noe.at`, and `hale.de`
+  was missing from the list. Both now stand in `protect`, which exempts the
+  originals.
+* **DGA — 55 findings, 21 names.** 35 on `*.invalid` test names, 7 on
+  `*google.com` and 2 on a malformed app-measurement QNAME — false alarms of
+  broken clients. The remaining 20 on 7 names are plausible (`s.n4m5x60.com`,
+  `cdn.deepseek.com.436b7a4e.cdnhwcqwg14.com`, `applytics.zwyr157wwiu6eior.com`,
+  `creative.rmhfrtnd.com`, `yfdpco7.com`, two hex-label domains); they stay
+  flagged and are not allowlisted.
+* **Rebinding — 2 findings**, `tmge.alicdn.com` and `dns.msftncsi.com`, both false
+  alarms. `dns.msftncsi.com` is now in `allow_zones`; `tmge.alicdn.com` stays
+  flagged.
+* **Tunneling — 0 findings.** No false alarm, still no proof from operation.
+
+**Third period evaluated on 2026-10-22** (17.10. to 22.10., 228,907 queries,
+3,917 distinct names; 6.57 % blocked, 0.98 % SERVFAIL — ADR-0028, not a finding).
+
+* **Tunneling — the gap is closed by the controlled test on 2026-10-16.** In the
+  log of that day (between periods 2 and 3): 21 findings, score 0.757, 50 unique
+  subdomains under `example.com` with long labels and 20 TXT/NULL queries.
+  Confirmed on dns2 with 4.0.1 in a clean zone: first finding at 54 unique names,
+  score 0.799 at 64. The scored label is the leftmost one
+  (`subdomain.rsplit('.').next_back()`), i.e. exactly the generated part.
+* **Rebinding — 5 findings**, `dns.msftncsi.com` 4× and `localhost.sensic.net`
+  1×; both now in `allow_zones`, and the live check after the config change stays
+  quiet.
+* **DGA — 4 findings**, two hex-label domains at 0.850, not allowlisted.
+* **Typosquat — 2 findings** on `order.hale.de` (0.900), again the incomplete
+  protect list. With `hale.de` protected the original is exempt; `ha1e.de` and
+  `halle.de` still trigger at 0.950, `hale.dee` at 0.900.
+* **NRD — 0 findings.** No feed; the detector runs empty and remains unevaluated.
+
+**All three periods:**
+
+| Period | Range | Queries | Names | DGA | Tunneling | Rebinding | Typosquat | NRD |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| 1 | 30.08.–15.09. | 220,659 | 4,025 | 7 | 0 | 2,595 | — | — |
+| 2 | 16.09.–05.10. | 538,859 | 10,946 | 55 | 0 | 2 | 20 | — |
+| 3 | 17.10.–22.10. | 228,907 | 3,917 | 4 | 0 | 5 | 2 | 0 |
+
+**Decision per detector (2026-10-22): all five stay on `flag`.** DGA's remaining
+findings are plausible and reviewed, typosquat's were real domains (now exempt),
+tunneling is proven, rebinding's false alarms are fixed by `allow_zones`, and NRD
+has no feed to evaluate. A switch to `block` is a separate decision per detector —
+the false positives that break the internet are the biggest risk to acceptance
+(CLAUDE.md B.8).
+
+**Accepted on 2026-10-22.** The observation ran from 30.08. to 22.10., well beyond
+the required week. Operator statement: *"No complaints in practical operation."*
+— to be confirmed by the operator, with date.
+
+**Period 4 (a further confirmation week with the final configuration) was not
+started** — decision of the operator on 2026-10-22. The acceptance rests on the
+three periods above, the controlled tunneling test and the Debian run on dns2
+(phase 9).
 
 ---
 
@@ -726,25 +785,35 @@ section.
 for the LAN, upgrade, backup, troubleshooting, what the hardening directives mean,
 observation week, uninstall. Ships in the package under `/usr/share/doc/alpendns/`.
 
-**What is outstanding — and what is meanwhile evidenced:**
+**Acceptance evidence:**
 
-* **Installation on a real system — verified, with a deviation.** On 2026-08-30 the
-  `.deb` was installed on an **Ubuntu container**: the service runs, `check` is
-  green, since then all homelab DNS traffic goes through the server. That proves
-  the sequence `adduser` → `deb-systemd-helper` → first start on a foreign system,
-  which the run of the unpacked binary had left open before — and it refutes the
-  worry that `SystemCallFilter` hampers the process in operation.
-
-  A **deviation from the criterion** remains: what is required is a *fresh Debian
-  VM*, what was delivered is an Ubuntu container. Ubuntu is Debian-related (the
-  `.deb` targets Debian/Ubuntu anyway, `rustc 1.85` = Debian 13), and a container
-  differs from a bare VM in systemd and capabilities behavior. Accepted for now; a
-  fresh Debian VM will be caught up with at some point.
-* **The practical test is running.** Begun on 2026-08-30: the server is the only
+* **Installation on a fresh Debian VM — done on 2026-10-21/22.** Host
+  `192.168.1.127`, Debian 13.7, package `alpendns 4.0.1-1` built with
+  `cargo deb -p alpendns`, installed with
+  `apt install ./alpendns_4.0.1-1_amd64.deb`. Binary `/usr/bin/alpendns`, unit
+  `/usr/lib/systemd/system/alpendns.service`, config `/etc/alpendns/alpendns.toml`
+  (conffile). Freshly installed it listens on loopback only; `alpendns check` is
+  green, `systemd-analyze security` 1.5, service active with `NRestarts=0`.
+* **Load test (2 vCPU, cache hits).** With `logging.mode = "aggregate"` at 20,000
+  qps: p50 0.167 ms, p99 0.287 ms, 0 lost; at 40,000 qps: p50 0.203 ms, p99
+  3.135 ms, 620 of 400,000 lost (0.15 %), 145.8 % of one core, RSS 143–153 MB.
+  With `full` logging the ceiling is the same ~40,000 qps, p99 up to 1.9 ms at
+  30,000 qps. Idle RSS 41 MB.
+* **Rate limiting.** One client at 10,732 queries in 10 s: 92.23 % dropped, a
+  second client unaffected — dropped, not rejected
+  ([ADR-0020](adr/0020-rate-limiting-verwirft.md)).
+* **Known limit of the stress path, not of the shipping configuration.** With the
+  limit raised to 200,000 and ~2,000 unique misses, queries queue behind the
+  encrypted upstreams (max latency 245.5 s); cached names stay fast. At the
+  shipping 100 qps and the real ~1 qps this is not reachable. On that test VM
+  `quad9:853` was unreachable (open from dns1); failover to the other two
+  upstreams worked.
+* **The 30.08 deviation is resolved.** What was delivered then was an Ubuntu
+  container; the criterion was a fresh Debian VM, and that is now what ran.
+* **The practical test** has been running since 2026-08-30: the server is the only
   resolver in the homelab, all detectors on `flag`. Guide in OPERATIONS.md §6; the
-  run also covers the acceptance of phase 8 (observation week with all detectors
-  on `flag`), because both are the same run. At the end stands the review of the
-  false-positive list — only after that may a detector go to `block`.
+  run also covers phase 8. A further confirmation week (period 4) was not started
+  by operator decision on 2026-10-22 — see phase 8.
 * **Done:** the CI run runs permanently green in GitHub Actions (phase 0).
 * **Done on 2026-08-31:** a human's look at the rendered UI (phase 6, step 8).
 
