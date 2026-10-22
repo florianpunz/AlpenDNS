@@ -376,7 +376,7 @@ benefit on every device without an RTC.
 
 ---
 
-## 5. Time-limited grants and blocks do not survive a restart
+## 5. Time-limited grants and blocks do not survive a restart — done.
 
 > Grants/denials are only in RAM (temporary.rs). A restart loses them. That is defensible,
 > but it belongs documented as a deliberate decision.
@@ -393,7 +393,7 @@ back when loading — and thereby introducing exactly the clock dependency that 
 avoids. Not a knockout argument (the deadline is short, the damage bounded), but the core
 of the decision, and that is how it belongs written down.
 
-**Design — document, do not build.** Two places, no change to the logic:
+**Built — documented, not persisted.** Three places, no change to the logic:
 
 1. **A paragraph in the module header of `temporary.rs`**, directly after the existing
    paragraph on monotonic time, roughly:
@@ -413,6 +413,13 @@ of the decision, and that is how it belongs written down.
 Plus a footnote in OPERATIONS.md §3 (backup): grants and blocks are not in the backup,
 because they do not lie on disk.
 
+**Result.** All three are in the tree: the paragraph in
+[policy/temporary.rs](../crates/alpendns/src/policy/temporary.rs), the sentence next to the
+buttons in [web/index.html](../web/index.html), pinned by
+`the_temporary_buttons_say_that_they_do_not_survive_a_restart` in
+[api/ui.rs](../crates/alpendns/src/api/ui.rs), and the footnote in
+[OPERATIONS.md](OPERATIONS.md) §3. The logic is unchanged; the decision stands as written.
+
 **If persistence is wanted after all** — then like this and not otherwise: written on
 every change (not on shutdown; a crash is the case you build it for) into
 `StateDirectory`, atomically via a temporary file plus `rename`. What is stored is the
@@ -427,15 +434,15 @@ list, and it removes a real surprise.
 
 ---
 
-## 6. Continuous dependency triage
+## 6. Continuous dependency triage — done.
 
 > cargo deny runs, but who reacts to new RUSTSEC advisories?
 
-**Finding.** [.github/workflows/ci.yml](../.github/workflows/ci.yml) has exactly two
-triggers: `push` to `main` and `pull_request`. **No `schedule`.** But the advisory
-database changes without anyone committing — in a repo that is worked on irregularly in
-the evenings, a new advisory therefore only comes to light on the next commit, possibly
-weeks later. That is the actual gap, and it costs five lines.
+**Finding (at the time).** [.github/workflows/ci.yml](../.github/workflows/ci.yml) had
+exactly two triggers: `push` to `main` and `pull_request`. **No `schedule`.** But the
+advisory database changes without anyone committing — in a repo that is worked on
+irregularly in the evenings, a new advisory therefore only came to light on the next
+commit, possibly weeks later. That was the actual gap, and it costs five lines.
 
 The second half is the triage path, and its pattern already exists and is good: the
 exception for `RUSTSEC-2026-0009` in [deny.toml](../deny.toml) carries a rationale, a
@@ -489,6 +496,15 @@ that.
 3. Write down the triage flow → verify: the three steps stand linked next to the existing
    time exception
 ```
+
+**Result.** `ci.yml` carries the `schedule` trigger — Mondays 06:17 UTC, deliberately
+off the hour — and the `deny` job has `issues: write` plus the step that opens exactly one
+issue and comments on that one from then on. The three-step triage flow stands in
+[CONTRIBUTING.md](../CONTRIBUTING.md) under "Dependencies and advisories", not in
+OPERATIONS.md as proposed here: that is where a contributor reads before touching a
+dependency, and the issue text points there. Both the weekly verification (a run without
+an associated commit) and the second-run verification (a comment instead of a new issue)
+are GitHub-side and were not exercised locally.
 
 **Effort:** S, one hour. **Priority: high** — the best effect per line in the whole list.
 
@@ -1016,8 +1032,8 @@ and the duplicate warning are built with ADR-0029.
 
 **First, because cheap and with real effect:**
 
-1. **Item 5** (one sentence in the UI, one paragraph in the module header) — one hour.
-2. **Item 6** (`schedule` trigger) — one hour, the best effect per line.
+1. **Item 5** (one sentence in the UI, one paragraph in the module header) — **done.**
+2. **Item 6** (`schedule` trigger) — **done.** One hour, the best effect per line.
 3. **Item 1** (slowloris) — **done.** One evening, the only item that closes a gap.
 4. **Item 4** (`After=time-sync.target` plus a runbook paragraph) — half an evening.
 
