@@ -1440,6 +1440,68 @@ records = [{ name = "nas", type = "A", value = "192.168.1.5" }]
         );
     }
 
+    #[test]
+    fn rfc6303_the_table_names_exactly_the_rfc_zones() {
+        // Die Liste steht hier ein zweites Mal, absichtlich: der Test darüber
+        // prüft nur, dass die Literale parsen. Ein Tippfehler wie
+        // "245.169.in-addr.arpa." parst aber und ließe die PTR-Abfragen des
+        // echten Bereichs weiter hinaus — genau das Loch, das diese Tabelle
+        // schließt. Nur ein unabhängiges Abbild fängt ihn.
+        let expected = [
+            // §4.1 — RFC 1918
+            "10.in-addr.arpa.",
+            "16.172.in-addr.arpa.",
+            "17.172.in-addr.arpa.",
+            "18.172.in-addr.arpa.",
+            "19.172.in-addr.arpa.",
+            "20.172.in-addr.arpa.",
+            "21.172.in-addr.arpa.",
+            "22.172.in-addr.arpa.",
+            "23.172.in-addr.arpa.",
+            "24.172.in-addr.arpa.",
+            "25.172.in-addr.arpa.",
+            "26.172.in-addr.arpa.",
+            "27.172.in-addr.arpa.",
+            "28.172.in-addr.arpa.",
+            "29.172.in-addr.arpa.",
+            "30.172.in-addr.arpa.",
+            "31.172.in-addr.arpa.",
+            "168.192.in-addr.arpa.",
+            // §4.2 — RFC 5735 / RFC 5737
+            "0.in-addr.arpa.",
+            "127.in-addr.arpa.",
+            "254.169.in-addr.arpa.",
+            "2.0.192.in-addr.arpa.",
+            "100.51.198.in-addr.arpa.",
+            "113.0.203.in-addr.arpa.",
+            "255.255.255.255.in-addr.arpa.",
+            // §4.3 — IPv6 unspecified and loopback
+            "0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.ip6.arpa.",
+            "1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.ip6.arpa.",
+            // §4.4 — IPv6 unique-local
+            "d.f.ip6.arpa.",
+            // §4.5 — IPv6 link-local
+            "8.e.f.ip6.arpa.",
+            "9.e.f.ip6.arpa.",
+            "a.e.f.ip6.arpa.",
+            "b.e.f.ip6.arpa.",
+            // §4.6 — IPv6 example prefix
+            "8.b.d.0.1.0.0.2.ip6.arpa.",
+        ];
+        let mut actual: Vec<&str> = RFC6303_ZONES.to_vec();
+        let mut expected: Vec<&str> = expected.to_vec();
+        actual.sort_unstable();
+        expected.sort_unstable();
+        assert_eq!(actual, expected, "die Tabelle weicht von RFC 6303 §4 ab");
+        let mut unique = actual.clone();
+        unique.dedup();
+        assert_eq!(
+            unique.len(),
+            actual.len(),
+            "eine Zone steht doppelt in der Liste"
+        );
+    }
+
     #[tokio::test]
     async fn rfc6303_a_private_reverse_name_is_answered_nxdomain_without_asking_anyone() {
         for (name, label) in [
