@@ -91,9 +91,10 @@ pub struct Explanation {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BlockCause {
     /// No blocklist entry applies to this name. **Kein** Freispruch: die
-    /// Page-Auswertung lässt die Detektoren aus (siehe [`Effects`]), ein von
-    /// einer Heuristik geblockter Name landet also hier. Deshalb sagt der
-    /// neutrale Satz der Seite nur, dass kein Listeneintrag greift.
+    /// Page-Auswertung lässt die Detektoren aus (die interne Auswertung ist
+    /// auf "nur lesen" gestellt), ein von einer Heuristik geblockter Name
+    /// landet also hier. Deshalb sagt der neutrale Satz der Seite nur, dass
+    /// kein Listeneintrag greift.
     NotBlocked,
     /// Eine Blockliste hat gepasst — dieser Name darf die Seite nennen.
     List(Arc<str>),
@@ -147,7 +148,7 @@ pub fn explain<C: Clock + Clone, W: WallClock>(
 
 /// Warum ein Name geblockt wurde — für die Blockseite, ohne Nebenwirkung.
 ///
-/// Dieselbe Auswertung wie im DNS-Pfad, aber mit [`Effects::ReadOnly`]: keine
+/// Dieselbe Auswertung wie im DNS-Pfad, aber auf "nur lesen" gestellt: keine
 /// Zähler, keine Detektoren. Der Grund kommt aus dem typisierten [`Step`], nie
 /// aus den gerenderten Strings der [`Explanation`].
 ///
