@@ -1561,7 +1561,10 @@ mod tests {
         let config = config_with("127.0.0.1:5353", Some("0.0.0.0:80"));
         let verdict = reachability_verdict(&config);
         assert!(verdict.contains("block page is not"), "{verdict}");
-        assert!(!verdict.contains("reachable only from your own network."), "{verdict}");
+        assert!(
+            !verdict.contains("reachable only from your own network."),
+            "{verdict}"
+        );
     }
 
     #[test]

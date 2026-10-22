@@ -1166,8 +1166,7 @@ fn is_local_address(addr: std::net::IpAddr) -> bool {
 /// (`0.0.0.0`/`[::]`), die jede Adresse dieses Ports abdeckt. `SocketAddr`
 /// kennt die Wildcard nicht als "jede", deshalb der Vergleich über `port()`.
 fn listeners_collide(a: SocketAddr, b: SocketAddr) -> bool {
-    a.port() == b.port()
-        && (a.ip() == b.ip() || a.ip().is_unspecified() || b.ip().is_unspecified())
+    a.port() == b.port() && (a.ip() == b.ip() || a.ip().is_unspecified() || b.ip().is_unspecified())
 }
 
 const fn default_per_client_qps() -> u32 {
@@ -2436,9 +2435,8 @@ sinkhole_ipv6 = "fd00::10"
         // Client-Erkennung vergleicht IPv4-Netze und erkennt sie nicht
         // (ADR-0031). Dokumentiert ist IPv4-only, also muss die Konfiguration
         // es durchsetzen statt es nur zu empfehlen.
-        let text = format!(
-            "{MINIMAL}\n{SINKHOLE}\n[block_page]\nenabled = true\nlisten = \"[::]:80\"\n"
-        );
+        let text =
+            format!("{MINIMAL}\n{SINKHOLE}\n[block_page]\nenabled = true\nlisten = \"[::]:80\"\n");
         let err = valid_err(&text);
         assert!(err.contains("block_page.listen"), "{err}");
         assert!(err.contains("IPv4"), "{err}");

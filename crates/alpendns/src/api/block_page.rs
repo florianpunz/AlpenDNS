@@ -650,10 +650,7 @@ mod tests {
         assert!(neutral.contains("<title>AlpenDNS</title>"), "{neutral}");
         assert!(!neutral.contains("Blocked"), "{neutral}");
 
-        for cause in [
-            BlockCause::List(Arc::from("ads-list")),
-            BlockCause::Rule,
-        ] {
+        for cause in [BlockCause::List(Arc::from("ads-list")), BlockCause::Rule] {
             let blocked = render("ads.example", &cause);
             assert!(
                 blocked.contains("<title>Blocked — AlpenDNS</title>"),

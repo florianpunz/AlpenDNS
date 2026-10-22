@@ -165,8 +165,7 @@ pub fn block_cause<C: Clock + Clone, W: WallClock>(
     // Ohne den Namen im Fehler: der Rückgabewert ist öffentlich, und ein
     // Aufrufer könnte ihn protokollieren. Der Name bleibt im Körper der
     // Antwort an den Fragenden (B.1 Regel 3).
-    let name = Name::from_str_relaxed(domain)
-        .map_err(|_| "invalid domain name".to_owned())?;
+    let name = Name::from_str_relaxed(domain).map_err(|_| "invalid domain name".to_owned())?;
     let mut ctx = Ctx::new(std::net::SocketAddr::new(peer, 0));
     let decision = engine.evaluate_with(
         &name,
