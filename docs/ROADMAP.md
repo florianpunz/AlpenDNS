@@ -4,10 +4,9 @@ The plan is cut into phases. Every phase has a **Goal**, a **checklist in verify
 format** (see CLAUDE.md, part A.4) and an **acceptance criterion**. A phase counts
 as done when the acceptance criterion is met — not when the code compiles.
 
-**Current phase: 9 — accepted on 2026-10-22.** The code is in place and the
-acceptance is complete: three observation periods on the real network, the
-controlled tunneling test and the Debian run on a fresh VM are documented in
-phases 8 and 9.
+**Phases 0 to 9 — implemented and accepted; v1 is complete.** The acceptance is
+documented in phases 8 and 9: three observation periods on the real network, the
+controlled tunneling test and the Debian run on a fresh VM.
 
 The order is chosen so that **after phase 4 there is a server you can use
 productively on your own network**. Everything after that makes it better, not
@@ -822,6 +821,11 @@ observation week, uninstall. Ships in the package under `/usr/share/doc/alpendns
   by operator decision on 2026-10-22 — see phase 8.
 * **Done:** the CI run runs permanently green in GitHub Actions (phase 0).
 * **Done on 2026-08-31:** a human's look at the rendered UI (phase 6, step 8).
+
+**Accepted on 2026-10-22.** The fresh-VM installation on 2026-10-21/22, the load
+and rate-limit tests and the practical test as the only LAN resolver since
+2026-08-30 are the evidence; the operator confirmed the week's operation in the
+UAT session.
 
 ---
 

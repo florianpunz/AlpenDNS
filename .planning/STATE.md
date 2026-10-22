@@ -3,10 +3,10 @@ gsd_state_version: '1.0'
 status: executing
 progress:
   total_phases: 11
-  completed_phases: 9
+  completed_phases: 10
   total_plans: 0
   completed_plans: 0
-  percent: 82
+  percent: 91
 ---
 
 # Project State
@@ -18,21 +18,18 @@ See: .planning/PROJECT.md (updated 2026-10-20)
 **Core value:** Queries are filtered on the operator's own machine and forwarded
 encrypted: no query name leaves the process unless the configured logging mode
 explicitly allows it.
-**Current focus:** Acceptance of phase 9 on the real network (phase 8 accepted
-2026-10-22).
+**Current focus:** v1 accepted — phases 0 to 9 complete; phase 10 is the
+optional stockpile.
 
 ## Current Position
 
-Phase: 9 of 11 (Operation and packaging); phase 8 (Heuristics without a cloud)
-accepted on 2026-10-22
-Plan: none — implementation is complete; phase 9 acceptance runs in the same
-observation window
-Status: Verifying / acceptance in progress
-Last activity: 2026-10-20 — brownfield ingest, PROJECT/REQUIREMENTS/ROADMAP/STATE
-created from the ADR intel and `docs/ROADMAP.md`
+Phase: 10 of 11 (Optional stockpile) — no obligation; phases 0 to 9 accepted
+Plan: none — implementation is complete
+Status: v1 accepted on 2026-10-22; phase 10 (optional) is the only phase left
+Last activity: 2026-10-22 — UAT for phases 8 and 9 completed; both accepted
 
-Progress: 82% — 9 of 11 phases accepted (phase 9 acceptance running; phase 10
-optional).
+Progress: 91% — 10 of 11 phases accepted (phase 10 is optional and
+unscheduled).
 
 ## Performance Metrics
 
@@ -82,15 +79,12 @@ Recent decisions affecting current work:
 
 - Phase 8: accepted 2026-10-22; NRD remains unevaluated without data from
   AlpenShield, and the decision on ADR-0025/ADR-0026 stays proposed.
-- Phase 9: install the `.deb` on a fresh Debian VM (the Ubuntu container run is
-  a documented deviation); finish the practical week; record anything notable
-  as a false-alarm list or configuration change.
 - Phase 10: optional items in `docs/TODOS.md` and `docs/ROADMAP.md` phase 10.
 
 ### Blockers/Concerns
 
-- No blocker for the roadmap. Acceptance of phases 8 and 9 depends on elapsed
-  real-network time and a second machine, not on code.
+- No blocker for the roadmap. Phases 0 to 9 are accepted; the open points are
+  the documented deviations and the concerns below.
 - Known upstream defects: TSIG panic (ADR-0006) and false `Bogus` on
   CNAME-to-NODATA (ADR-0028). Both are accepted with documented conditions.
 - Open concerns without a phase assignment are catalogued in
@@ -119,8 +113,7 @@ Items acknowledged and deferred, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-20
-Stopped at: Brownfield GSD initialization — PROJECT.md, REQUIREMENTS.md,
-ROADMAP.md and STATE.md written from the intel and `docs/ROADMAP.md`.
-Resume file: None — the next action is a fresh planning pass over the remaining
-phase 8/9 acceptance work, not a restored session.
+Last session: 2026-10-22
+Stopped at: UAT for phases 8 and 9 completed; both accepted and recorded in
+ROADMAP.md and STATE.md.
+Resume file: None — phase 10 is optional and starts item by item when wanted.

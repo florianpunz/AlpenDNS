@@ -2,10 +2,8 @@
 
 ## Overview
 
-This is a brownfield roadmap. Phases 0 to 7 are implemented and accepted;
-phase 8 (detection heuristics) and phase 9 (operation and packaging) are
-implemented, with their acceptance runs in progress on the real network.
-Phase 10 is an optional, discardable stockpile. The roadmap therefore records
+This is a brownfield roadmap. Phases 0 to 9 are implemented and accepted;
+phase 10 is an optional, discardable stockpile. The roadmap therefore records
 what exists and what remains instead of planning a greenfield build.
 
 `docs/ROADMAP.md` remains canonical for phase state, acceptance history and
@@ -30,7 +28,7 @@ the ADR intel in `.planning/intel/decisions.md` and those acceptance criteria.
 - [x] **Phase 6: Visibility: API, metrics, web UI** - Token-protected API, Prometheus metrics, four log modes, SSE and the self-served glass UI.
 - [x] **Phase 7: Privacy build-out** - PSL-backed `split_by_zone` with seed rotation, privacy budget, local DNSSEC, ODoH and k-anonymity.
 - [x] **Phase 8: Heuristics without a cloud** - Five local detectors, all defaulting to `flag`; accepted on 2026-10-22 after three observation periods.
-- [ ] **Phase 9: Operation and packaging** - systemd unit, `.deb`, rate limiting and safe defaults; the fresh-VM acceptance is outstanding.
+- [x] **Phase 9: Operation and packaging** - systemd unit, `.deb`, rate limiting and safe defaults; accepted on 2026-10-22 after the fresh-VM install and the practical test.
 - [ ] **Phase 10: Optional stockpile** - Discardable items from `docs/ROADMAP.md` and `docs/TODOS.md`, item by item, no obligation.
 
 ## Phase Details
@@ -164,7 +162,7 @@ the ADR intel in `.planning/intel/decisions.md` and those acceptance criteria.
 
 ### Phase 9: Operation and packaging
 **Goal**: Installed and hardened on a fresh Debian VM in five minutes, then proven as the only resolver in the LAN for a week.
-**State**: Implemented on 2026-08-30 with all eight steps; `systemd-analyze security` reports 1.5. Installation was verified on an Ubuntu container, not yet on a fresh Debian VM. The practical test runs since 2026-08-30 and shares its observation window with phase 8.
+**State**: Implemented on 2026-08-30 with all eight steps; `systemd-analyze security` reports 1.5. **Accepted on 2026-10-22**: the `.deb` installed on a fresh Debian 13 VM (2026-10-21/22), the practical test has run as the only LAN resolver since 2026-08-30, and the operator confirmed the week's operation in the UAT.
 **Depends on**: Phase 8
 **Requirements**: OPS-01, OPS-02, OPS-03, OPS-04, OPS-05, OPS-06, OPS-07, OPS-08, OPS-09, OPS-10
 **Success Criteria** (what must be TRUE):
@@ -174,7 +172,7 @@ the ADR intel in `.planning/intel/decisions.md` and those acceptance criteria.
   4. One client above the rate limit is dropped while other clients are unaffected; IPv6 is keyed by /64.
   5. A fresh installation listens on every IPv4 interface, is reachable from the LAN without an edit, warns about being an open resolver on a host with a public address, and keeps per-client rate limiting on (ADR-0031).
   6. The server runs a week as the only LAN resolver without complaints, and `docs/BENCHMARKS.md` plus `docs/OPERATIONS.md` are sufficient for a second person to install and operate it.
-**Plans**: TBD — the remaining acceptance work can be planned.
+**Plans**: None — implemented in the pre-GSD history; acceptance recorded 2026-10-22.
 
 ### Phase 10: Optional stockpile
 **Goal**: Optional improvements that are taken up only when wanted; discardable at any time without weakening accepted v1 behavior.
@@ -204,5 +202,5 @@ Phase 10 has no order and no obligation.
 | 6. Visibility: API, metrics, web UI | — | Complete | 2026-08-31 |
 | 7. Privacy build-out | — | Complete | 2026-08-31 |
 | 8. Heuristics without a cloud | — | Complete | 2026-10-22 |
-| 9. Operation and packaging | — | Implemented; acceptance in progress | — |
+| 9. Operation and packaging | — | Complete | 2026-10-22 |
 | 10. Optional stockpile | — | Not scheduled | — |
