@@ -1,0 +1,67 @@
+{
+  "version": "1.0",
+  "timestamp": "2026-10-27T17:57:51.684Z",
+  "phase": "10",
+  "phase_name": "optional stockpile; phases 0 to 9 accepted",
+  "phase_dir": null,
+  "plan": null,
+  "task": null,
+  "total_tasks": null,
+  "status": "paused",
+  "completed_tasks": [
+    {"id": 1, "name": "Block page HTTP slice (block_page.rs, web/blocked.html, 23 tests)", "status": "done", "commit": "80dc485"},
+    {"id": 2, "name": "Block page config and process wiring ([block_page], listener, docs)", "status": "done", "commit": "930b10b"},
+    {"id": 3, "name": "Six review repairs, each with a red-first test", "status": "done", "commit": "b9fa9e4..6428402"},
+    {"id": 4, "name": "Quick task artifacts committed and fast-forwarded to main", "status": "done", "commit": "a3cc095"}
+  ],
+  "remaining_tasks": [
+    {"id": 5, "name": "Manual visual check of the block page in light and dark mode", "status": "not_started"},
+    {"id": 6, "name": "Manual check: long name wraps, neutral page title does not say Blocked", "status": "not_started"},
+    {"id": 7, "name": "Version bump and push (human action, before the push)", "status": "not_started"}
+  ],
+  "blockers": [
+    {
+      "description": "main is ahead of origin/main. Nothing of the last sessions exists on the remote, so another machine cannot pull this work until it is pushed.",
+      "type": "human_action",
+      "workaround": "Push main from this machine. The version is already bumped: Cargo.toml says 5.0.0 (commit 38d912f, untagged), which is a major step over v4.0.1. Do not bump again for this release."
+    }
+  ],
+  "async_jobs": [],
+  "human_actions_pending": [
+    {
+      "action": "Push main",
+      "context": "The commits are local only; the other machine needs them on origin. The version is already 5.0.0 and untagged, so the push is all that is left.",
+      "blocking": true
+    },
+    {
+      "action": "Visual check of the block page in light and dark mode, and of the long-name and neutral cases",
+      "context": "Verification status is human_needed; all automated checks pass (8/8 must-haves).",
+      "blocking": false
+    }
+  ],
+  "decisions": [
+    {
+      "decision": "The block page is an opt-in on port 80, HTTP only, no TLS",
+      "rationale": "Users chose an own unauthenticated listener, not a route on the token-protected API. A browser trying https:// first gets a connection error; documented, not worked around.",
+      "phase": "10"
+    },
+    {
+      "decision": "The shipped default stays block.mode = nxdomain and block_page.enabled = false",
+      "rationale": "Switching the mode would change behaviour for every installation, and the sinkhole address is the server's own LAN address, which the config cannot know.",
+      "phase": "10"
+    },
+    {
+      "decision": "The page shows only name, 'blocked on this network' and the matched list; no client IP, policy, rule text or UI link",
+      "rationale": "The page is the only surface an outside device fetches; it must not become a reconnaissance surface.",
+      "phase": "10"
+    },
+    {
+      "decision": "The verdict is computed through policy::block_cause with Effects::ReadOnly",
+      "rationale": "policy::explain mutates counters and the tunneling window; a display path must not move live statistics or run detectors.",
+      "phase": "10"
+    }
+  ],
+  "uncommitted_files": [],
+  "next_action": "If resuming on this machine: push main (version already 5.0.0). On a fresh machine: git pull, then check docs/OPERATIONS.md 'A page for blocked names' for the manual visual checks.",
+  "context_notes": "Quick task 261022-t0a is complete and fast-forwarded to main. Verification is human_needed: 8/8 must-haves verified, only two visual checks remain. One review finding (WR-05) is pre-existing and deliberately untouched: policy::explain evaluates with Effects::Count, so /api/explain moves live policy counters and runs detectors contrary to its docs. It deserves its own commit. Two plan-check advisories also remain: the neutral sentence is slightly imprecise when an allowlist overrides a blocklist entry, and host_name restates policy::normalize instead of reusing it."
+}
