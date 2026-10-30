@@ -63,23 +63,31 @@ const ODOH_CONTENT_TYPE: &str = odoh_rs::ODOH_HTTP_HEADER;
 /// ein zweites Zufallssystem im Baum.
 struct Random;
 
-impl hpke::rand_core::RngCore for Random {
-    fn next_u32(&mut self) -> u32 {
-        rand::random()
+// `rand_core` 0.10 hat `RngCore` zu einem Stub gemacht (serde-artiger Umzug):
+// implementiert wird `TryRng`, und `Rng` kommt über die Blanket-Impl dazu,
+// solange der Fehlertyp `Infallible` ist. `CryptoRng` ist genauso ein Marker
+// über `TryCryptoRng`. Der Fehlerfall kann hier nicht eintreten: `rand::random`
+// kennt keinen.
+impl hpke::rand_core::TryRng for Random {
+    type Error = core::convert::Infallible;
+
+    fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
+        Ok(rand::random())
     }
 
-    fn next_u64(&mut self) -> u64 {
-        rand::random()
+    fn try_next_u64(&mut self) -> Result<u64, Self::Error> {
+        Ok(rand::random())
     }
 
-    fn fill_bytes(&mut self, dest: &mut [u8]) {
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Self::Error> {
         for byte in dest.iter_mut() {
             *byte = rand::random();
         }
+        Ok(())
     }
 }
 
-impl hpke::rand_core::CryptoRng for Random {}
+impl hpke::rand_core::TryCryptoRng for Random {}
 
 /// Ein ODoH-Weg zu genau einem Ziel, über genau einen Proxy.
 pub struct OdohTransport {
@@ -557,9 +565,9 @@ mod tests {
 
     #[test]
     fn random_bytes_are_not_all_the_same() {
-        // Die zehn Zeilen Adapter sind der einzige Ort, an dem der Zufall für
-        // die HPKE-Kapselung herkommt. Ein Fehler darin wäre still.
-        use hpke::rand_core::RngCore as _;
+        // Der Adapter ist der einzige Ort, an dem der Zufall für die
+        // HPKE-Kapselung herkommt. Ein Fehler darin wäre still.
+        use hpke::rand_core::Rng as _;
         let mut first = [0_u8; 32];
         let mut second = [0_u8; 32];
         Random.fill_bytes(&mut first);
