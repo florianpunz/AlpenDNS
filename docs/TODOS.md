@@ -29,24 +29,24 @@ hot-reloadable (listeners, upstreams/TLS, cache, rate limiting, block mode, dete
 is named by the log on every reload. §7 has been adjusted accordingly; the
 cross-references to B1 in items 7, 9 and 10 are thereby obsolete.
 
-**B2 — Blocklists are loaded only at startup.** In
-[filter/](../crates/alpendns/src/filter/) and [main.rs](../crates/alpendns/src/main.rs)
-there is no update scheduler; the "update scheduler" named in CLAUDE.md B.3 is the
-target picture, not code. The lists come in once via `filter::source`, which writes
-`<name>.list` and `<name>.meta` (with `etag:` and `last-modified:`) into the
-`CacheDirectory`. For item 3 that means: "last updated 2 days ago" today measures
-essentially how long the process has been running. The item is therefore only half as
-big as it looks — and the other half (reloading regularly) is the part that is really
-missing.
+**B2 — Blocklists are reloaded on a timer, and a failed reload is silent.** This finding
+was wrong from the day it was written: `policy::run_updater`
+([policy/mod.rs:697](../crates/alpendns/src/policy/mod.rs#L697)) ticks, reloads the list
+sources and swaps the rebuilt rule set in through `ArcSwap`, and a failed load keeps the
+old set in force (B.1 rule 6). It has been wired since phase 5
+([main.rs:618](../crates/alpendns/src/main.rs#L618)). Two things are genuinely missing:
+the interval is the **minimum** over all per-list `refresh` values rather than per list,
+so the shortest one pulls every list along; and a failed update produces an `error!` log
+line but no counter — the metric set has age and entries, not failures.
 
-**B3 — The query log is written synchronously in the request path.** `QueryLog::new`
-([logging/mod.rs:367-375](../crates/alpendns/src/logging/mod.rs#L367-L375)) opens the
-file once with `create` + `append` and puts it behind a `Mutex`; writes go with
-`writeln!` straight into the record
-([logging/mod.rs:483-490](../crates/alpendns/src/logging/mod.rs#L483-L490)) —
-unbuffered, under the same lock for all requests. Only affects `mode = "full"`, so it is
-not the default, but it is exactly the kind of lock in the request path that B.3 rule 5
-wants to avoid. Belongs to item 2 and is done there along with it.
+**B3 — The query log was written unbuffered in the request path; it no longer is.** The
+file is behind a `BufWriter`
+([logging/mod.rs:380](../crates/alpendns/src/logging/mod.rs#L380)) that `run_flusher`
+empties once a second ([logging/mod.rs:739](../crates/alpendns/src/logging/mod.rs#L739)),
+so a request pays a lock and a memory copy instead of a `write` syscall. Rotation is the
+packaged `logrotate` rule with `copytruncate`
+([packaging/logrotate/alpendns](../packaging/logrotate/alpendns)), which needs no reopen
+signal because the file is opened with `.append(true)`. Both were built with item 2.
 
 ---
 
@@ -146,13 +146,18 @@ cheapest one at that.
 
 ---
 
-## 2. Log rotation in `full` mode
+## 2. Log rotation in `full` mode — done.
 
 > logging/mod.rs writes append-only into a file that the process opens itself —
 > systemd/journald does not reach it. Over months the query log grows without bound until
 > the disk is full.
 
-**Finding.** Correct, see B3. A retention period exists nowhere; the
+**Note (2026-10-30).** All five steps are in the tree. The body below is kept as it was
+written so the reasoning stays readable; the findings are dated by it. The retention that
+"exists nowhere" lives in `packaging/logrotate/alpendns` (`rotate 7`) and is explained in
+[OPERATIONS.md](OPERATIONS.md).
+
+**Finding (at the time).** Correct, see B3. A retention period exists nowhere; the
 `[privacy.logging]` section in [config.rs](../crates/alpendns/src/config.rs) has no
 corresponding key. An entry is a JSON line with name, type, client, RCode, reason,
 duration and findings — roughly 200 bytes. At 50 requests/s that is around **850 MB per
@@ -230,11 +235,11 @@ until then zero, because in the default mode no file is opened at all.
 
 ---
 
-## 3. Age of the blocklists in the UI — (a) done, (b) open
+## 3. Age of the blocklists in the UI — done, except the update-failure counter
 
 > For blocklists, record "age" in the UI — last updated (2 days…) ago
 
-**Finding.** `ListInfo` ([api/mod.rs:70-76](../crates/alpendns/src/api/mod.rs#L70-L76))
+**Finding (at the time).** `ListInfo` ([api/mod.rs:70-76](../crates/alpendns/src/api/mod.rs#L70-L76))
 has `name`, `entries`, `format` — **no timestamp**; it is built in
 [main.rs:329](../crates/alpendns/src/main.rs#L329). The loader knows `Origin` (`File` /
 `Network` / `NotModified` / `StaleCache`,
@@ -245,7 +250,8 @@ statement, not the time of retrieval.
 
 Plus finding B2: **there is no refresh at runtime.** Without it, "last updated" only
 answers when the service was last restarted — a display that is of no use exactly when
-you need it.
+you need it. (B2 itself was wrong; see the correction above. The refresh task has existed
+since phase 5.)
 
 **Design.** The item falls into two, and the second is the more important one.
 
@@ -308,19 +314,27 @@ through `Intl.RelativeTimeFormat`
 `alpendns_blocklist_age_seconds` exposes one value per list
 ([metrics.rs:369](../crates/alpendns/src/metrics.rs#L369)).
 
-The bundle at the end of this file put (b) before (a), and in principle it was right —
-the age display only becomes honest once something actually refreshes. It was built
-first anyway, for a reason worth keeping: (a) needs none of (b)'s decisions, and it is
-exactly what makes a dead refresh visible. Once (b) exists, (a) is already there to show
-whether it works.
+The bundle at the end of this file put (b) before (a). In the end (b) came first in
+time as well, without either being planned together: the refresh task landed in phase 5,
+the age display later. That turned out to be the right order for a different reason than
+the bundle gave — the display is what makes a dead refresh visible.
 
-**What remains is (b)**, and it is the larger half: a task that rebuilds the `Matcher`
-and swaps it in through `ArcSwap`, where a failure keeps the old list active and lets the
-age grow (B.1 rule 6). Steps 5 and 6 above are its whole specification, and step 5 is
-marked "decide separately" for a reason — it wants an ADR first, and
-[CLAUDE.md](../CLAUDE.md) B.3 names the update scheduler as a crate of its own. Until it
-exists, `blocking.<list>.refresh` stays parsed and ignored, as the deferred table in
-STATE.md records.
+**(b) is built as well** — an earlier version of this paragraph said it was not, and that
+was wrong. `policy::run_updater`
+([policy/mod.rs:697](../crates/alpendns/src/policy/mod.rs#L697)) reloads on a ticker,
+`Engine::replace` swaps the rebuilt set in through `ArcSwap`
+([policy/mod.rs:267](../crates/alpendns/src/policy/mod.rs#L267)), and a failed load keeps
+the old set and lets the age grow (B.1 rule 6). It was wired in phase 5
+([main.rs:618](../crates/alpendns/src/main.rs#L618)); `blocking.<list>.refresh` feeds it.
+
+Two gaps remain, both small and both from the original step list:
+
+* **Step 6's counter is missing.** A failed update logs an `error!` line and nothing else;
+  the metric set has list age and entries but no failure counter, so the state is visible
+  only to someone reading the journal.
+* **The interval is the minimum across lists, not per list**
+  ([main.rs:348-355](../crates/alpendns/src/main.rs#L348-L355)): one list asking for six
+  hours pulls every other list along with it. Step 5 asked for a per-list interval.
 
 **Effort:** (a) S, half an evening. (b) M, one to two evenings, plus an ADR.
 **Priority:** (a) low, (b) medium — a blocklist that is never updated is the quiet failure
@@ -550,7 +564,7 @@ are GitHub-side and were not exercised locally.
 
 ---
 
-## 7. Config versioning
+## 7. Config versioning — done: (a) built, (b) and (c) decided in ADR-0024
 
 > At the first breaking change (renaming a key) an old installation breaks with no
 > migration path.
@@ -602,12 +616,21 @@ himself. Then the contract holds and the migration is visible.
    is in docs/adr/ and names the conffile contract as the reason
 ```
 
-**Effort:** S, one evening for (a)+(b)+ADR. **Priority: medium** — (a) helps immediately,
+**Result (2026-10-30).** Step 1 is built and tested (`typo_hint`,
+[config.rs:550](../crates/alpendns/src/config.rs#L550)). Steps 2 and 3 are decided rather
+than built, in [ADR-0024](adr/0024-config-kompatibilitaet-bei-umbenennungen.md): the
+`serde(alias)` pattern is written down with an example, and the decision against a version
+field is recorded with the conffile contract as the reason. That is the right shape for
+(b) — a pattern that costs one line at the *first* rename does not need a placeholder
+field and a test for a rename that has not happened. `grep 'serde(alias'` therefore still
+finds nothing, and that is correct, not a gap.
+
+**Effort:** S, one evening for (a)+(b)+ADR. **Priority:** settled — (a) helps immediately,
 (b) is provision that costs nothing until it is needed.
 
 ---
 
-## 8. Block page
+## 8. Block page — done: the page was built, not the search field
 
 > When a website is on a blocklist → a nice block page from the DNS server ("Diese Seite
 > wurde blockiert weil…")
@@ -667,9 +690,25 @@ exists via `explain`. Only the way there is cumbersome. Proposal:
    sinkhole and an active rebinding detector produces no finding
 ```
 
+**Result (2026-10-30).** The recommendation was overruled and the expensive half was
+built: quick task 261022-t0a, opt-in and off by default. `[block_page]` in the config, a
+third listener on port 80, HTTP only, `api/block_page.rs`, `web/blocked.html`, `no-store`
+on the response. The certificate caveat this section insists on is not buried: it stands
+in [OPERATIONS.md](OPERATIONS.md) under "A page for blocked names", together with the
+IPv4-only and HTTP-only limits. Steps 1 and 2 of the recommended half were never built —
+`explain` is still reachable only by clicking a log row.
+
+Step 3 (the rebinding exemption) holds structurally: a blocked name returns from
+`block_response` before the answer ever reaches `inspect_answer`
+([policy/mod.rs:770-780](../crates/alpendns/src/policy/mod.rs#L770-L780)), so a sinkholed
+block produces no rebinding finding. The combined test the step asked for does not exist;
+what exists is the wildcard-address test
+([rebinding.rs:227](../crates/alpendns/src/detect/rebinding.rs#L227)), which covers
+`0.0.0.0` and `::`, not a configured LAN sinkhole behind an active block page.
+
 **Effort:** search field S. Full block page M–L plus an ADR, with doubtful yield.
 **Priority: low** — and that is a deliberate recommendation against the original wish, not
-forgetfulness. **B.8 decision for the author.**
+forgetfulness. **B.8 decision for the author** — taken 2026-10-22 in favour of the page.
 
 ---
 
@@ -958,8 +997,9 @@ For completeness, because it belongs to the decision:
 
 1. Will B.1 rule 4 be amended for the configured peer? Without that acceptance, stage 3
    falls away.
-2. Will the reload from ARCHITECTURE.md §7 be built, or the paragraph withdrawn (finding
-   B1)?
+2. ~~Will the reload from ARCHITECTURE.md §7 be built, or the paragraph withdrawn
+   (finding B1)?~~ Built: `reload_on_hangup`
+   ([main.rs:1415](../crates/alpendns/src/main.rs#L1415)). The question is settled.
 3. Is a non-loopback peer address a startup error or a warning? Recommendation: error.
 
 ---
@@ -1096,18 +1136,22 @@ who has such a block today (B.8).
 
 5. **Item 10, stages 0 and 1** — measure, document, config hash. The measurement decides
    whether anything is built further at all.
-6. **Item 2** (log rotation) — as soon as someone switches on `mode = "full"`, not before.
-7. **Item 7** (a and b: field suggestion and the `serde(alias)` pattern).
-8. **Item 3(b)** (the refresh task) — **3(a) is done.** (b) is the remaining half, is the
-   actual item, and wants an ADR before it is built.
+6. **Item 2** (log rotation) — **done.**
+7. **Item 7** (config versioning) — **done:** (a) is built, (b) and (c) are decided in
+   ADR-0024.
+8. **Item 3, step 6** — the update-failure counter is the one piece missing from an
+   otherwise built refresh scheduler. **3(a) and 3(b) are done.**
 
-**Last or not at all:** item 9 (wizard), item 8 (block page), item 10 stage 3.
+**Last or not at all:** item 9 (wizard), item 10 stage 3, and the search field from item
+8's recommended half (the block page itself was built).
 
 **What is done together:**
 
-* **Item 2 + finding B3:** the `BufWriter` belongs in the same move as the rotation.
+* **Item 2 + finding B3:** the `BufWriter` belongs in the same move as the rotation. Both
+  are done.
 * **Item 3(b) + item 10 stage 1:** both answer "is this instance still running with the
-  right state?" — list age and config hash belong in the same header of the UI.
+  right state?" — list age and config hash belong in the same header of the UI. The list
+  age is there; the config hash is the open half.
 * **Item 7 + item 9:** both concern the way configuration gets into the system. The
   validation endpoint from item 9 is the same path as the field suggestion from item 7 —
   build once, use twice.
