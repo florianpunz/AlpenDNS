@@ -230,7 +230,7 @@ until then zero, because in the default mode no file is opened at all.
 
 ---
 
-## 3. Age of the blocklists in the UI
+## 3. Age of the blocklists in the UI — (a) done, (b) open
 
 > For blocklists, record "age" in the UI — last updated (2 days…) ago
 
@@ -297,6 +297,30 @@ update scheduler that CLAUDE.md B.3 envisages as its own crate.
 6. [separate] A failure keeps the old list → verify: server answers 500, matcher unchanged,
    counter rises, age grows
 ```
+
+**Result — (a) is done** (2026-10-30). All four steps are in the tree: the mtime is
+touched on `NotModified` ([source.rs:262](../crates/alpendns/src/filter/source.rs#L262)),
+`ListInfo` carries `fetched_at` and `published_at` as nullable RFC 3339
+([api/mod.rs:77-95](../crates/alpendns/src/api/mod.rs#L77-L95)), the UI renders the age
+through `Intl.RelativeTimeFormat`
+([app.js:755-760](../web/app.js#L755-L760), pinned by
+[ui.rs:284](../crates/alpendns/src/api/ui.rs#L284)), and
+`alpendns_blocklist_age_seconds` exposes one value per list
+([metrics.rs:369](../crates/alpendns/src/metrics.rs#L369)).
+
+The bundle at the end of this file put (b) before (a), and in principle it was right —
+the age display only becomes honest once something actually refreshes. It was built
+first anyway, for a reason worth keeping: (a) needs none of (b)'s decisions, and it is
+exactly what makes a dead refresh visible. Once (b) exists, (a) is already there to show
+whether it works.
+
+**What remains is (b)**, and it is the larger half: a task that rebuilds the `Matcher`
+and swaps it in through `ArcSwap`, where a failure keeps the old list active and lets the
+age grow (B.1 rule 6). Steps 5 and 6 above are its whole specification, and step 5 is
+marked "decide separately" for a reason — it wants an ADR first, and
+[CLAUDE.md](../CLAUDE.md) B.3 names the update scheduler as a crate of its own. Until it
+exists, `blocking.<list>.refresh` stays parsed and ignored, as the deferred table in
+STATE.md records.
 
 **Effort:** (a) S, half an evening. (b) M, one to two evenings, plus an ADR.
 **Priority:** (a) low, (b) medium — a blocklist that is never updated is the quiet failure
@@ -1074,8 +1098,8 @@ who has such a block today (B.8).
    whether anything is built further at all.
 6. **Item 2** (log rotation) — as soon as someone switches on `mode = "full"`, not before.
 7. **Item 7** (a and b: field suggestion and the `serde(alias)` pattern).
-8. **Item 3** — and (b) before (a): the refresh task is the actual item, the age display is
-   only honest afterwards.
+8. **Item 3(b)** (the refresh task) — **3(a) is done.** (b) is the remaining half, is the
+   actual item, and wants an ADR before it is built.
 
 **Last or not at all:** item 9 (wizard), item 8 (block page), item 10 stage 3.
 
