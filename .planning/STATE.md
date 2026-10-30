@@ -4,10 +4,10 @@ current_phase: 10
 current_phase_name: no obligation; phases 0 to 9 accepted
 status: executing
 stopped_at: UAT for phases 8 and 9 completed; both accepted and recorded in
-last_updated: "2026-10-30T16:51:22.331Z"
+last_updated: "2026-10-30T17:02:10.282Z"
 last_activity: 2026-10-30
-last_activity_desc: Completed quick task 261030-oj8: WR-05 explain stops counting
-state_head: 67835dd0d22abe745de0b5a3e2647f20db5b9c70
+last_activity_desc: "Completed quick task 261030-p0g: TODOS #4 closed as already documented"
+state_head: 5f511a9fea04215cc9faaab9632d83b397bb9f46
 progress:
   total_phases: 11
   completed_phases: 10
@@ -33,7 +33,7 @@ optional stockpile.
 Phase: 10 of 11 (Optional stockpile) — no obligation; phases 0 to 9 accepted
 Plan: none — implementation is complete
 Status: v1 accepted on 2026-10-22; phase 10 (optional) is the only phase left
-Last activity: 2026-10-30 - Completed quick task 261030-oj8: WR-05: explain stops counting, keeps the detectors
+Last activity: 2026-10-30 - Completed quick task 261030-p0g: TODOS #4: clock dependency closed as already documented
 
 Progress: [█████████░] 91% — 10 of 11 phases accepted (phase 10 is optional and
 unscheduled).
@@ -113,6 +113,7 @@ Recent decisions affecting current work:
 | 261022-s4q | RFC 6303 defaults for the private reverse zones | 2026-10-22 | dc57b43 | Verified | [261022-s4q-rfc-6303-defaults-for-the-private-revers](./quick/261022-s4q-rfc-6303-defaults-for-the-private-revers/) |
 | 261022-t0a | A blocked-by-AlpenDNS page for sinkholed names | 2026-10-22 | 6428402 | Needs Review | [261022-t0a-add-a-blocked-by-alpendns-local-website-](./quick/261022-t0a-add-a-blocked-by-alpendns-local-website-/) |
 | 261030-oj8 | WR-05: explain stops counting, keeps the detectors | 2026-10-30 | 67835dd | Unverified | [261030-oj8-fix-wr-05-policy-explain-must-not-mutate](./quick/261030-oj8-fix-wr-05-policy-explain-must-not-mutate/) |
+| 261030-p0g | TODOS #4: clock dependency closed as already documented | 2026-10-30 | 5f511a9 | Verified | [261030-p0g-system-clock-order-after-time-sync-a-tro](./quick/261030-p0g-system-clock-order-after-time-sync-a-tro/) |
 
 ## Deferred Items
 

@@ -304,7 +304,7 @@ of the core promise.
 
 ---
 
-## 4. Document the dependency on the system clock
+## 4. Document the dependency on the system clock — done.
 
 > The project's own validation (ADR-0016) presupposes a correct host clock — a wrong
 > clock makes every signed zone "bogus".
@@ -370,6 +370,24 @@ rule 4, the process contacts exactly three kinds of targets).
 4. Sentence in THREAT-MODEL.md: a wrong clock as an availability risk that is not protected
    against → verify: the item stands in the list of deliberately open points
 ```
+
+**Result.** All four steps are in the tree. The unit carries `After=time-sync.target`
+([alpendns.service](../packaging/systemd/alpendns.service)), with the reason for
+`After=` without `Wants=` written out beside it — the target comes from
+`systemd-time-wait-sync.service`, which waits with `TimeoutStartSec=infinity`. The
+runbook section is [OPERATIONS.md](OPERATIONS.md) §4, "Everything is SERVFAIL". `check`
+prints a note when `privacy.dnssec` is on and the marker is missing
+([clock.rs:147](../crates/alpendns/src/clock.rs#L147), wired in
+[main.rs:1242](../crates/alpendns/src/main.rs#L1242), exit code stays 0 — the
+chicken-and-egg rule from [main.rs:812-822](../crates/alpendns/src/main.rs#L812-L822)).
+[THREAT-MODEL.md](THREAT-MODEL.md) lists the wrong clock among the availability risks
+that are deliberately not defended against.
+
+One deviation: the hint reads `/run/systemd/timesync/synchronized` and not `adjtimex`, as
+proposed above. The marker is what a stock Debian/Ubuntu writes, and reading `adjtimex`
+would need an unsafe syscall binding, which B.1 rule 2 forbids. On a box where chrony or
+ntpd sets the time the note can therefore be wrong, and the note says so and points at
+`timedatectl`.
 
 **Effort:** S, half an evening. **Priority: medium** — step 1 is one line with real
 benefit on every device without an RTC.
@@ -1048,7 +1066,7 @@ who has such a block today (B.8).
 1. **Item 5** (one sentence in the UI, one paragraph in the module header) — **done.**
 2. **Item 6** (`schedule` trigger) — **done.** One hour, the best effect per line.
 3. **Item 1** (slowloris) — **done.** One evening, the only item that closes a gap.
-4. **Item 4** (`After=time-sync.target` plus a runbook paragraph) — half an evening.
+4. **Item 4** (`After=time-sync.target` plus a runbook paragraph) — **done.**
 
 **After that, as needed:**
 
