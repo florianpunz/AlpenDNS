@@ -4,10 +4,10 @@ current_phase: 10
 current_phase_name: no obligation; phases 0 to 9 accepted
 status: executing
 stopped_at: UAT for phases 8 and 9 completed; both accepted and recorded in
-last_updated: "2026-10-30T17:02:10.282Z"
+last_updated: "2026-10-30T17:06:11.747Z"
 last_activity: 2026-10-30
-last_activity_desc: "Completed quick task 261030-p0g: TODOS #4 closed as already documented"
-state_head: 5f511a9fea04215cc9faaab9632d83b397bb9f46
+last_activity_desc: "Completed quick task 261030-p4w: TODOS #3 age display closed, refresh scheduler split out"
+state_head: 6eb79bc4a548e75ce58997d4cee71fa3bf118d6e
 progress:
   total_phases: 11
   completed_phases: 10
@@ -33,7 +33,7 @@ optional stockpile.
 Phase: 10 of 11 (Optional stockpile) — no obligation; phases 0 to 9 accepted
 Plan: none — implementation is complete
 Status: v1 accepted on 2026-10-22; phase 10 (optional) is the only phase left
-Last activity: 2026-10-30 - Completed quick task 261030-p0g: TODOS #4: clock dependency closed as already documented
+Last activity: 2026-10-30 - Completed quick task 261030-p4w: TODOS #3: age display closed, refresh scheduler split out
 
 Progress: [█████████░] 91% — 10 of 11 phases accepted (phase 10 is optional and
 unscheduled).
@@ -114,6 +114,7 @@ Recent decisions affecting current work:
 | 261022-t0a | A blocked-by-AlpenDNS page for sinkholed names | 2026-10-22 | 6428402 | Needs Review | [261022-t0a-add-a-blocked-by-alpendns-local-website-](./quick/261022-t0a-add-a-blocked-by-alpendns-local-website-/) |
 | 261030-oj8 | WR-05: explain stops counting, keeps the detectors | 2026-10-30 | 67835dd | Unverified | [261030-oj8-fix-wr-05-policy-explain-must-not-mutate](./quick/261030-oj8-fix-wr-05-policy-explain-must-not-mutate/) |
 | 261030-p0g | TODOS #4: clock dependency closed as already documented | 2026-10-30 | 58e9c3c | Verified | [261030-p0g-system-clock-order-after-time-sync-a-tro](./quick/261030-p0g-system-clock-order-after-time-sync-a-tro/) |
+| 261030-p4w | TODOS #3: age display closed, refresh scheduler split out | 2026-10-30 | 6eb79bc | Verified | [261030-p4w-todos-3-close-the-blocklist-age-item-spl](./quick/261030-p4w-todos-3-close-the-blocklist-age-item-spl/) |
 
 ## Deferred Items
 
