@@ -48,6 +48,11 @@ is found is checked in as a corpus file and becomes a regression test.
 In CI each target runs briefly (120 s) on the existing corpus. Long runs are
 done locally.
 
+`crates/alpendns/fuzz/` is a workspace of its own and carries its own
+`Cargo.lock`. A dependency bump that is green at the root does not prove the
+`fuzz` job: the two lockfiles resolve features separately. Update both — see
+[CONTRIBUTING.md](../CONTRIBUTING.md), "Dependencies and advisories".
+
 ### 4. Integration tests
 
 A real AlpenDNS process on a loopback port, real queries, real answers. The

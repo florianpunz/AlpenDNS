@@ -65,6 +65,27 @@ Three steps, in this order:
 3. **Every exception is read again on the next weekly failure.** An exception
    without a reversal condition is not an exception, it is a capitulation.
 
+**There are two lockfiles, and they resolve separately.**
+`crates/alpendns/fuzz/` is its own workspace with its own `Cargo.lock`. Cargo
+unifies features per lockfile, so a bump that passes at the root can still fail
+the `fuzz` job — it is the only job that builds from the second lock. That is
+not hypothetical: on 2026-10-30 the root moved to `odoh-rs` 1.0.5 while the
+fuzz lock stayed on 1.0.4, and the `x25519` feature that `hpke` 0.14 needs to
+compile came in only through 1.0.5, so the feature was missing *there and only
+there*. Every dependency update therefore updates both:
+
+```bash
+cargo update
+cargo update --manifest-path crates/alpendns/fuzz/Cargo.toml
+```
+
+The second lesson from the same day: a crate that depends on another crate's
+*features* rather than its API should declare the features it needs itself.
+`hpke` was declared with `default-features = false` because only its RNG traits
+are used, and it compiled solely because `odoh-rs` happened to enable a KEM in
+the same resolution. Once one lockfile resolved differently, that assumption
+broke. Declaring `x25519` costs nothing and holds in both lockfiles.
+
 ## Commits
 
 Conventional Commits, and the message explains *why* — the *what* is in the
