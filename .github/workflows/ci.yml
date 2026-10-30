@@ -20,7 +20,7 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -38,7 +38,7 @@ jobs:
       contents: read
       issues: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # Der Lauf darf scheitern, ohne dass dieser Job hier endet: der
       # Meldeschritt darunter muss noch drankommen. Ob der Job rot wird,
       # entscheidet der letzte Schritt.
@@ -98,7 +98,7 @@ jobs:
       run:
         working-directory: crates/alpendns
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@nightly
       - run: cargo install cargo-fuzz --locked
       - run: cargo +nightly fuzz run -O parse_request -- -max_total_time=120
