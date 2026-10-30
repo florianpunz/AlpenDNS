@@ -62,7 +62,7 @@ humantime-serde = "1.1"
 rand = "0.10"
 # LRU-Verdrängung im Cache. Eine intrusive Liste von Hand ist genau die Sorte
 # Code, bei der Off-by-one-Fehler wochenlang unentdeckt bleiben.
-lru = "0.18"
+lru = "0.19"
 # Atomarer Tausch der Blocklisten ohne Lock im Anfragepfad (ARCHITECTURE.md §3).
 arc-swap = "1.7"
 # Client-Identifikation über Subnetze. Liegt ohnehin schon im Baum (hickory).
@@ -114,7 +114,7 @@ reqwest = { version = "0.13", default-features = false, features = [
 odoh-rs = "1.0"
 # Nur wegen der RNG-Traits: odoh-rs führt `hpke::rand_core::RngCore` in seiner
 # Signatur, und ohne diese Zeile lässt sich unser Zufall nicht übergeben.
-hpke = { version = "0.13", default-features = false }
+hpke = { version = "0.14", default-features = false }
 thiserror = "2.0"
 anyhow = "1.0"
 tracing = "0.1"
