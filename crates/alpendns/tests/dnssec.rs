@@ -95,7 +95,10 @@ impl Zone {
             .key()
             .to_public_key()
             .expect("öffentlicher Teil");
-        anchors.insert(&public);
+        // Mit Namen, nicht namenlos: seit hickory-net 0.26.3 wird beim Prüfen
+        // der Name des Ankers verglichen (`contains_with_name`), und `insert`
+        // legt einen Anker für die Root an — der deckt `example.test.` nicht.
+        anchors.insert_with_name(&public, name(ZONE).into());
         Arc::new(anchors)
     }
 

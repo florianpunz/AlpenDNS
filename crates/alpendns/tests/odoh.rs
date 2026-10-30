@@ -263,21 +263,26 @@ async fn forward(target: SocketAddr, body: &[u8]) -> Option<Vec<u8>> {
 /// `ObliviousDoHKeyPair::new` verlangt einen RNG aus `hpke::rand_core`.
 struct Rng;
 
-impl hpke::rand_core::RngCore for Rng {
-    fn next_u32(&mut self) -> u32 {
-        rand::random()
+// `RngCore` ist in `rand_core` 0.10 nur noch ein Stub; implementiert wird
+// `TryRng`, `Rng` und `CryptoRng` folgen über Blanket-Impls.
+impl hpke::rand_core::TryRng for Rng {
+    type Error = core::convert::Infallible;
+
+    fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
+        Ok(rand::random())
     }
-    fn next_u64(&mut self) -> u64 {
-        rand::random()
+    fn try_next_u64(&mut self) -> Result<u64, Self::Error> {
+        Ok(rand::random())
     }
-    fn fill_bytes(&mut self, dest: &mut [u8]) {
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Self::Error> {
         for byte in dest.iter_mut() {
             *byte = rand::random();
         }
+        Ok(())
     }
 }
 
-impl hpke::rand_core::CryptoRng for Rng {}
+impl hpke::rand_core::TryCryptoRng for Rng {}
 
 const fn rand_adapter() -> Rng {
     Rng

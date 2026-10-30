@@ -38,12 +38,14 @@ todo = "warn"
 # (Phase 7, Schritt 3). Zieht `time` in den Produktionsbaum — Bewertung und
 # Auflagen in docs/adr/0016-dnssec-validierung-im-forwarder.md und in der
 # Ausnahme zu RUSTSEC-2026-0009 in deny.toml.
-hickory-proto = { version = "0.26", features = ["dnssec-ring"] }
+# Mindestens 0.26.3: `TrustAnchors::insert_with_name` gibt es erst dort, und seit
+# hickory-net 0.26.3 wird der Ankername beim Prüfen verglichen (tests/dnssec.rs).
+hickory-proto = { version = "0.26.3", features = ["dnssec-ring"] }
 # Transporte für DoT/DoH/DoQ. Seit 0.26 ein eigenes Crate, getrennt vom
 # Resolver — wir wollen die Verbindung, nicht dessen Cache und Policy.
 # Nur die -ring-Varianten: aws-lc-rs führt die OpenSSL-Lizenz mit, die nicht in
 # der Allowlist von deny.toml steht.
-hickory-net = { version = "0.26", features = ["tls-ring", "https-ring", "quic-ring", "webpki-roots", "dnssec-ring"] }
+hickory-net = { version = "0.26.3", features = ["tls-ring", "https-ring", "quic-ring", "webpki-roots", "dnssec-ring"] }
 # ClientConfig-Typ für die TLS-Konfiguration. default-features aus, weil rustls
 # sonst aws-lc-rs als Krypto-Backend zieht.
 rustls = { version = "0.23", default-features = false, features = ["std", "ring", "tls12"] }
@@ -114,7 +116,10 @@ reqwest = { version = "0.13", default-features = false, features = [
 odoh-rs = "1.0"
 # Nur wegen der RNG-Traits: odoh-rs führt `hpke::rand_core::RngCore` in seiner
 # Signatur, und ohne diese Zeile lässt sich unser Zufall nicht übergeben.
-hpke = { version = "0.14", default-features = false }
+# `x25519` steht hier, obwohl wir keine KEM aufrufen: hpke 0.14 übersetzt ohne
+# mindestens eine KEM nicht, und die kam bisher allein über odoh-rs herein. Eine
+# eigene Auflösung (die Fuzz-Crate hat ihre eigene Cargo.lock) brach daran.
+hpke = { version = "0.14", default-features = false, features = ["x25519"] }
 thiserror = "2.0"
 anyhow = "1.0"
 tracing = "0.1"
