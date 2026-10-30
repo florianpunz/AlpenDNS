@@ -4,10 +4,10 @@ current_phase: 10
 current_phase_name: no obligation; phases 0 to 9 accepted
 status: executing
 stopped_at: UAT for phases 8 and 9 completed; both accepted and recorded in
-last_updated: "2026-10-30T17:06:11.747Z"
+last_updated: "2026-10-30T17:28:03.640Z"
 last_activity: 2026-10-30
-last_activity_desc: "Completed quick task 261030-p4w: TODOS #3 age display closed, refresh scheduler split out"
-state_head: 6eb79bc4a548e75ce58997d4cee71fa3bf118d6e
+last_activity_desc: "Completed quick task 261030-pn3: TODOS audit, every item reconciled with the tree"
+state_head: 281aa96a38ccc62f6449535c2ad1c741be52fcd1
 progress:
   total_phases: 11
   completed_phases: 10
@@ -33,7 +33,7 @@ optional stockpile.
 Phase: 10 of 11 (Optional stockpile) — no obligation; phases 0 to 9 accepted
 Plan: none — implementation is complete
 Status: v1 accepted on 2026-10-22; phase 10 (optional) is the only phase left
-Last activity: 2026-10-30 - Completed quick task 261030-p4w: TODOS #3: age display closed, refresh scheduler split out
+Last activity: 2026-10-30 - Completed quick task 261030-pn3: TODOS audit, every item reconciled with the tree
 
 Progress: [█████████░] 91% — 10 of 11 phases accepted (phase 10 is optional and
 unscheduled).
@@ -115,6 +115,7 @@ Recent decisions affecting current work:
 | 261030-oj8 | WR-05: explain stops counting, keeps the detectors | 2026-10-30 | 67835dd | Unverified | [261030-oj8-fix-wr-05-policy-explain-must-not-mutate](./quick/261030-oj8-fix-wr-05-policy-explain-must-not-mutate/) |
 | 261030-p0g | TODOS #4: clock dependency closed as already documented | 2026-10-30 | 58e9c3c | Verified | [261030-p0g-system-clock-order-after-time-sync-a-tro](./quick/261030-p0g-system-clock-order-after-time-sync-a-tro/) |
 | 261030-p4w | TODOS #3: age display closed, refresh scheduler split out | 2026-10-30 | 6eb79bc | Verified | [261030-p4w-todos-3-close-the-blocklist-age-item-spl](./quick/261030-p4w-todos-3-close-the-blocklist-age-item-spl/) |
+| 261030-pn3 | TODOS audit: every item reconciled with the tree | 2026-10-30 | 281aa96 | Verified | [261030-pn3-todos-audit-reconcile-every-item-status-](./quick/261030-pn3-todos-audit-reconcile-every-item-status-/) |
 
 ## Deferred Items
 
@@ -126,7 +127,7 @@ Items acknowledged and deferred, most recent first:
 | Scope | Forward-zone failover | Open (TODOS item 13) | Pre-GSD | v1 |
 | Scope | RFC 6303 built-in local zones | Done 2026-10-22 (ADR-0032, quick task 261022-s4q) | Pre-GSD | v1 |
 | Scope | Recursion, DDR/DNR, blocklist diff review, two instances, local-zone build-out, own parser as learning project | Optional stockpile | 2026-10-20 | Phase 10 |
-| Config | Per-list `refresh` is parsed but ignored; `max_inflight`, EDNS `padding`, `doh_token` are documented but unimplemented | Open (CONCERNS.md) | Pre-GSD | unassigned |
+| Config | Per-list `refresh` is honoured only as the minimum across all lists; `max_inflight`, EDNS `padding`, `doh_token` are documented but unimplemented | Open (CONCERNS.md) | Pre-GSD | unassigned |
 
 ## Session Continuity
 
