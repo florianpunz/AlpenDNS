@@ -113,7 +113,7 @@ Recent decisions affecting current work:
 | 261022-s4q | RFC 6303 defaults for the private reverse zones | 2026-10-22 | dc57b43 | Verified | [261022-s4q-rfc-6303-defaults-for-the-private-revers](./quick/261022-s4q-rfc-6303-defaults-for-the-private-revers/) |
 | 261022-t0a | A blocked-by-AlpenDNS page for sinkholed names | 2026-10-22 | 6428402 | Needs Review | [261022-t0a-add-a-blocked-by-alpendns-local-website-](./quick/261022-t0a-add-a-blocked-by-alpendns-local-website-/) |
 | 261030-oj8 | WR-05: explain stops counting, keeps the detectors | 2026-10-30 | 67835dd | Unverified | [261030-oj8-fix-wr-05-policy-explain-must-not-mutate](./quick/261030-oj8-fix-wr-05-policy-explain-must-not-mutate/) |
-| 261030-p0g | TODOS #4: clock dependency closed as already documented | 2026-10-30 | 5f511a9 | Verified | [261030-p0g-system-clock-order-after-time-sync-a-tro](./quick/261030-p0g-system-clock-order-after-time-sync-a-tro/) |
+| 261030-p0g | TODOS #4: clock dependency closed as already documented | 2026-10-30 | 58e9c3c | Verified | [261030-p0g-system-clock-order-after-time-sync-a-tro](./quick/261030-p0g-system-clock-order-after-time-sync-a-tro/) |
 
 ## Deferred Items
 
