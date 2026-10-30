@@ -102,24 +102,46 @@ pub enum BlockCause {
     Rule,
 }
 
-/// Ob eine Auswertung zählen darf.
+/// Was eine Auswertung nebenbei tun darf — zwei unabhängige Achsen.
 ///
-/// Die DNS-Auswertung zählt und füttert die Heuristiken; die Blockseite ist nur
-/// eine Frage und darf beides nicht. Der Grund ist nicht kosmetisch: das
-/// Tunneling-Fenster wird bei jedem `inspect` verändert, und `detect::record`
-/// zählt prozessweit mit — ein Seitenaufruf sähe für die Heuristik wie eine
-/// DNS-Anfrage aus.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Effects {
-    Count,
-    ReadOnly,
+/// `count` entscheidet, ob die drei Policy-Zähler wandern. `detectors`
+/// entscheidet, ob die Namens-Heuristiken überhaupt befragt werden. Getrennt
+/// sind sie, weil ein Seitenaufruf weder zählen noch das Tunneling-Fenster
+/// füttern darf (`Tunneling::inspect` schiebt sein Zonenfenster weiter,
+/// `detect::record` zählt prozessweit mit), eine Erklärung aber einen
+/// Heuristik-Block noch zeigen muss.
+#[derive(Debug, Clone, Copy)]
+struct Effects {
+    count: bool,
+    detectors: bool,
 }
 
-/// Wertet einen Namen aus und gibt die Begründung zurück, ohne etwas zu ändern.
+impl Effects {
+    /// Der DNS-Pfad: zählt und befragt die Heuristiken.
+    const DNS: Self = Self {
+        count: true,
+        detectors: true,
+    };
+    /// Die Erklärung: zählt nicht, zeigt aber einen Heuristik-Block.
+    const EXPLAIN: Self = Self {
+        count: false,
+        detectors: true,
+    };
+    /// Die Blockseite: weder Zähler noch Heuristiken.
+    const READ_ONLY: Self = Self {
+        count: false,
+        detectors: false,
+    };
+}
+
+/// Wertet einen Namen aus und gibt die Begründung zurück, ohne zu zählen.
 ///
-/// Die Auswertung ist eine Simulation: sie zählt in keiner Statistik mit und
-/// hinterlässt nichts. Der Name kommt vom Aufrufer und geht an ihn zurück —
-/// gespeichert wird er nirgends, auch nicht in den leisen Log-Modi.
+/// Die Auswertung ist eine Erklärung und keine Anfrage: kein Policy-Zähler
+/// bewegt sich. Die Heuristiken werden trotzdem befragt, damit ein von einer
+/// Heuristik geblockter Name auch als geblockt erscheint — das schiebt das
+/// Tunneling-Fenster weiter und kann den prozessweiten Detektor-Zähler
+/// bewegen. Der Name kommt vom Aufrufer und geht an ihn zurück — gespeichert
+/// wird er nirgends, auch nicht in den leisen Log-Modi.
 pub fn explain<C: Clock + Clone, W: WallClock>(
     engine: &Engine<C, W>,
     domain: &str,
@@ -128,7 +150,13 @@ pub fn explain<C: Clock + Clone, W: WallClock>(
     let name = Name::from_str_relaxed(domain)
         .map_err(|error| format!("'{domain}' is not a valid domain name: {error}"))?;
     let mut ctx = Ctx::new(std::net::SocketAddr::new(peer, 0));
-    let decision = engine.evaluate(&name, peer, &mut ctx);
+    let decision = engine.evaluate_with(
+        &name,
+        hickory_proto::rr::RecordType::A,
+        peer,
+        &mut ctx,
+        Effects::EXPLAIN,
+    );
     let client = ctx
         .steps()
         .iter()
@@ -154,9 +182,9 @@ pub fn explain<C: Clock + Clone, W: WallClock>(
 ///
 /// `Rule` heißt "geblockt, aber nicht durch eine Liste" — Regex, Zeitplan und
 /// befristete Sperre heute. Ein Detektor kann hier nicht auftauchen, weil
-/// `ReadOnly` ihn überspringt; ein von einer Heuristik geblockter Name fällt
-/// deshalb auf [`BlockCause::NotBlocked`], und der neutrale Text der Seite
-/// behauptet darum nur, dass kein Listeneintrag greift.
+/// `Effects::READ_ONLY` ihn überspringt; ein von einer Heuristik geblockter
+/// Name fällt deshalb auf [`BlockCause::NotBlocked`], und der neutrale Text der
+/// Seite behauptet darum nur, dass kein Listeneintrag greift.
 pub fn block_cause<C: Clock + Clone, W: WallClock>(
     engine: &Engine<C, W>,
     domain: &str,
@@ -172,7 +200,7 @@ pub fn block_cause<C: Clock + Clone, W: WallClock>(
         hickory_proto::rr::RecordType::A,
         peer,
         &mut ctx,
-        Effects::ReadOnly,
+        Effects::READ_ONLY,
     );
     if decision != Decision::Block {
         return Ok(BlockCause::NotBlocked);
@@ -276,8 +304,7 @@ impl<C: Clock + Clone, W: WallClock> Engine<C, W> {
     ///
     /// Den braucht die Tunneling-Erkennung: der Anteil an TXT- und
     /// NULL-Anfragen je Zone ist eines ihrer fünf Signale (FEATURES.md D2).
-    /// `evaluate` ohne Typ bleibt für `policy test` und `/api/explain`, wo es
-    /// keine echte Anfrage gibt.
+    /// `evaluate` ohne Typ bleibt für Aufrufer ohne echte Anfrage.
     pub fn evaluate_typed(
         &self,
         name: &Name,
@@ -285,14 +312,14 @@ impl<C: Clock + Clone, W: WallClock> Engine<C, W> {
         peer: IpAddr,
         ctx: &mut Ctx,
     ) -> Decision {
-        self.evaluate_with(name, query_type, peer, ctx, Effects::Count)
+        self.evaluate_with(name, query_type, peer, ctx, Effects::DNS)
     }
 
-    /// Die gemeinsame Auswertung für DNS und Blockseite.
+    /// Die gemeinsame Auswertung für DNS, Erklärung und Blockseite.
     ///
-    /// `ReadOnly` lässt genau die Stellen aus, die den Prozess verändern: die
-    /// Zähler und den Detektor-Block. Der Trace entsteht in beiden Fällen —
-    /// er ist die Begründung, nicht die Statistik.
+    /// Die beiden Felder von `effects` schalten die Stellen ab, die den Prozess
+    /// verändern: `count` die Zähler, `detectors` den Detektor-Block. Der Trace
+    /// entsteht in jedem Fall — er ist die Begründung, nicht die Statistik.
     fn evaluate_with(
         &self,
         name: &Name,
@@ -313,7 +340,7 @@ impl<C: Clock + Clone, W: WallClock> Engine<C, W> {
         });
 
         let Some(query) = normalize(name) else {
-            if effects == Effects::Count {
+            if effects.count {
                 self.counters.passed.fetch_add(1, Ordering::Relaxed);
             }
             return Decision::Allow;
@@ -321,7 +348,7 @@ impl<C: Clock + Clone, W: WallClock> Engine<C, W> {
 
         if let Some(remaining) = self.temporary.check(&query) {
             ctx.record(Step::TemporaryAllow { remaining });
-            if effects == Effects::Count {
+            if effects.count {
                 self.counters.allowed.fetch_add(1, Ordering::Relaxed);
             }
             return Decision::Allow;
@@ -346,7 +373,7 @@ impl<C: Clock + Clone, W: WallClock> Engine<C, W> {
                 line: hit.rule.line,
                 matched: hit.matched,
             });
-            if effects == Effects::Count {
+            if effects.count {
                 self.counters.allowed.fetch_add(1, Ordering::Relaxed);
             }
             return Decision::Allow;
@@ -389,14 +416,14 @@ impl<C: Clock + Clone, W: WallClock> Engine<C, W> {
         // entscheiden kann, soll vorher entschieden sein — sonst stünde im
         // Trace ein Score, wo eine Zeile aus einer Liste hingehört.
         //
-        // In `ReadOnly` entfallen sie ganz: `Tunneling::inspect` verändert sein
-        // Zonenfenster, und `detect::record` zählt prozessweit mit. Ein
+        // Ohne `detectors` entfallen sie ganz: `Tunneling::inspect` verändert
+        // sein Zonenfenster, und `detect::record` zählt prozessweit mit. Ein
         // Seitenaufruf wäre sonst für die Heuristik eine DNS-Anfrage.
-        if effects == Effects::Count && self.inspect(&query, query_type, ctx) == Decision::Block {
+        if effects.detectors && self.inspect(&query, query_type, ctx) == Decision::Block {
             return self.block(ctx, effects);
         }
 
-        if effects == Effects::Count {
+        if effects.count {
             self.counters.passed.fetch_add(1, Ordering::Relaxed);
         }
         Decision::Allow
@@ -446,7 +473,7 @@ impl<C: Clock + Clone, W: WallClock> Engine<C, W> {
 
     fn record_block(&self, ctx: &mut Ctx, effects: Effects) -> Decision {
         ctx.record(Step::Synthesized { mode: self.mode });
-        if effects == Effects::Count {
+        if effects.count {
             self.counters.blocked.fetch_add(1, Ordering::Relaxed);
         }
         Decision::Block

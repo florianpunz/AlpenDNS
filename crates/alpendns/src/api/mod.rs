@@ -47,7 +47,13 @@ pub trait StatusSource: Send + Sync + 'static {
     fn denials(&self) -> Vec<(String, Duration)>;
     /// Die Zeitreihe der letzten 24 Stunden, ausschließlich aus Zählern.
     fn history(&self) -> HistoryView;
-    /// Wertet einen Namen aus, ohne etwas zu verändern oder zu speichern.
+    /// Wertet einen Namen aus, ohne zu zählen oder zu speichern.
+    ///
+    /// Die Zähler `blocked`, `allowed` und `passed` bleiben stehen. Die
+    /// Heuristiken werden trotzdem befragt, damit ein von einer Heuristik
+    /// geblockter Name als geblockt erscheint; das schiebt das Tunneling-Fenster
+    /// weiter und kann den prozessweiten Detektor-Zähler bewegen. Der Name
+    /// selbst wird nirgends abgelegt.
     ///
     /// `client` ist der konfigurierte Name eines Clients; ohne Angabe wird aus
     /// Sicht der Loopback-Adresse ausgewertet — dieselbe Regel wie bei
@@ -399,8 +405,12 @@ struct ExplainRequest {
 /// Die Entscheidungskette für einen Namen, auf Anfrage.
 ///
 /// Dieselbe Auswertung wie `alpendns policy test`, nur über HTTP: der Klick auf
-/// eine Zeile im Protokoll fragt hier nach. Es wird nichts gespeichert und
-/// nichts gezählt — der Name kommt vom Aufrufer und geht an ihn zurück.
+/// eine Zeile im Protokoll fragt hier nach. Die Zähler `blocked`, `allowed` und
+/// `passed` bewegen sich dabei nicht, und gespeichert wird nichts — der Name
+/// kommt vom Aufrufer und geht an ihn zurück. Die Heuristiken werden befragt,
+/// damit ein von einer Heuristik geblockter Name als geblockt erscheint; das
+/// schiebt das Tunneling-Fenster weiter und kann den prozessweiten
+/// Detektor-Zähler bewegen.
 async fn explain(
     State(state): State<ApiState>,
     Query(request): Query<ExplainRequest>,
