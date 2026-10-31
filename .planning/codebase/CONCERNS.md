@@ -23,7 +23,7 @@ table, this table wins. Every row was checked against the code at HEAD `8f77b4a`
 | 1 | ~~Example config does not load~~ **resolved 2026-10-31** | Four unknown keys were commented and `ring_seconds` corrected; `the_example_configuration_is_valid` now parses the shipped file | — | B.1.5 |
 | 2 | ~~`refresh = "0s"` reaches `tokio::time::interval`~~ **resolved 2026-10-31** | Validation rejects a zero refresh on an enabled list; `a_zero_refresh_is_a_startup_error` pins it | — | B.1.5 |
 | 3 | ~~Reload swaps two `ArcSwap`s non-atomically~~ **resolved 2026-10-31** | Blueprint and lists now live in one `ArcSwap<PolicyState>` and are published with a single store | — | fail-closed |
-| 4 | Multi-question queries are truncated | `server/mod.rs:193` rejects only `queries.is_empty()` | S | correctness |
+| 4 | ~~Multi-question queries are truncated~~ **resolved 2026-10-31** | The handler requires exactly one question and answers `FormErr` otherwise; `two_questions_get_formerr_and_do_not_reach_the_upstream` pins it | — | correctness |
 | 5 | `forward_zone` targets are not checked to be on the LAN | validation rejects only encrypted transports and exact duplicates | S | B.1.7 |
 | 6 | UDP spawns an unbounded task per packet | `server/udp.rs:50`; `max_inflight` is not implemented | M | DoS |
 | 7 | UI responses carry no security headers | `api/ui.rs` sets only `Content-Type` and `Cache-Control` | S | security |
@@ -142,7 +142,9 @@ against a local peer, a systemd/`.deb` smoke test, and multi-question coverage (
 - Workaround: documented in the known-crashes directory; upstream fix in 0.27 alpha only.
 - Impact: this is the one open deviation from B.1 rule 1 (no panics on network data). It constrains build profiles and keeps a known crash in the tree.
 
-**Multi-question queries are accepted and silently truncated:**
+**Multi-question queries are accepted and silently truncated — resolved (2026-10-31):**
+- `handle_request` now rejects any `queries.len() != 1` with `FormErr` before the
+  pipeline; the answer therefore always belongs to the question that was asked.
 - Issue: `server::handle_request` rejects only `request.queries.is_empty()` (`crates/alpendns/src/server/mod.rs:193`) and rejects non-`Query` opcodes; it never rejects `QDCOUNT > 1`. `build_event` and the pipeline use `request.queries.first()`.
 - Files: `crates/alpendns/src/server/mod.rs:193-198`, `crates/alpendns/src/server/mod.rs:232`
 - Impact: a request with several questions is processed as if it had one; extra questions are ignored. This is at best a protocol-precision gap and at worst an inconsistency between what is answered and what was asked (also a cache-key question). No crash.
@@ -407,7 +409,9 @@ against a local peer, a systemd/`.deb` smoke test, and multi-question coverage (
 - Risk: packaging-only failures at install/upgrade time.
 - Priority: Medium; a container smoke test would cover it.
 
-**No protocol-precision tests for multi-question/edge headers:**
+**No protocol-precision tests for multi-question/edge headers — partly resolved (2026-10-31):**
+- `QDCOUNT > 1` now has a test and is rejected with `FormErr`. Unusual opcodes beyond
+  `NotImp` and EDNS edge cases remain untested.
 - What's not tested: `QDCOUNT > 1`, unusual opcodes beyond `NotImp`, EDNS edge cases.
 - Files: `crates/alpendns/src/server/mod.rs`
 - Risk: silent truncation and inconsistent answers.

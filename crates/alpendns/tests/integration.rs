@@ -347,6 +347,34 @@ async fn malformed_request_gets_formerr() {
     server.handle.await.expect("sauberes Ende");
 }
 
+/// Mehrere Fragen in einer Abfrage: `FormErr`, nicht "die erste beantworten".
+///
+/// Vorher prüfte der Handler nur `queries.is_empty()`; eine zweite Frage wurde
+/// stillschweigend fallen gelassen, während die Antwort aussah, als gehörte sie
+/// zur ganzen Anfrage (CONCERNS.md, Triage #4).
+#[tokio::test]
+async fn two_questions_get_formerr_and_do_not_reach_the_upstream() {
+    let fake = fake_upstream(Duration::ZERO, |req| Some(answer_with_a(req))).await;
+    let server = start_server(fake.addr, Duration::from_secs(3)).await;
+
+    let mut request = Message::new(0x1234, MessageType::Query, OpCode::Query);
+    request.add_query(Query::query(name("one.example."), RecordType::A));
+    request.add_query(Query::query(name("two.example."), RecordType::A));
+
+    let bytes = ask_udp(server.udp, &request.to_vec().expect("kodierbar")).await;
+    let response = Message::from_vec(&bytes).expect("dekodierbar");
+
+    assert_eq!(response.metadata.response_code, ResponseCode::FormErr);
+    assert_eq!(
+        fake.hits.load(Ordering::SeqCst),
+        0,
+        "eine Anfrage mit zwei Fragen darf den Upstream nicht erreichen"
+    );
+
+    server.shutdown.cancel();
+    server.handle.await.expect("sauberes Ende");
+}
+
 #[tokio::test]
 async fn silent_upstream_yields_servfail() {
     let fake = fake_upstream(Duration::ZERO, |_| None).await;

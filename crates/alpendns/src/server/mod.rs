@@ -190,7 +190,11 @@ pub(crate) async fn handle_request<B: ResolveBackend>(
         }
     };
 
-    if request.queries.is_empty() {
+    // Genau eine Frage. Mehrere sind in einer gewöhnlichen Abfrage nicht
+    // vorgesehen, und die Pipeline liest ohnehin nur die erste — sie
+    // stillschweigend zu ignorieren hieße, etwas anderes zu beantworten als
+    // gefragt wurde (CONCERNS.md, Triage #4).
+    if request.queries.len() != 1 {
         return Some(dns::error_response(&request, ResponseCode::FormErr));
     }
     if request.metadata.op_code != OpCode::Query {
