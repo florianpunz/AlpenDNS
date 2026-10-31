@@ -197,30 +197,22 @@ pub fn metrics_router(state: ApiState, path: &str) -> Router {
     Router::new().route(path, get(metrics)).with_state(state)
 }
 
-/// Prüft den Token aus dem Header oder — für Server-Sent Events — aus der URL.
+/// Prüft den Token aus dem Authorization-Kopf.
 ///
-/// `EventSource` im Browser kann keine Header setzen. Deshalb ist der Token dort
-/// auch als Query-Parameter zulässig. Das ist ein Zugeständnis: er landet damit
-/// womöglich in einem Proxy-Log. Beides ohne Token zuzulassen wäre schlechter.
+/// Der Token steht **nicht** in der URL. Für den Live-Strom liest die UI den
+/// `fetch`-Strom selbst und schickt denselben Kopf wie bei jedem anderen
+/// Aufruf; ein Query-Parameter würde in Proxy- und Zugriffslogs landen.
 async fn authenticate(
     State(state): State<ApiState>,
     request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> Response {
-    let from_header = request
+    let presented = request
         .headers()
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.strip_prefix("Bearer "))
         .map(str::to_owned);
-    let from_query = request.uri().query().and_then(|query| {
-        query.split('&').find_map(|pair| {
-            pair.strip_prefix("token=")
-                .map(|value| value.replace("%3D", "="))
-        })
-    });
-
-    let presented = from_header.or(from_query);
     // Vergleich in konstanter Zeit: ein Zeichen-für-Zeichen-Abbruch verrät
     // sonst über die Antwortzeit, wie weit ein Rateversuch gekommen ist.
     let ok = presented.is_some_and(|value| constant_time_eq(&value, &state.token));

@@ -671,6 +671,7 @@ async fn the_ui_is_served_without_a_token() {
         ("/", "text/html"),
         ("/app.css", "text/css"),
         ("/app.js", "text/javascript"),
+        ("/theme.js", "text/javascript"),
     ] {
         let response = api.get_without_token(path).await;
         assert!(
@@ -689,10 +690,11 @@ async fn the_ui_is_served_without_a_token() {
 }
 
 #[tokio::test]
-async fn the_event_stream_accepts_the_token_in_the_url() {
-    // EventSource im Browser kann keine Header setzen.
+async fn the_event_stream_takes_the_header_and_refuses_the_url_token() {
     let (api, _dir) = start_api(Mode::Ring).await;
-    let response = api.get_without_token("/api/events?token=test-token").await;
+
+    // Der Kopf, wie ihn der fetch-Strom der UI schickt.
+    let response = api.get("/api/events").await;
     assert!(response.status().is_success(), "{}", response.status());
     assert_eq!(
         response
@@ -701,6 +703,10 @@ async fn the_event_stream_accepts_the_token_in_the_url() {
             .and_then(|v| v.to_str().ok()),
         Some("text/event-stream")
     );
+
+    // Ein Token in der URL landet in Logs und wird deshalb nicht mehr gelesen.
+    let response = api.get_without_token("/api/events?token=test-token").await;
+    assert_eq!(response.status(), reqwest::StatusCode::UNAUTHORIZED);
 }
 
 #[tokio::test]

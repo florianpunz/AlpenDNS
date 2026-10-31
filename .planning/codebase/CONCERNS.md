@@ -27,7 +27,7 @@ table, this table wins. Every row was checked against the code at HEAD `8f77b4a`
 | 5 | ~~`forward_zone` targets are not checked to be on the LAN~~ **resolved 2026-10-31** | Validation accepts only loopback, private and link-local targets; two tests cover public rejection and local acceptance | — | B.1.7 |
 | 6 | ~~UDP spawns an unbounded task per packet~~ **resolved 2026-10-31** | `server.max_inflight` bounds all UDP listeners with one semaphore; saturation drops the datagram | — | DoS |
 | 7 | ~~UI responses carry no security headers~~ **resolved 2026-10-31** | CSP (no inline), `nosniff`, `X-Frame-Options: DENY` and `Referrer-Policy` on API and UI; the theme script moved to `/theme.js` | — | security |
-| 8 | Bearer token in `localStorage` and `?token=` | `web/app.js:43,870`; the API accepts the query parameter | M, needs a decision | security |
+| 8 | ~~Bearer token in `?token=`~~ **URL half resolved 2026-10-31**; `localStorage` remains a decision | The SSE stream uses `fetch` with the Authorization header; the API no longer reads a query token | — / M | security |
 | 9 | Blocklist downloads follow redirects unrestricted | `filter/source.rs:163` uses the default redirect policy | S | security |
 | 10 | `/api/lists` reports the startup entry counts | `Runtime.lists` is the startup set; only the age is live | S | correctness |
 | 11 | Logging locks a global map per query (aggregate mode) | `logging/mod.rs:470-500`; the RCODE/block counters are atomic, the domain map is not | M (measure) | performance |
@@ -170,7 +170,11 @@ against a local peer, a systemd/`.deb` smoke test, and multi-question coverage (
 - Current mitigation: the UI uses `textContent` (no `innerHTML`) and embeds assets itself; by default the listeners are loopback (`packaging/alpendns.toml`).
 - Recommendations: add a strict CSP (scripts/styles are inline, so use hashes or a nonce), `nosniff`, `frame-ancestors 'none'`, and `Referrer-Policy: no-referrer`. Extend the existing UI tests to assert the header set.
 
-**Bearer token is stored in `localStorage` and passed as a query parameter:**
+**Bearer token is stored in `localStorage` and passed as a query parameter — URL half resolved (2026-10-31):**
+- The event stream now uses `fetch` with the Authorization header; the API no longer
+  accepts `?token=`, so the token cannot end up in proxy or access logs.
+- `localStorage` remains. Moving it to an `HttpOnly` cookie changes the login flow
+  and needs a decision; it stays on the list.
 - Risk: `web/app.js` stores `alpendns.token` in `localStorage` and opens `EventSource('/api/events?token=...')`. `api::auth` (`crates/alpendns/src/api/mod.rs`) also accepts `?token=`. Query strings can end up in access logs, shell history or referrers; `localStorage` is readable by any XSS.
 - Files: `web/app.js`, `crates/alpendns/src/api/mod.rs`
 - Current mitigation: no external resources, no `innerHTML`, CSP absent but UI is same-origin and offline; tokens are per-client grants capped at 24 h (`MAX_GRANT`).

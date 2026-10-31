@@ -864,17 +864,65 @@ async function post(path, body) {
   return response.json();
 }
 
+/** Der Live-Strom als fetch statt EventSource.
+ *
+ * `EventSource` kann keine Header setzen und zwang den Token in die URL, wo er
+ * in Proxy- und Zugriffslogs landet. `fetch` schickt den Authorization-Kopf wie
+ * jeder andere Aufruf; das SSE-Format wird hier von Hand gelesen.
+ */
 function connectStream() {
-  if (stream) stream.close();
-  // EventSource kann keine Header setzen, deshalb der Token in der URL.
-  stream = new EventSource(`/api/events?token=${encodeURIComponent(token)}`);
-  stream.onmessage = (message) => {
+  if (stream) stream.abort();
+  const controller = new AbortController();
+  stream = controller;
+  void pump(controller.signal);
+}
+
+async function pump(signal) {
+  while (!signal.aborted) {
     try {
-      addRow(JSON.parse(message.data));
+      const response = await fetch("/api/events", {
+        headers: { Authorization: `Bearer ${token}` },
+        signal,
+      });
+      if (!response.ok) throw new Error(String(response.status));
+      await readEvents(response.body, signal);
     } catch {
-      /* eine kaputte Zeile ist kein Grund, den Strom abzubrechen */
+      if (signal.aborted) return;
     }
-  };
+    // Wie EventSource: kurz warten und neu verbinden, statt heiß zu drehen.
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+  }
+}
+
+async function readEvents(body, signal) {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    if (signal.aborted) {
+      await reader.cancel().catch(() => {});
+      return;
+    }
+    const { value, done } = await reader.read();
+    if (done) return;
+    buffer += decoder.decode(value, { stream: true });
+    let end;
+    while ((end = buffer.indexOf("\n\n")) >= 0) {
+      const block = buffer.slice(0, end);
+      buffer = buffer.slice(end + 2);
+      const data = block
+        .split("\n")
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.slice(5).replace(/^ /, ""))
+        .join("\n");
+      if (!data) continue;
+      try {
+        addRow(JSON.parse(data));
+      } catch {
+        /* eine kaputte Zeile ist kein Grund, den Strom abzubrechen */
+      }
+    }
+  }
 }
 
 /** Füllt das Protokoll beim Laden, damit die Seite nicht leer beginnt. */
