@@ -340,11 +340,6 @@ fn run() -> anyhow::Result<()> {
     // Der Blueprint muss vor dem Zerlegen der Konfiguration gebaut werden.
     let blocking_config = config.blocking;
     let specs = alpendns::filter::source::specs_from_config(&config.blocklist, &config.allowlist);
-    // Name → Format, um die geladenen Listen später der Metrik zuzuordnen.
-    let list_formats: std::collections::HashMap<String, alpendns::filter::parser::Format> = specs
-        .iter()
-        .map(|spec| (spec.name.clone(), spec.format))
-        .collect();
     // Kürzestes Intervall aller Listen; Details in policy::run_updater.
     let refresh = config
         .blocklist
@@ -381,33 +376,16 @@ fn run() -> anyhow::Result<()> {
         // Blueprint und Listen aus demselben Stand — der Reload tauscht beide
         // zusammen ein.
         let policy_state = policy_source.state();
-        let loaded = policy_state
-            .lists()
-            .load(true)
-            .await
-            .context("blocklists could not be loaded at startup")?;
+        let loaded = Arc::new(
+            policy_state
+                .lists()
+                .load(true)
+                .await
+                .context("blocklists could not be loaded at startup")?,
+        );
         let entries = loaded.total_entries();
-        let ages = list_ages(&policy_source);
-        let list_infos: Vec<ListInfo> = loaded
-            .names()
-            .map(|name| {
-                with_age(
-                    &ListInfo {
-                        name: name.to_string(),
-                        entries: loaded.get(name).map_or(0, |matcher| matcher.len()),
-                        // Nur *geladene* Listen zählen; eine, die nicht erreichbar
-                        // war, steht in der Konfiguration, aber nicht in der Metrik.
-                        format: list_formats
-                            .get(name.as_ref())
-                            .map_or_else(|| "?".to_owned(), ToString::to_string),
-                        // Wird gleich aus `ages` gefüllt.
-                        fetched_at: None,
-                        published_at: None,
-                    },
-                    &ages,
-                )
-            })
-            .collect();
+        // Der Status liest den zuletzt geladenen Stand; der Erststart setzt ihn.
+        policy_source.record_loaded(Arc::clone(&loaded));
         let engine = Arc::new(
             Engine::new(
                 policy_state.blueprint().build(&loaded)?,
@@ -528,7 +506,6 @@ fn run() -> anyhow::Result<()> {
             pool: Arc::clone(&pool),
             engine: Arc::clone(&engine),
             log: Arc::clone(&query_log),
-            lists: list_infos.clone(),
             source: Arc::clone(&policy_source),
             policies: policy_infos.clone(),
             blocking_mode: blocking_config.mode,
@@ -688,6 +665,39 @@ fn list_ages(source: &PolicySource) -> std::collections::HashMap<String, Age> {
     source.state().lists().ages().into_iter().collect()
 }
 
+/// Der Listenstand, den der Status zeigt.
+///
+/// Namen und Einträge kommen aus dem zuletzt **geladenen** Satz, nicht aus dem
+/// vom Start und nicht aus der Konfiguration: angezeigt werden soll, was
+/// tatsächlich gilt. Eine Liste, die beim letzten Update scheiterte, bleibt mit
+/// ihrem alten Stand sichtbar. Das Alter kommt bei jeder Abfrage frisch von
+/// Platte, damit die Anzeige mitaltert.
+fn current_lists(source: &PolicySource) -> Vec<ListInfo> {
+    let state = source.state();
+    let Some(loaded) = source.loaded() else {
+        return Vec::new();
+    };
+    let ages = list_ages(source);
+    loaded
+        .names()
+        .map(|name| {
+            with_age(
+                &ListInfo {
+                    name: name.to_string(),
+                    entries: loaded.get(name).map_or(0, |matcher| matcher.len()),
+                    format: state
+                        .lists()
+                        .format_of(name)
+                        .unwrap_or_else(|| "?".to_owned()),
+                    fetched_at: None,
+                    published_at: None,
+                },
+                &ages,
+            )
+        })
+        .collect()
+}
+
 /// Ergänzt eine Liste um ihr Alter. Siehe [`list_ages`].
 fn with_age(info: &ListInfo, ages: &std::collections::HashMap<String, Age>) -> ListInfo {
     let age = ages.get(&info.name);
@@ -768,13 +778,13 @@ struct Runtime {
     pool: Arc<Pool<Encrypted, SystemClock>>,
     engine: Arc<PolicyEngine>,
     log: Arc<QueryLog>,
-    lists: Vec<ListInfo>,
     /// Die Listenquellen in ihrem *aktuellen* Stand — nicht der Stand vom Start.
     ///
     /// Ein `SIGHUP` tauscht sie aus, und das Alter einer Liste hängt an der
     /// Quelle, aus der sie kommt. Über den `PolicySource` zu gehen heißt: die
-    /// Altersangabe folgt einem Reload. Welche Listen überhaupt aufgeführt
-    /// werden, entscheidet weiterhin `lists` — und das ist der Stand vom Start.
+    /// Altersangabe folgt einem Reload. Welche Listen aufgeführt werden und mit
+    /// wie vielen Einträgen, entscheidet der zuletzt geladene Stand
+    /// (`PolicySource::loaded`), also das, was tatsächlich gilt.
     source: Arc<PolicySource>,
     policies: Vec<PolicyInfo>,
     blocking_mode: alpendns::filter::block::BlockMode,
@@ -806,7 +816,7 @@ impl StatusSource for Runtime {
             uptime: self.started.elapsed(),
             blocking_mode: self.blocking_mode,
             logging_mode: self.log.mode(),
-            list_formats: count_formats(&self.lists),
+            list_formats: count_formats(&self.lists()),
             list_ages: list_ages(&self.source)
                 .into_iter()
                 .filter_map(|(name, age)| {
@@ -836,13 +846,7 @@ impl StatusSource for Runtime {
     }
 
     fn lists(&self) -> Vec<ListInfo> {
-        // Das Alter kommt bei jeder Abfrage frisch von Platte: nur so altert die
-        // Anzeige mit, statt die Laufzeit des Prozesses zu messen.
-        let ages = list_ages(&self.source);
-        self.lists
-            .iter()
-            .map(|info| with_age(info, &ages))
-            .collect()
+        current_lists(&self.source)
     }
 
     fn policies(&self) -> Vec<PolicyInfo> {

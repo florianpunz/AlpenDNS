@@ -8,11 +8,11 @@
 
 use std::sync::Arc;
 
-use arc_swap::ArcSwap;
+use arc_swap::{ArcSwap, ArcSwapOption};
 
 use crate::config::{Config, ConfigError};
-use crate::filter::Lists;
 use crate::filter::source::{Loader, specs_from_config};
+use crate::filter::{Lists, LoadedLists};
 use crate::policy::Blueprint;
 
 /// Der Teil der Konfiguration, den ein Reload austauschen darf.
@@ -26,6 +26,10 @@ use crate::policy::Blueprint;
 #[derive(Debug)]
 pub struct PolicySource {
     state: ArcSwap<PolicyState>,
+    /// Der zuletzt erfolgreich geladene Listenstand. Für die Statusanzeige:
+    /// Einträge je Liste kommen aus dem, was wirklich geladen wurde, nicht aus
+    /// der Konfiguration. Wird nur nach einem erfolgreichen Tausch gesetzt.
+    loaded: ArcSwapOption<LoadedLists>,
 }
 
 /// Blueprint und Listenquellen aus **einem** Reload.
@@ -49,6 +53,7 @@ impl PolicySource {
     pub fn new(blueprint: Blueprint, lists: Lists) -> Self {
         Self {
             state: ArcSwap::from_pointee(PolicyState { blueprint, lists }),
+            loaded: ArcSwapOption::empty(),
         }
     }
 
@@ -73,6 +78,16 @@ impl PolicySource {
     /// zwischen zwei Reloads einen gemischten Stand sehen.
     pub fn state(&self) -> Arc<PolicyState> {
         self.state.load_full()
+    }
+
+    /// Hält den zuletzt erfolgreich geladenen Listenstand für die Statusanzeige.
+    pub fn record_loaded(&self, lists: Arc<LoadedLists>) {
+        self.loaded.store(Some(lists));
+    }
+
+    /// Der zuletzt erfolgreich geladene Listenstand, falls schon einer existiert.
+    pub fn loaded(&self) -> Option<Arc<LoadedLists>> {
+        self.loaded.load_full()
     }
 }
 

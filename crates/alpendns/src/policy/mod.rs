@@ -741,6 +741,8 @@ pub async fn run_updater<C: Clock + Clone, W: WallClock>(
                 Ok(set) => {
                     let entries = loaded.total_entries();
                     engine.replace(set, entries);
+                    // Erst nach dem Tausch: die Anzeige soll zeigen, was gilt.
+                    source.record_loaded(Arc::new(loaded));
                     tracing::info!(entries, "lists updated");
                 }
                 Err(error) => {

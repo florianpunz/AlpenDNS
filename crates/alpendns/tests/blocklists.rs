@@ -326,6 +326,7 @@ async fn the_updater_fetches_once_right_after_start() {
         }],
     );
     let source = Arc::new(PolicySource::new(blueprint, lists));
+    let status = Arc::clone(&source);
     let engine = Arc::new(Engine::new(
         Blueprint::new(Vec::new(), Arc::from("default"), Vec::new())
             .build(&Default::default())
@@ -367,6 +368,12 @@ async fn the_updater_fetches_once_right_after_start() {
     })
     .await
     .expect("die geladene Liste ist nicht im Regelstand angekommen");
+
+    // Der Status liest denselben Stand: erst nach dem Tausch sichtbar.
+    let visible = status
+        .loaded()
+        .expect("der Status sieht den geladenen Stand");
+    assert_eq!(visible.total_entries(), 2);
 
     shutdown.cancel();
     tokio::time::timeout(DEADLINE, running)
@@ -415,6 +422,7 @@ async fn a_failed_update_counts_and_keeps_the_old_rule_set() {
         }],
     );
     let source = Arc::new(PolicySource::new(blueprint, lists));
+    let status = Arc::clone(&source);
     // Der alte Stand ist leer; die neue Policy verweist auf eine Liste, die es
     // nicht gibt. Genau dann bleibt der alte Stand in Kraft.
     let engine = Arc::new(Engine::new(
@@ -448,6 +456,10 @@ async fn a_failed_update_counts_and_keeps_the_old_rule_set() {
     .await
     .expect("der fehlgeschlagene Abruf wurde nicht gezählt");
     assert_eq!(filter.stats().update_failures, 1);
+    assert!(
+        status.loaded().is_none(),
+        "ein gescheiterter Abruf darf keinen Statusstand veröffentlichen"
+    );
 
     // Der alte Stand gilt weiter: ohne die Liste blockt die Policy nichts.
     let blocked = Name::from_ascii("ads.example.com.").expect("gültiger Name");

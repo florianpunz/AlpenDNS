@@ -75,6 +75,17 @@ impl Lists {
             .collect()
     }
 
+    /// Das Format einer konfigurierten Liste, für die Statusanzeige.
+    ///
+    /// `None` heißt: die Liste steht nicht (mehr) in der aktuellen
+    /// Konfiguration — nach einem Reload kann der geladene Stand älter sein.
+    pub fn format_of(&self, name: &str) -> Option<String> {
+        self.specs
+            .iter()
+            .find(|spec| spec.name == name)
+            .map(|spec| spec.format.to_string())
+    }
+
     /// Lädt alle Listen.
     ///
     /// `strict` entscheidet, was eine unerreichbare Liste bedeutet: beim

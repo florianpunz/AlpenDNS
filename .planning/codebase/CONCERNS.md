@@ -29,7 +29,7 @@ table, this table wins. Every row was checked against the code at HEAD `8f77b4a`
 | 7 | ~~UI responses carry no security headers~~ **resolved 2026-10-31** | CSP (no inline), `nosniff`, `X-Frame-Options: DENY` and `Referrer-Policy` on API and UI; the theme script moved to `/theme.js` | — | security |
 | 8 | ~~Bearer token in `?token=`~~ **URL half resolved 2026-10-31**; `localStorage` remains a decision | The SSE stream uses `fetch` with the Authorization header; the API no longer reads a query token | — / M | security |
 | 9 | ~~Blocklist downloads follow redirects unrestricted~~ **resolved 2026-10-31** | The HTTP client is limited to three redirects | — | security |
-| 10 | `/api/lists` reports the startup entry counts | `Runtime.lists` is the startup set; only the age is live | S | correctness |
+| 10 | ~~`/api/lists` reports the startup entry counts~~ **resolved 2026-10-31** | The status reads the last successfully loaded `LoadedLists`, recorded by the updater after a successful swap | — | correctness |
 | 11 | Logging locks a global map per query (aggregate mode) | `logging/mod.rs:470-500`; the RCODE/block counters are atomic, the domain map is not | M (measure) | performance |
 | 12 | Pool health locks a mutex per upstream per miss | `upstream/pool.rs:47` | S (measure) | performance |
 | 13 | `build_event` materializes fields on every request | `server/mod.rs:223-253` | S (measure) | performance |
@@ -102,7 +102,11 @@ against a local peer, a systemd/`.deb` smoke test, and multi-question coverage (
 - Impact: a short window after SIGHUP/reload in which policy evaluation can error or fall back. Low probability, hard to reproduce, and it undercuts the fail-closed guarantee.
 - Fix approach: bundle blueprint and lists into one `Arc<PolicyState>` behind a single `ArcSwap` so readers take one consistent snapshot.
 
-**Runtime status reports the startup list set:**
+**Runtime status reports the startup list set — resolved (2026-10-31):**
+- `PolicySource::loaded` holds the last successfully loaded `LoadedLists`; the API
+  and the metrics read names and entry counts from it, and the format from the
+  current configuration. A failed update keeps the previous stand visible, which is
+  what the resolver still enforces.
 - Issue: `StatusSource::lists` in `crates/alpendns/src/main.rs` is populated from the startup `self.lists`, while `run_updater` replaces lists inside the policy source at runtime. List ages shown by `/api/lists` and the CLI are derived from the startup set with fresh ages, not from the live source.
 - Files: `crates/alpendns/src/main.rs`, `crates/alpendns/src/api/mod.rs`, `crates/alpendns/src/policy/mod.rs`
 - Impact: state and troubleshooting view can disagree with what the resolver actually enforces, especially after a runtime download failure where old rules are kept.
