@@ -15,12 +15,17 @@ use axum::routing::get;
 const INDEX: &str = include_str!("../../../../web/index.html");
 pub(super) const STYLE: &str = include_str!("../../../../web/app.css");
 const SCRIPT: &str = include_str!("../../../../web/app.js");
+/// Der Theme-Block, der vor dem ersten Zeichnen laufen muss. Eigene Datei statt
+/// eines Inline-Blocks, damit die CSP kein `'unsafe-inline'` und keinen
+/// Hash-Nachlauf braucht.
+const THEME: &str = include_str!("../../../../web/theme.js");
 
 pub fn router() -> Router<super::ApiState> {
     Router::new()
         .route("/", get(index))
         .route("/app.css", get(style))
         .route("/app.js", get(script))
+        .route("/theme.js", get(theme))
 }
 
 fn serve(content_type: &'static str, body: &'static str) -> Response {
@@ -48,6 +53,10 @@ async fn script() -> Response {
     serve("text/javascript; charset=utf-8", SCRIPT)
 }
 
+async fn theme() -> Response {
+    serve("text/javascript; charset=utf-8", THEME)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -61,6 +70,7 @@ mod tests {
             ("index.html", INDEX),
             ("app.css", STYLE),
             ("app.js", SCRIPT),
+            ("theme.js", THEME),
         ] {
             for needle in [
                 "http://",

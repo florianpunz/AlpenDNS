@@ -26,7 +26,7 @@ table, this table wins. Every row was checked against the code at HEAD `8f77b4a`
 | 4 | ~~Multi-question queries are truncated~~ **resolved 2026-10-31** | The handler requires exactly one question and answers `FormErr` otherwise; `two_questions_get_formerr_and_do_not_reach_the_upstream` pins it | — | correctness |
 | 5 | ~~`forward_zone` targets are not checked to be on the LAN~~ **resolved 2026-10-31** | Validation accepts only loopback, private and link-local targets; two tests cover public rejection and local acceptance | — | B.1.7 |
 | 6 | ~~UDP spawns an unbounded task per packet~~ **resolved 2026-10-31** | `server.max_inflight` bounds all UDP listeners with one semaphore; saturation drops the datagram | — | DoS |
-| 7 | UI responses carry no security headers | `api/ui.rs` sets only `Content-Type` and `Cache-Control` | S | security |
+| 7 | ~~UI responses carry no security headers~~ **resolved 2026-10-31** | CSP (no inline), `nosniff`, `X-Frame-Options: DENY` and `Referrer-Policy` on API and UI; the theme script moved to `/theme.js` | — | security |
 | 8 | Bearer token in `localStorage` and `?token=` | `web/app.js:43,870`; the API accepts the query parameter | M, needs a decision | security |
 | 9 | Blocklist downloads follow redirects unrestricted | `filter/source.rs:163` uses the default redirect policy | S | security |
 | 10 | `/api/lists` reports the startup entry counts | `Runtime.lists` is the startup set; only the age is live | S | correctness |
@@ -160,7 +160,11 @@ against a local peer, a systemd/`.deb` smoke test, and multi-question coverage (
 
 ## Security Considerations
 
-**Web UI responses carry no security headers:**
+**Web UI responses carry no security headers — resolved (2026-10-31):**
+- A middleware now sets `Content-Security-Policy` (self only, no `'unsafe-inline'`),
+  `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` and
+  `Referrer-Policy: no-referrer` on API and UI. The one inline script (theme) moved
+  to `/theme.js`, so no hash list has to be maintained.
 - Risk: the API and UI set only `Content-Type` and `Cache-Control: no-cache` (`crates/alpendns/src/api/ui.rs:29-32`). There is no `Content-Security-Policy`, `X-Content-Type-Options: nosniff`, `X-Frame-Options`/`frame-ancestors`, or `Referrer-Policy`.
 - Files: `crates/alpendns/src/api/ui.rs`, `crates/alpendns/src/api/mod.rs`
 - Current mitigation: the UI uses `textContent` (no `innerHTML`) and embeds assets itself; by default the listeners are loopback (`packaging/alpendns.toml`).

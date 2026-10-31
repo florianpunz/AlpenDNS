@@ -17,8 +17,9 @@ mod ui;
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::extract::{Path, Query, State};
-use axum::http::StatusCode;
+use axum::extract::{Path, Query, Request, State};
+use axum::http::{HeaderValue, StatusCode, header};
+use axum::middleware::Next;
 use axum::response::sse::{Event, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get};
@@ -153,7 +154,42 @@ pub fn router(state: ApiState) -> Router {
             authenticate,
         ))
         .merge(ui::router())
+        // Nach dem Merge, damit die Köpfe auch auf der statischen Seite stehen.
+        .layer(axum::middleware::from_fn(security_headers))
         .with_state(state)
+}
+
+/// Die Vertragserklärung an den Browser.
+///
+/// Die Seite lädt ausschließlich eigene Dateien; es gibt keinen Inline-Block
+/// und keine fremde Herkunft (B.6). Deshalb steht hier weder `'unsafe-inline'`
+/// noch eine Hash-Liste, die bei jeder Textänderung nachgezogen werden müsste.
+const CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self'; \
+                   img-src 'self' data:; connect-src 'self'; font-src 'self'; \
+                   object-src 'none'; base-uri 'none'; form-action 'none'; \
+                   frame-ancestors 'none'";
+
+/// Sicherheitsköpfe für API und UI.
+///
+/// Der Token schützt die API; diese Köpfe schützen den Browser davor, die
+/// Antworten als etwas anderes zu behandeln, als sie sind.
+async fn security_headers(request: Request, next: Next) -> Response {
+    let mut response = next.run(request).await;
+    let headers = response.headers_mut();
+    headers.insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static(CSP),
+    );
+    headers.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    headers.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
+    headers.insert(
+        header::REFERRER_POLICY,
+        HeaderValue::from_static("no-referrer"),
+    );
+    response
 }
 
 /// Der Router für den Metrik-Endpunkt, ohne Token.

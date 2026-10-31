@@ -513,6 +513,30 @@ async fn a_wrong_token_is_refused() {
     assert_eq!(response.status(), reqwest::StatusCode::UNAUTHORIZED);
 }
 
+/// API und UI tragen die Sicherheitsköpfe. Die UI lädt ausschließlich eigene
+/// Dateien — die CSP darf deshalb weder `'unsafe-inline'` noch eine fremde
+/// Herkunft erlauben (CONCERNS.md, Triage #7).
+#[tokio::test]
+async fn api_and_ui_carry_security_headers() {
+    let (api, _dir) = start_api(Mode::Ring).await;
+    for path in ["/api/status", "/", "/theme.js"] {
+        let response = api.get(path).await;
+        assert_eq!(response.status(), reqwest::StatusCode::OK, "{path}");
+        let header = |name: &str| {
+            response
+                .headers()
+                .get(name)
+                .and_then(|value| value.to_str().ok())
+        };
+        assert_eq!(header("x-content-type-options"), Some("nosniff"), "{path}");
+        assert_eq!(header("x-frame-options"), Some("DENY"), "{path}");
+        assert_eq!(header("referrer-policy"), Some("no-referrer"), "{path}");
+        let csp = header("content-security-policy").unwrap_or_default();
+        assert!(csp.contains("default-src 'self'"), "{path}: {csp}");
+        assert!(!csp.contains("unsafe-inline"), "{path}: {csp}");
+    }
+}
+
 #[tokio::test]
 async fn every_api_endpoint_answers_with_a_token() {
     let (api, _dir) = start_api(Mode::Ring).await;
