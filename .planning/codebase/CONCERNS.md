@@ -24,7 +24,7 @@ table, this table wins. Every row was checked against the code at HEAD `8f77b4a`
 | 2 | ~~`refresh = "0s"` reaches `tokio::time::interval`~~ **resolved 2026-10-31** | Validation rejects a zero refresh on an enabled list; `a_zero_refresh_is_a_startup_error` pins it | — | B.1.5 |
 | 3 | ~~Reload swaps two `ArcSwap`s non-atomically~~ **resolved 2026-10-31** | Blueprint and lists now live in one `ArcSwap<PolicyState>` and are published with a single store | — | fail-closed |
 | 4 | ~~Multi-question queries are truncated~~ **resolved 2026-10-31** | The handler requires exactly one question and answers `FormErr` otherwise; `two_questions_get_formerr_and_do_not_reach_the_upstream` pins it | — | correctness |
-| 5 | `forward_zone` targets are not checked to be on the LAN | validation rejects only encrypted transports and exact duplicates | S | B.1.7 |
+| 5 | ~~`forward_zone` targets are not checked to be on the LAN~~ **resolved 2026-10-31** | Validation accepts only loopback, private and link-local targets; two tests cover public rejection and local acceptance | — | B.1.7 |
 | 6 | UDP spawns an unbounded task per packet | `server/udp.rs:50`; `max_inflight` is not implemented | M | DoS |
 | 7 | UI responses carry no security headers | `api/ui.rs` sets only `Content-Type` and `Cache-Control` | S | security |
 | 8 | Bearer token in `localStorage` and `?token=` | `web/app.js:43,870`; the API accepts the query parameter | M, needs a decision | security |
@@ -150,7 +150,9 @@ against a local peer, a systemd/`.deb` smoke test, and multi-question coverage (
 - Impact: a request with several questions is processed as if it had one; extra questions are ignored. This is at best a protocol-precision gap and at worst an inconsistency between what is answered and what was asked (also a cache-key question). No crash.
 - Fix approach: return `FormErr` for `queries.len() != 1`, and add a test with QDCOUNT=2.
 
-**Forward targets are not checked to be on the LAN:**
+**Forward targets are not checked to be on the LAN — resolved (2026-10-31):**
+- Validation rejects any `forward_zone` target that is not loopback, private or
+  link-local; `a_forward_zone_to_a_public_address_is_a_startup_error` pins it.
 - Issue: `ForwardZone` holds its upstream server(s), and validation only rejects exact local/forward duplicates. It does not verify that a cleartext `forward_zone` target is a private/LAN address, although B.1 rule 7 permits cleartext only "into your own LAN". ADR-0029 also notes a forwarding loop (DC → AlpenDNS → DC) is possible.
 - Files: `crates/alpendns/src/config.rs`, `docs/adr/0029-nested-forward-zone.md`
 - Impact: a URL such as `udp://8.8.8.8` in a `forward_zone` would send cleartext DNS to the public internet, contrary to the stated security rule. Also, a misconfigured loop can generate unbounded upstream traffic.
@@ -261,7 +263,9 @@ against a local peer, a systemd/`.deb` smoke test, and multi-question coverage (
 - Safe modification: bump only with the fuzz corpus and DNSSEC integration tests green; keep `known-crashes/` current.
 - Test coverage: fuzz targets exist; the corpus gap weakens them.
 
-**`forward_zone` handling:**
+**`forward_zone` handling — partly resolved (2026-10-31):**
+- LAN-address validation is now enforced; failover was already built (ADR-0030).
+  The loop risk (DC → AlpenDNS → DC) is documented in ADR-0029, not detected.
 - Files: `crates/alpendns/src/config.rs:775`, `crates/alpendns/src/zone.rs`/`ZoneRouter`, `crates/alpendns/src/upstream/`
 - Why fragile: no LAN-address validation of forward targets, and nested zone precedence across local/forward (ADR-0029) depends on the `LocalBackend` table carrying the forward names. Failover is built (TODOS item 13, ADR-0030); the earlier note that it was missing is obsolete.
 - Safe modification: add failover as a list of upstreams with the same validation as pools; test nesting (local deeper than forward, forward deeper than local).

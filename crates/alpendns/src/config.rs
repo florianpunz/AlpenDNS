@@ -578,6 +578,18 @@ pub fn parse_net(text: &str) -> Result<ipnet::IpNet, String> {
         .map_err(|_| format!("'{text}' is neither an address nor a network"))
 }
 
+/// Ob die Adresse in ein Netz gehört, in das Klartext-DNS darf: loopback,
+/// privat oder link-local. Dieselbe Auswahl wie beim Rebinding-Schutz
+/// (ADR-0021) — dort heißt sie "wo ein Gerät im LAN sitzen kann".
+fn is_local_network(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(v4) => v4.is_loopback() || v4.is_private() || v4.is_link_local(),
+        std::net::IpAddr::V6(v6) => {
+            v6.is_loopback() || v6.is_unique_local() || v6.is_unicast_link_local()
+        }
+    }
+}
+
 pub fn parse_weekday(text: &str) -> Option<jiff::civil::Weekday> {
     use jiff::civil::Weekday;
     match text.trim().to_ascii_lowercase().as_str() {
@@ -1468,6 +1480,18 @@ impl Config {
                         zone.zone.0
                     )));
                 }
+                // B.1 Regel 7: Klartext nur ins eigene Netz. Eine öffentliche
+                // Adresse hier wäre genau die Weiterleitung, die die Regel
+                // verbietet — der Parser kann sie erkennen, also tut er es.
+                if !is_local_network(upstream.socket_addr().ip()) {
+                    return Err(ConfigError::Invalid(format!(
+                        "forward_zone '{}': {} is not a LAN address. Cleartext DNS is only \
+                         allowed into your own network; use a loopback, private or \
+                         link-local address.",
+                        zone.zone.0,
+                        upstream.socket_addr()
+                    )));
+                }
             }
         }
         self.validate_local_zones()?;
@@ -2101,6 +2125,38 @@ odoh = { enabled = true, proxy = "https://proxy.example/p" }
             zone.upstream.servers(),
             [UpstreamAddr::Udp("10.0.0.1:53".parse().expect("gültig"))]
         );
+    }
+
+    /// B.1 Regel 7 erlaubt Klartext nur ins eigene Netz. Eine öffentliche
+    /// Adresse als `forward_zone`-Ziel wäre die Ausnahme, die die Regel
+    /// verbietet — und der Parser kann sie erkennen.
+    #[test]
+    fn a_forward_zone_to_a_public_address_is_a_startup_error() {
+        for upstream in ["udp://8.8.8.8:53", "udp://[2001:4860:4860::8888]:53"] {
+            let text = format!(
+                "{MINIMAL}\n[[forward_zone]]\nzone = \"home.arpa\"\nupstream = \"{upstream}\"\n"
+            );
+            let config = parse(&text).expect("muss parsen");
+            let error = config
+                .validate()
+                .expect_err("eine öffentliche Adresse muss abgelehnt werden")
+                .to_string();
+            assert!(error.contains("own network"), "{error}");
+        }
+    }
+
+    #[test]
+    fn loopback_and_link_local_are_valid_forward_targets() {
+        for upstream in [
+            "udp://127.0.0.1:53",
+            "udp://169.254.1.1:53",
+            "udp://[fd00::1]:53",
+        ] {
+            let text = format!(
+                "{MINIMAL}\n[[forward_zone]]\nzone = \"home.arpa\"\nupstream = \"{upstream}\"\n"
+            );
+            valid(&text);
+        }
     }
 
     #[test]
