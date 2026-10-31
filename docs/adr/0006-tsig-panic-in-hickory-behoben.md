@@ -2,6 +2,11 @@
 
 **Status:** accepted · **Date:** 2026-08-29 · **Supersedes:** [ADR-0005](0005-tsig-panic-in-hickory-proto.md)
 
+**Update 2026-10-31:** `hickory-proto` 0.26.3 contains the rework described
+below; the known-crash input no longer underflows and the repro exits 0. The
+conditional state is therefore closed early. The artifact and its README section
+are removed; this ADR and ADR-0005 stay as history.
+
 ## Context
 
 [ADR-0005](0005-tsig-panic-in-hickory-proto.md) accepted phase 1 even though the fuzzer

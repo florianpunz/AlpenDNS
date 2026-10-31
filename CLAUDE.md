@@ -110,13 +110,13 @@ test `no_query_name_leaves_the_process_in_the_quiet_modes` catches it.
 
 Cleartext DNS outbound is settled (B.1 rule 7): `udp://` in an `upstream_pool`
 is a startup error. Since phase 7 the signature chain itself is recomputed
-rather than trusting the upstream's AD bit (ADR-0016). One deviation remains
-open under B.1 rule 1: `hickory-proto 0.26.1` panics when parsing a broken TSIG
-record with overflow checks on. Assessment and conditions in ADR-0006, the known
-case in `crates/alpendns/fuzz/known-crashes/`. Related, a documented advisory
-exception in `deny.toml`: RUSTSEC-2026-0009 concerns `time`, which has been **in
-the production tree** since the DNSSEC feature — the exception carries a
-narrower justification (the vulnerable path is not entered), no longer "not in
+rather than trusting the upstream's AD bit (ADR-0016). The B.1 rule 1 deviation
+is closed: `hickory-proto` 0.26.3 contains the upstream rework that removed the
+TSIG underflow, and the known-crash input no longer panics. ADR-0006 keeps the
+assessment; the artifact was retired on 2026-10-31. Related, a documented
+advisory exception in `deny.toml`: RUSTSEC-2026-0009 concerns `time`, which has
+been **in the production tree** since the DNSSEC feature — the exception carries
+a narrower justification (the vulnerable path is not entered), no longer "not in
 the binary at all".
 
 Since phase 8 there are five heuristics in `crate::detect` (DGA, tunneling,

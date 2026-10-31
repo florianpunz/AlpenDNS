@@ -83,10 +83,9 @@ jobs:
         if: steps.deny.outcome == 'failure'
         run: exit 1
 
-  # Jedes Target 120 s (docs/TESTING.md §3). `-O` ist die Auslieferungs-
-  # konfiguration ohne Overflow-Checks: mit ihnen panict hickory-proto 0.26.1
-  # an einem kaputten TSIG-Record, ein bekannter Fall, der laut ADR-0006 bis
-  # hickory-proto 0.27 in fuzz/known-crashes/ liegt und nicht im Corpus.
+  # Jedes Target 120 s (docs/TESTING.md §3). `-O` bildet die Auslieferungs-
+  # konfiguration ab (ADR-0006, Bedingung 1); der bekannte TSIG-Fall aus
+  # hickory-proto 0.26.1 ist mit 0.26.3 entfallen.
   #
   # `+nightly` gehört an jeden Aufruf: `rust-toolchain.toml` pinnt `stable`, und
   # diese Datei sticht die von `dtolnay/rust-toolchain` installierte nightly aus.
