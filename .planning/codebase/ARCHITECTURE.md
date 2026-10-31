@@ -444,10 +444,10 @@ checks in `Config::validate` and per-section validators
 (`crates/alpendns/src/config.rs:1118`); list references are checked in
 `Blueprint::build`.
 
-**Authentication:** the API uses a bearer token (or query parameter for SSE),
-read from or created at `api.token_file` with mode 0600
-(`crates/alpendns/src/main.rs:913`). Metrics are tokenless by design and contain
-no names.
+**Authentication:** the API uses a bearer token in the `Authorization` header
+(including the SSE stream), read from or created at `api.token_file` with mode
+0600 (`crates/alpendns/src/main.rs:913`). Metrics are tokenless by design and
+contain no names.
 
 **Privacy:** ECS stripping, EDNS padding, cookies and 0x20 are applied only in
 the transports where they make sense; DNSSEC is validated locally on encrypted

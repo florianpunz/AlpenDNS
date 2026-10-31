@@ -4,10 +4,10 @@ current_phase: 10
 current_phase_name: closed; phase 10 stockpile discarded, phases 0 to 9 accepted
 status: complete
 stopped_at: Phase 10 closed; wizard and two-instance plan discarded, item 3 finished
-last_updated: "2026-10-31T12:00:00.000Z"
-last_activity: 2026-10-31
-last_activity_desc: "Closed phase 10: configuration wizard and two-instance plan discarded, item 3 finished"
-state_head: 281aa96a38ccc62f6449535c2ad1c741be52fcd1
+last_updated: "2026-11-01T00:00:00.000Z"
+last_activity: 2026-11-01
+last_activity_desc: "Reconciled the state with the accepted phases and the genuinely open concerns (staleness audit)"
+state_head: a5e86cea53e0f6573096a94b14a76bf585c283f4
 progress:
   total_phases: 11
   completed_phases: 11
@@ -81,12 +81,13 @@ Recent decisions affecting current work:
 - D-18 (ADR-0028): the false `Bogus` for a CNAME crossing into NODATA is a
   known, accepted false-alarm source until hickory PR #3595 or equivalent.
 - D-05 (ADR-0006): the TSIG panic is a known crash in the delivery
-  configuration; move only with a stable `hickory-proto 0.27`.
+  configuration; move only with a stable `hickory-proto 0.27`. Closed
+  2026-10-31: 0.26.3 contains the fix and the artifact was retired.
 
 ### Pending Todos
 
 - Phase 8: accepted 2026-10-22; NRD remains unevaluated without data from
-  AlpenShield, and the decision on ADR-0025/ADR-0026 stays proposed.
+  AlpenShield. ADR-0025 is rejected and ADR-0026 accepted since 2026-10-31.
 - Phase 10: closed 2026-10-31. Item 3 finished; the configuration wizard
   (item 9) and the two-instance plan (item 10) are discarded. The two remaining
   TODOS gaps — per-list `refresh` (item 3, step 5) and the block-page search
@@ -97,19 +98,17 @@ Recent decisions affecting current work:
 
 - No blocker for the roadmap. Phases 0 to 9 are accepted; the open points are
   the documented deviations and the concerns below.
-- Known upstream defects: TSIG panic (ADR-0006) and false `Bogus` on
-  CNAME-to-NODATA (ADR-0028). Both are accepted with documented conditions.
+- Known upstream defect: false `Bogus` on CNAME-to-NODATA (ADR-0028), accepted
+  with a documented condition. The TSIG panic is closed (ADR-0006 update,
+  2026-10-31).
 - Open concerns without a phase assignment are catalogued in
-  `.planning/codebase/CONCERNS.md`: the shipped example config contains keys the
-  parser rejects, `refresh = "0s"` reaches `tokio::time::interval`, the reload
-  swaps two `ArcSwap`s non-atomically, multi-question queries are silently
-  truncated, `forward_zone` targets are not checked to be on the LAN, UI
-  security headers are absent, UDP task spawning is unbounded, and `QueryLog`
-  takes global mutexes per request. They are not requirements until triaged;
-  do not invent phase scope from them.
+  `.planning/codebase/CONCERNS.md`: the localStorage token decision (CONCERNS
+  #8), EDNS `padding` and `doh_token` are documented but unimplemented, and
+  encrypted client listeners are unimplemented with no phase assignment. The
+  `QueryLog` mutex was measured on 2026-10-31 and rejected; it is not open.
 - Missing features are listed rather than promised: encrypted client-facing
-  listeners and forward-zone failover exist only as target/backlog material;
-  recursion is explicitly out of v1.
+  listeners are unimplemented with no phase assignment; recursion is explicitly
+  out of v1.
 
 ### Quick Tasks Completed
 

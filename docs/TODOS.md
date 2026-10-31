@@ -1,16 +1,14 @@
-# TODOS — open items with an implementation plan
+# TODOS — closed phase-10 stockpile
 
-This list stood here before as a bare enumeration. It still stands further down
-unchanged in substance, but now with a plan each: **finding** (what the code really does
-today, with a reference), **design**, **steps in the verify format** as in the roadmap,
-what is deliberately *not* being built, and effort.
+This is the record of the phase-10 stockpile. Every item is done or discarded; each
+section keeps the finding, the design, the steps in the verify format, the outcome and
+the effort. Nothing here is open work.
 
-None of these items belongs to a phase with acceptance criteria. Everything here is
-phase 10 material in the sense of [ROADMAP.md](ROADMAP.md): discardable at any time, no
-order except the one recommended at the end.
+The items were worked without phase acceptance criteria. Phase 10 is closed
+(2026-10-31); the order and bundling decisions are recorded at the end.
 
-All file and line references date from 2026-09-01. Line numbers age faster than the
-rest; the module and function names are the durable part.
+The file and line references are anchors, not guarantees: line numbers age faster than
+the rest; the module and function names are the durable part.
 
 ---
 
@@ -27,17 +25,16 @@ active. That is now built: `reload_on_hangup` in `main.rs` reloads the policy la
 — and leaves the old state standing when the configuration is broken. What is not
 hot-reloadable (listeners, upstreams/TLS, cache, rate limiting, block mode, detectors)
 is named by the log on every reload. §7 has been adjusted accordingly; the
-cross-references to B1 in items 7, 9 and 10 are thereby obsolete.
+cross-references to B1 in items 9 and 10.6 are thereby settled; item 7 never had
+one.
 
-**B2 — Blocklists are reloaded on a timer, and a failed reload is silent.** This finding
-was wrong from the day it was written: `policy::run_updater`
-([policy/mod.rs:697](../crates/alpendns/src/policy/mod.rs#L697)) ticks, reloads the list
-sources and swaps the rebuilt rule set in through `ArcSwap`, and a failed load keeps the
-old set in force (B.1 rule 6). It has been wired since phase 5
-([main.rs:618](../crates/alpendns/src/main.rs#L618)). Two things are genuinely missing:
-the interval is the **minimum** over all per-list `refresh` values rather than per list,
-so the shortest one pulls every list along; and a failed update produces an `error!` log
-line but no counter — the metric set has age and entries, not failures.
+**B2 — Blocklists are reloaded on a timer, and a failed reload keeps the old set.** This
+finding was wrong from the day it was written: `policy::run_updater` ticks, reloads the
+list sources and swaps the rebuilt rule set in through `ArcSwap`; a failed load keeps
+the old set in force (B.1 rule 6). It has been wired since phase 5. Two properties
+remain: the interval is the **minimum** over all per-list `refresh` values rather than
+per list — accepted on 2026-10-31, a per-list schedule is not planned — and a failed
+update is counted by `alpendns_blocklist_update_failures_total` (item 3, step 6).
 
 **B3 — The query log was written unbuffered in the request path; it no longer is.** The
 file is behind a `BufWriter`
@@ -80,23 +77,22 @@ Three deviations from the plan, each with its reason:
   waited for briefly instead of being assumed, because the accept path trails the kernel
   backlog.
 
-**Finding.** Two gaps, both in [server/tcp.rs](../crates/alpendns/src/server/tcp.rs):
+**Finding (at the time).** Two gaps, both in
+[server/tcp.rs](../crates/alpendns/src/server/tcp.rs):
 
-1. The `IDLE_TIMEOUT` of 10 s sits only on reading the **length prefix**
-   ([tcp.rs:70-79](../crates/alpendns/src/server/tcp.rs#L70-L79)). One line further the
-   body is read with `stream.read_exact(&mut packet).await?`
-   ([tcp.rs:85](../crates/alpendns/src/server/tcp.rs#L85)) **without any time limit**.
-   Anyone who sends two bytes `0xFF 0xFF` and then goes silent holds a task, a 64 KB
-   vector and a descriptor indefinitely. The `select!` on `shutdown` is missing here as
-   well — such a connection additionally delays shutdown until `TimeoutStopSec=10s`
-   takes effect.
-2. `tracker.spawn` in the accept loop
-   ([tcp.rs:43](../crates/alpendns/src/server/tcp.rs#L43)) has **no ceiling**. The limit
-   today is the process's descriptor limit.
+1. The `IDLE_TIMEOUT` of 10 s sat only on reading the **length prefix**. One line
+   further the body was read with `stream.read_exact(&mut packet).await?` **without any
+   time limit**. Anyone who sent two bytes `0xFF 0xFF` and then went silent held a task,
+   a 64 KB vector and a descriptor indefinitely. The `select!` on `shutdown` was missing
+   here as well — such a connection additionally delayed shutdown until
+   `TimeoutStopSec=10s` took effect.
+2. `tracker.spawn` in the accept loop had **no ceiling**. The limit then was the
+   process's descriptor limit.
 
-The existing rate limiting does not help: `RateLimiter` is consulted in `handle_request`,
-that is, **per request** — and a slowloris connection never makes a request. The second
-gap is the more dangerous one; without it, the first only costs a task.
+The existing rate limiting did not help: `RateLimiter` was consulted in
+`handle_request`, that is, **per request** — and a slowloris connection never made a
+request. The second gap was the more dangerous one; without it, the first only cost a
+task.
 
 On the server side there is only UDP and TCP (`server/` contains `udp.rs`, `tcp.rs`,
 `mod.rs`); DoT/DoH/DoQ are upstream transports only. The fix touches exactly one file.
@@ -990,7 +986,7 @@ local change with debouncing, plus a ticker), `config.rs` (`[peer] url`), `main.
 no names). Not touched: `cache.rs`, `filter/*`, `ratelimit.rs`, `history.rs`, `logging/*`,
 `detect/*` — they hold state that deliberately diverges.
 
-**Effort:** L, three to four evenings, plus ADR-0021. **Priority: low** — the synchronized
+**Effort:** L, three to four evenings, plus an ADR. **Priority: low** — the synchronized
 state comprises perhaps a dozen entries per week in a household.
 
 ### 10.5 What stays weak about this undertaking

@@ -76,8 +76,8 @@ last_mapped_at: 2026-10-20
 **API Authentication:**
 - Bearer token read from `api.token_file` (default `/etc/alpendns/api.token`).
 - If the file is missing or empty, a 32-hex-character token is generated at startup and written with mode `0600`; existing files are tightened to owner-only if group/other permissions are present (`crates/alpendns/src/main.rs`).
-- Token accepted as `Authorization: Bearer <token>` or as a `token=` query parameter (needed because browser `EventSource` cannot set headers); comparison is constant-time (`crates/alpendns/src/api/mod.rs`).
-- The static UI routes `/`, `/app.css`, `/app.js` are deliberately outside the auth layer; they contain no data.
+- Token accepted only as `Authorization: Bearer <token>`, including the SSE stream; comparison is constant-time (`crates/alpendns/src/api/mod.rs`).
+- The static UI routes `/`, `/app.css`, `/app.js`, `/theme.js` are deliberately outside the auth layer; they contain no data.
 - Metrics endpoint has no authentication and is intended for loopback scraping.
 
 **DNS Client Identity:**

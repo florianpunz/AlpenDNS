@@ -7,8 +7,8 @@ explicitly allows it.
 
 Requirements are derived only from the ADR decisions in `docs/adr/` and the
 documented acceptance criteria in `docs/ROADMAP.md`. The brownfield state is
-reflected in the checkboxes and traceability: phases 0 to 7 are complete, phase 8
-and 9 implementation is complete with acceptance still running.
+reflected in the checkboxes and traceability: phases 0 to 9 are complete and
+accepted (8 and 9 on 2026-10-22); phase 10 is closed.
 
 ## v1 Requirements
 
@@ -110,10 +110,10 @@ and 9 implementation is complete with acceptance still running.
 
 - [x] **OPS-01**: The systemd unit runs as an unprivileged user with `CAP_NET_BIND_SERVICE` and listens on port 53.
 - [x] **OPS-02**: Hardening directives are in place and `systemd-analyze security alpendns` reports under 3.0.
-- [x] **OPS-03**: `alpendns check` runs as `ExecStartPre`, checks config, blueprint and writable directories, needs no network, and prevents startup on a broken config while the old instance keeps running.
+- [x] **OPS-03**: `alpendns check` runs as `ExecStartPre`, checks config, blueprint and writable directories, needs no network, and prevents startup on a broken config; on an upgrade the old instance has already stopped, so the service stays down.
 - [x] **OPS-04**: The `.deb` builds with `cargo deb -p alpendns`, creates the system user, ships `/etc/alpendns/alpendns.toml` as a conffile, uses systemd `StateDirectory=`, and starts after installation on Debian/Ubuntu.
 - [x] **OPS-05**: Per-client rate limiting uses 16 sharded token buckets, aggregates IPv6 to /64, is on by default, and drops over-limit queries without affecting other clients.
-- [x] **OPS-06**: The shipped configuration listens on loopback only, `0.0.0.0` counts as public, and `alpendns check` reports a listener that reaches beyond the local network.
+- [x] **OPS-06**: The shipped configuration binds `0.0.0.0`, `alpendns check` warns about a listener that reaches beyond the local network (ADR-0031), and per-client throttling stays on.
 - [x] **OPS-07**: `docs/BENCHMARKS.md` records queries/s, p99 latency and RSS for the release build, plus the cost of throttling.
 - [x] **OPS-08**: `docs/OPERATIONS.md` covers installation, release to the LAN, upgrade, backup, troubleshooting, hardening directives, observation week and uninstall, and ships in the package.
 - [x] **OPS-09**: The practical test runs for a week with the server as the only LAN resolver without complaints, and anything notable is documented as a false-alarm list or a configuration change.

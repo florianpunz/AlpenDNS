@@ -39,12 +39,12 @@ Summary only. The checkable set with IDs and traceability is
 - Phase 5 — per-client policies, schedules, temporary exemptions, regex rules and the explain path shared by CLI and API.
 - Phase 6 — token-protected API, Prometheus metrics, four log modes, SSE live stream and the self-served web UI.
 - Phase 7 — PSL-backed `split_by_zone` with seed rotation, privacy budget, local DNSSEC validation, ODoH and k-anonymity.
+- Phase 8 — all five heuristics on `flag`, the observation period and the false-positive review, accepted 2026-10-22.
+- Phase 9 — service operation: systemd unit, .deb, shipping configuration and fresh-VM acceptance, accepted 2026-10-22.
 
 ### Active
 
-- [ ] Phase 8 acceptance — a week of real-network operation with all five detectors on `flag`, review of the false-positive list, and only then a decision on detector defaults (ADR-0025 and ADR-0026 remain proposed).
-- [ ] Phase 9 acceptance — the practical week as the only LAN resolver and installation on a fresh Debian VM.
-- [ ] Phase 10 — optional, discardable stockpile from `docs/ROADMAP.md` and `docs/TODOS.md`, taken item by item when wanted.
+None. Phases 0 to 9 are accepted and v1 is complete; phase 10 is closed.
 
 ### Out of Scope
 
@@ -62,8 +62,7 @@ Summary only. The checkable set with IDs and traceability is
 ## Context
 
 This is a brownfield project. Phases 1 to 9 are implemented in
-`crates/alpendns`; phases 1 to 7 are accepted, while the acceptance run for
-phases 8 and 9 is in progress on the real network. `docs/ROADMAP.md` is the
+`crates/alpendns` and accepted; v1 is complete. `docs/ROADMAP.md` is the
 canonical phase state and carries the acceptance narrative; this planning view
 must not diverge from it.
 
@@ -80,8 +79,8 @@ split in CLAUDE.md B.3 is deliberately deferred until a phase needs it. The
 observability surface is in `api/`, `metrics.rs`, `history.rs` and `logging/`.
 
 Known technical debt, defects and open concerns are catalogued in
-`.planning/codebase/CONCERNS.md`; open ideas with implementation plans are in
-`docs/TODOS.md` (phase 10 material). Architecture and rationale live in
+`.planning/codebase/CONCERNS.md`; the closed phase-10 stockpile is in
+`docs/TODOS.md`. Architecture and rationale live in
 `docs/ARCHITECTURE.md` and `docs/adr/`.
 
 ## Constraints
@@ -176,5 +175,5 @@ not appear in `.planning/intel/decisions.md`.
 </decisions>
 
 ---
-*Last updated: 2026-10-20 after brownfield ingest, initial GSD roadmap creation
-and the two live-constraint addenda (D-26, D-27).*
+*Last updated: 2026-11-01 after the phase-10 closure and the v1-complete status
+reconciliation.*

@@ -209,10 +209,10 @@ against a local peer, a systemd/`.deb` smoke test, and multi-question coverage (
 - Recommendations: none structural; keep the CI flags in sync and avoid relaxing them.
 
 **Cleartext client-facing DNS is the only client transport:**
-- Risk: UDP/TCP on port 53; DoT/DoH/DoQ listeners for *clients* are not implemented (roadmap phase 10). On an untrusted LAN, queries and answers are visible.
+- Risk: UDP/TCP on port 53; DoT/DoH/DoQ listeners for *clients* are not implemented (no phase assignment). On an untrusted LAN, queries and answers are visible.
 - Files: `crates/alpendns/src/server/udp.rs`, `crates/alpendns/src/server/tcp.rs`, `docs/ROADMAP.md`
-- Current mitigation: the shipping config listens on loopback only; encrypted upstreams are mandatory for non-`forward_zone`.
-- Recommendations: document the LAN trust assumption prominently; do not expose port 53 beyond the LAN before client encryption exists.
+- Current mitigation: the shipping config binds `0.0.0.0` with the open-resolver warning in `check` and OPERATIONS.md (ADR-0031); encrypted upstreams are mandatory for non-`forward_zone`.
+- Recommendations: keep the LAN trust assumption documented; restrict the listener or firewall port 53 where the network is not trusted.
 
 ## Performance Bottlenecks
 
