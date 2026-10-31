@@ -21,7 +21,7 @@ table, this table wins. Every row was checked against the code at HEAD `8f77b4a`
 | # | Concern | Evidence at 2026-10-31 | Effort | Why |
 |---|---|---|---|---|
 | 1 | ~~Example config does not load~~ **resolved 2026-10-31** | Four unknown keys were commented and `ring_seconds` corrected; `the_example_configuration_is_valid` now parses the shipped file | — | B.1.5 |
-| 2 | `refresh = "0s"` reaches `tokio::time::interval` | `ListConfig.refresh` has no validation; tokio asserts `period > 0` | S | B.1.5 |
+| 2 | ~~`refresh = "0s"` reaches `tokio::time::interval`~~ **resolved 2026-10-31** | Validation rejects a zero refresh on an enabled list; `a_zero_refresh_is_a_startup_error` pins it | — | B.1.5 |
 | 3 | Reload swaps two `ArcSwap`s non-atomically | `reload.rs` stores the blueprint, then the lists | M | fail-closed |
 | 4 | Multi-question queries are truncated | `server/mod.rs:193` rejects only `queries.is_empty()` | S | correctness |
 | 5 | `forward_zone` targets are not checked to be on the LAN | validation rejects only encrypted transports and exact duplicates | S | B.1.7 |
@@ -61,10 +61,10 @@ table, this table wins. Every row was checked against the code at HEAD `8f77b4a`
 
 ### Test gaps
 
-High priority and addressed first: the shipped example has no parse test, and zero
-durations are unvalidated. Still open after that: fuzz seeds, reload interleaving
-(fix 3), encrypted transports against a local peer, a systemd/`.deb` smoke test, and
-multi-question coverage (fix 4).
+High priority and addressed: the shipped example has a parse test and a zero
+`refresh` is rejected. Still open: other zero/edge durations (`flush`, `seed_rotation`,
+`tunneling.window`), fuzz seeds, reload interleaving (fix 3), encrypted transports
+against a local peer, a systemd/`.deb` smoke test, and multi-question coverage (fix 4).
 
 ## Tech Debt
 
@@ -85,7 +85,9 @@ multi-question coverage (fix 4).
 - Fix approach: either implement per-list scheduling (one task/interval per spec) or reject a per-list `refresh` that differs from the global one with a clear message.
 - Decision (2026-10-31): **not planned.** The minimum across all lists is the documented behaviour; a per-list schedule is discarded (`docs/TODOS.md` item 3, step 5).
 
-**`refresh = "0s"` is accepted and panics the updater:**
+**`refresh = "0s"` is accepted and panics the updater — resolved (2026-10-31):**
+- Validation rejects a zero refresh on an enabled list, so the updater never sees a
+  zero interval. The test `a_zero_refresh_is_a_startup_error` pins it.
 - Issue: no validation of `ListConfig.refresh` in `Config::validate` (`crates/alpendns/src/config.rs`). `run_updater` passes `interval` straight to `tokio::time::interval` (`policy/mod.rs:579`), and tokio asserts `period > Duration::ZERO` (`tokio-1.53.1/src/time/interval.rs:74`). Confirmed by reading the vendored registry source.
 - Files: `crates/alpendns/src/policy/mod.rs:572-611`, `crates/alpendns/src/config.rs`
 - Impact: with the release profile (`panic = "abort"`, `Cargo.toml`) the process aborts at startup; in debug the spawned updater task dies and lists never refresh again. Requires an admin typo, but B.1.5 says broken configuration must not start at all.
@@ -365,7 +367,9 @@ multi-question coverage (fix 4).
 - Risk: the shipped documentation silently drifts and users hit startup failures; this gap already hides three unimplemented keys.
 - Priority: High (cheap, catches a real defect).
 
-**Zero/edge durations are not validated:**
+**Zero/edge durations are not validated — partly resolved (2026-10-31):**
+- `refresh = "0s"` is now a startup error. `flush`/`seed_rotation` and
+  `tunneling.window = 0` were not re-checked.
 - What's not tested: `refresh = "0s"`, absurdly small `flush`/`seed_rotation`, `tunneling.window = 0` combinations.
 - Files: `crates/alpendns/src/config.rs`, `crates/alpendns/src/policy/mod.rs`
 - Risk: startup abort or dead tasks from a plausible typo.

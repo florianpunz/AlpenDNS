@@ -1246,6 +1246,19 @@ impl Config {
                 "cache.min_ttl is greater than cache.max_ttl".to_owned(),
             ));
         }
+        // Der Updater reicht das kürzeste Intervall an `tokio::time::interval`,
+        // und das verlangt eine Periode größer als null. Eine 0 wäre also kein
+        // "nie nachladen", sondern ein sterbender Task — im Release-Profil mit
+        // `panic = "abort"` der ganze Prozess.
+        for list in self.blocklist.iter().chain(self.allowlist.iter()) {
+            if list.enabled && list.refresh.is_zero() {
+                return Err(ConfigError::Invalid(format!(
+                    "list '{}': refresh = \"0s\" would make the update scheduler panic; \
+                     use a positive duration",
+                    list.name
+                )));
+            }
+        }
         self.detection.validate()?;
         self.privacy.odoh.validate()?;
         if self.privacy.odoh.enabled {
@@ -1675,6 +1688,25 @@ name = "quad9"
 addr = "dot://9.9.9.9:853"
 tls_name = "dns.quad9.net"
 "#;
+
+    /// Ein `refresh = "0s"` erreicht `tokio::time::interval`, das eine Periode
+    /// größer als null verlangt — der Updater-Task stirbt, im Release-Profil
+    /// mit `panic = "abort"` der ganze Prozess. Der Start soll vorher scheitern
+    /// (B.1 Regel 5).
+    #[test]
+    fn a_zero_refresh_is_a_startup_error() {
+        let text = format!(
+            "{MINIMAL}\n[[blocklist]]\nname = \"ads\"\npath = \"/tmp/ads\"\n\
+             format = \"domains\"\nrefresh = \"0s\"\n"
+        );
+        let config = parse(&text).expect("muss parsen");
+        let error = config
+            .validate()
+            .expect_err("0s muss ein Startfehler sein")
+            .to_string();
+        assert!(error.contains("refresh"), "{error}");
+        assert!(error.contains("ads"), "{error}");
+    }
 
     fn parse(text: &str) -> Result<Config, toml::de::Error> {
         toml::from_str(text)
