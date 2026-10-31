@@ -6,21 +6,20 @@ cache, matcher, upstream pool, the detectors from phase 8.
 
 ## Method and measurement status
 
-This analysis is a **reading result**, not a measurement run. Two things therefore
-belong up front, otherwise the "measurement result" column reads wrong:
+This analysis began as a **reading result**. Since 2026-10-31 it also records its own
+measurement runs, marked "measured 2026-10-31"; older numbers are quoted from
+[BENCHMARKS.md](BENCHMARKS.md).
 
-1. **What is measured** is in [BENCHMARKS.md](BENCHMARKS.md) and is only quoted
-   here. The measurement machine is Linux (`load.rs` with SO_REUSEPORT and a fake
-   upstream in-process, `--test-threads=1`).
-2. **What is newly proposed here is not measured yet.** The load generator runs
-   only under Linux, the corpus is not in the repo, and the machine on which this
-   analysis was written has no Rust toolchain. A candidate therefore does not stand
-   there as "faster", only as "worth measuring" — with the command that confirms or
-   rejects it.
+The measurement machine is Linux (`load.rs` with a single loopback socket and a fake
+upstream in-process, `--test-threads=1`). The load generator runs only under Linux; the
+corpus is not in the repo.
 
-That is exactly why the table below distinguishes two kinds of entries:
+A candidate that has not been measured stands there as "worth measuring", with the
+command that confirms or rejects it. A candidate that has been measured carries the
+result in the table. That is why the table below distinguishes two kinds of entries:
 
-* **measured** — the number comes from BENCHMARKS.md and is proven.
+* **measured** — the number was taken in this document (marked 2026-10-31) or quoted
+  from BENCHMARKS.md.
 * **pending** — the approach is to be implemented in isolation and measured against
   the baseline before it may go into the `main` branch. Before that it would be
   optimisation without measurement, and that is exactly what the project explicitly
@@ -338,9 +337,9 @@ microseconds. **Rejected:** no benefit shown above the noise; the branch is kept
 The pending candidates are to be implemented in isolation — one `perf/<topic>` branch
 each, never on `main` — and measured against the baseline. Only an approach with a
 proven benefit comes back. The order of measurement should follow the "Effort"
-column, not the assumed gain: the three S candidates (2, 3, 4) are an afternoon each
-and quickly deliver a decision you can stand on.
+column, not the assumed gain: the remaining S candidates (3 and 4) are an afternoon
+each and quickly deliver a decision you can stand on.
 
-This analysis changes nothing on the `main` branch and nothing in the running
-field-test week — it is the basis for deciding *after* acceptance, with measurements,
-which of these is worth it.
+One candidate has been accepted and merged: candidate 8, concurrent list downloads
+(1.07 s -> 258 ms). The remaining pending candidates are not merged; the analysis
+changes nothing else on `main`.

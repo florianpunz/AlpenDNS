@@ -43,9 +43,11 @@ target:
 * DoH path parsing (token extraction) — open: there is no DoH listener yet.
 
 Success criterion: no panic, no endless loop, no unbounded growth. A crash that
-is found is checked in as a corpus file and becomes a regression test.
+is found is checked in under `crates/alpendns/fuzz/known-crashes/` with a note,
+not in the corpus; the libFuzzer corpus is generated locally and not committed,
+so a fresh checkout starts empty.
 
-In CI each target runs briefly (120 s) on the existing corpus. Long runs are
+In CI each target runs briefly (120 s) on that generated corpus. Long runs are
 done locally.
 
 `crates/alpendns/fuzz/` is a workspace of its own and carries its own
