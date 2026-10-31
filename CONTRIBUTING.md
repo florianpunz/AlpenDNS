@@ -42,7 +42,7 @@ open advisories (one documented exception, argued in [`deny.toml`](deny.toml)).
 the point of it: the advisory database moves by itself, so a new RUSTSEC entry
 would otherwise surface only on the next commit — in a repository worked on in
 the evenings and irregularly, that can be weeks. When that run fails it opens a
-single issue, *"cargo deny schlägt fehl — neue Advisory?"*, and comments on that
+single issue, *"cargo deny fails — new advisory?"*, and comments on that
 one instead of opening a new one every week.
 
 On top of that, Dependabot opens one grouped pull request per ecosystem
@@ -90,7 +90,7 @@ broke. Declaring `x25519` costs nothing and holds in both lockfiles.
 
 Conventional Commits, and the message explains *why* — the *what* is in the
 diff. One commit per logical change. [CLAUDE.md](CLAUDE.md) B.7 has the full
-rule, including the reason there is no patch release level.
+rule, including the reason for the three release levels.
 
 Please do not add attribution trailers or "generated with" lines.
 

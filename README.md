@@ -19,9 +19,9 @@ servers is deliberately not a goal.
   <img alt="The AlpenDNS web UI" src="docs/images/ui-card.png" width="96%">
 </div>
 
-> **Status.** Phases 1–9 are implemented; 1–7 are accepted, and the acceptance
-> run for 8 and 9 is in progress in a real home network. Where that stands, with
-> numbers and open gaps: [docs/ROADMAP.md](docs/ROADMAP.md).
+> **Status.** Phases 1–9 are implemented and accepted; v1 is complete. Where
+> that stands, with numbers and open gaps:
+> [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## About
 
@@ -107,8 +107,8 @@ in `/etc/alpendns/alpendns.toml` and run
 * [Features](docs/FEATURES.md) — catalog with cost/benefit assessment
 * [Testing](docs/TESTING.md) — strategy, and the definition of done
 * [Benchmarks](docs/BENCHMARKS.md) · [Threat model](docs/THREAT-MODEL.md) · [Decisions](docs/adr/)
-* [Configuration reference](config/alpendns.example.toml) — the target format, sections
-  not yet implemented marked `[PHASE n]`
+* [Configuration reference](config/alpendns.example.toml) — the full format, including
+  sections not yet implemented, marked `[not implemented — backlog]`
 
 The [live demo](https://florianpunz.github.io/alpendns/) is this web UI with recorded
 data, no install — built from [`web/demo/`](web/demo/).

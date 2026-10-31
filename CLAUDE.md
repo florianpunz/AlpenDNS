@@ -144,12 +144,13 @@ for modules becoming their own crates later without a rebuild.
 week · `docs/ARCHITECTURE.md` = target picture · `docs/TESTING.md` = test strategy
 and the definition of done · `docs/THREAT-MODEL.md` = what is protected against and
 what is not · `docs/FEATURES.md` = catalog with cost/benefit ·
-`docs/TODOS.md` = open points with an implementation plan — phase 10 stockpile,
-discardable at any time · `docs/SECURITY-AUDIT.md` = manual audit of the codebase ·
+`docs/TODOS.md` = closed phase-10 stockpile — a record of completed and
+discarded items · `docs/SECURITY-AUDIT.md` = manual audit of the codebase ·
 `docs/PERFORMANCE_ANALYSIS.md` = review of the hot path · `SECURITY.md` = how to
 report a vulnerability · `CONTRIBUTING.md` = how to contribute · `docs/adr/` = why
 something is the way it is · `config/alpendns.example.toml` = **specification of the
-target format**; sections not yet implemented are marked `[PHASE n]` there.
+target format**; sections not yet implemented are marked
+`[not implemented — backlog]` there.
 
 ### B.1 Hard rules (non-negotiable)
 
@@ -259,7 +260,8 @@ the four commands that must be green before a change counts as finished.
 * Integration tests query a real AlpenDNS process on a loopback port. Tests
   **never** contact real upstream resolvers or load real blocklist URLs.
 * Fuzzing needs nightly (the only exception to B.2). In CI each target runs 120 s
-  on the checked-in corpus; long runs are done locally.
+  on the generated local corpus (empty in a fresh checkout); long runs are done
+  locally.
 * Local configuration for experimenting belongs in `config/local.dev.toml` or
   `alpendns.toml` in the root directory. Both are already in `.gitignore`, so
   that real upstreams and tokens do not accidentally land in the repo.
