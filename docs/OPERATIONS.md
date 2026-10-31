@@ -29,7 +29,7 @@ Then in the repository:
 
 ```bash
 cargo deb -p alpendns
-# → target/debian/alpendns_<version>_amd64.deb
+# → target/debian/alpendns_<version>-1_amd64.deb
 ```
 
 `cargo deb` builds with `--release` itself. The package contains a binary
@@ -69,7 +69,7 @@ The package can still be built locally, as described above.
 ### Installing the package
 
 ```bash
-sudo apt install ./alpendns_<version>_amd64.deb
+sudo apt install ./alpendns_<version>-1_amd64.deb
 ```
 
 The package creates:
@@ -79,7 +79,7 @@ The package creates:
 | `/usr/bin/alpendns` | The program | root |
 | `/etc/alpendns/alpendns.toml` | Configuration (conffile) | root |
 | `/etc/logrotate.d/alpendns` | Rotation of the query log (conffile), see §6 | root |
-| `/lib/systemd/system/alpendns.service` | The unit | root |
+| `/usr/lib/systemd/system/alpendns.service` | The unit | root |
 | `/var/lib/alpendns/` | API token, NRD file | `alpendns` |
 | `/var/cache/alpendns/` | Downloaded blocklists | `alpendns` |
 | `/var/log/alpendns/` | Query log, only in `full` mode | `alpendns` |
@@ -386,7 +386,7 @@ readable, just without the material.
 
 ```bash
 cargo deb -p alpendns                            # build the new package
-sudo apt install ./alpendns_<version>_amd64.deb  # install it
+sudo apt install ./alpendns_<version>-1_amd64.deb  # install it
 ```
 
 The built-in RFC 6303 reverse zones need no configuration change: an existing
@@ -403,21 +403,23 @@ What happens:
   that never left the old loopback default listens on `0.0.0.0`. Set the
   listener explicitly before such an upgrade, or run `alpendns check` right
   after it; the check lists every listener beyond your own network.
-* The service is restarted after the upgrade (`restart-after-upgrade`).
-  `alpendns check` runs beforehand — a configuration the new version does not
-  understand prevents the start, and the old instance keeps running until it is
-  shut down as planned.
+* The service is stopped and restarted (`restart-after-upgrade`). `alpendns
+  check` runs as `ExecStartPre` — before the new process starts, but after the
+  old one has been stopped. A configuration the new version does not understand
+  therefore leaves the service down; run
+  `alpendns -c /etc/alpendns/alpendns.toml check` with the **new** binary before
+  the upgrade.
 * Blocklist cache and API token are left in place.
 
 **Before an upgrade, a look into `docs/ROADMAP.md` pays off:** if a phase
 removed configuration keys, the start says so with a reason — but it says it
 only at start. `alpendns -c /etc/alpendns/alpendns.toml check` with the **new**
-binary before the restart is the faster answer.
+binary before the upgrade is the faster answer.
 
 ### Rolling back
 
 ```bash
-sudo apt install ./alpendns_<old-version>_amd64.deb --allow-downgrades
+sudo apt install ./alpendns_<old-version>-1_amd64.deb --allow-downgrades
 ```
 
 The state under `/var` is compatible across versions: blocklist cache and token
@@ -753,10 +755,14 @@ reason appears in parentheses — `typosquat flag (no protect: finds nothing)`,
 All five detectors are on `flag`. **They stay on `flag` the whole week.** They
 report, they do not block.
 
-**During the week.** Look into the UI once a day, "Flagged" panel:
+**During the week.** Evaluate `/var/log/alpendns/queries.jsonl` once a day —
+`packaging/abnahme.py` with a daily cutoff (the package does not install the
+script; run it from the repository). The UI's "Flagged" panel only reads
+`ring_seconds`, five minutes by default, so it is for the last few minutes, not
+for the week.
 
-* What is in there that is obviously harmless? That is a false positive. Note it
-  down — domain, detector, score, what the device was doing at the time.
+* What is in the log that is obviously harmless? That is a false positive. Note
+  it down — domain, detector, score, what the device was doing at the time.
 * Reputation services and antivirus products look like a DNS tunnel by
   construction. Their zones belong in `detection.tunneling.allow_zones`.
 * Split-horizon DNS and device web interfaces under a real name trigger the
@@ -780,7 +786,7 @@ reads the query log and counts per detector:
 
 ```bash
 # Second argument optional — this also evaluates a saved copy
-python3 abnahme.py 2026-09-16T16:24 | tee abnahme-periode.txt
+python3 packaging/abnahme.py 2026-09-16T16:24 | tee abnahme-periode.txt
 ```
 
 It prints queries and **distinct names**, then per detector the findings and the

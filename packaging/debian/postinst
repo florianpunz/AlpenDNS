@@ -31,12 +31,13 @@ if [ "$1" = "configure" ] && [ -z "$2" ] && [ -d /run/systemd/system ]; then
     if systemctl start alpendns.service; then
         cat <<'MSG'
 
-AlpenDNS is running — on this machine only, for now (127.0.0.1:53).
+AlpenDNS is running — on every IPv4 interface (0.0.0.0:53).
 
   Check:       dig @127.0.0.1 example.com
-  For the LAN: /etc/alpendns/alpendns.toml, first block, then
-               sudo alpendns -c /etc/alpendns/alpendns.toml check
-               sudo systemctl restart alpendns
+  LAN:         point clients at this machine's address.
+  Open resolver: on a host with a public address, keep port 53 closed from
+                 outside, or restrict the listener in /etc/alpendns/alpendns.toml
+                 and run: sudo alpendns -c /etc/alpendns/alpendns.toml check
   Interface:   ssh -L 8053:127.0.0.1:8053 <this-host>, then
                http://127.0.0.1:8053 in the browser
   Manual:      /usr/share/doc/alpendns/OPERATIONS.md

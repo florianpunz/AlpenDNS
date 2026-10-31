@@ -128,7 +128,9 @@ The greatest realistic damage does not come from an attacker but from the code:
 1. **A panic in the request path** is a remote DoS for the whole network. Hence
    the hard Clippy rules in CLAUDE.md B.1.
 2. **An open resolver** is an amplification reflector. Hence rate limiting, and
-   default listeners on private addresses only.
+   a shipping configuration that binds the wildcard with an explicit
+   open-resolver warning in `check` and OPERATIONS.md
+   ([ADR-0031](adr/0031-auslieferung-auf-allen-schnittstellen.md)).
 3. **A dependency with network access** breaks the telemetry promise without
    the author doing anything. Hence `cargo deny`, and the requirement to
    justify every new dependency.

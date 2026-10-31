@@ -89,7 +89,7 @@ The web UI is on <http://127.0.0.1:8053>; the token sits in `api.token_file`.
 ```bash
 cargo install cargo-deb --locked
 cargo deb -p alpendns
-sudo apt install ./target/debian/alpendns_<version>_amd64.deb
+sudo apt install ./target/debian/alpendns_<version>-1_amd64.deb
 ```
 
 The resolver then runs unprivileged and listens on every IPv4 interface
