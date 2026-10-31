@@ -46,19 +46,19 @@ Single entry point for `gsd-roadmapper`. Ingest mode: `new`. Precedence: ADR > S
 
 ## Requirements
 
-- Extracted to `requirements.md`: 0
+- Requirements extracted: 0 (no `requirements.md`: nothing to record)
 - Requirement IDs: none
 - Reason: 0 PRD classifications were present. No requirements were invented.
 
 ## Constraints
 
-- Extracted to `constraints.md`: 0
+- Constraints extracted: 0 (no `constraints.md`: nothing to record)
 - Type breakdown: api-contract 0, schema 0, nfr 0, protocol 0
 - Reason: 0 SPEC classifications were present. No constraints were invented.
 
 ## Context
 
-- Extracted to `context.md`: 0 topics
+- Context topics extracted: 0 (no `context.md`: nothing to record)
 - Reason: 0 DOC classifications were present in this ingest set. No context was carried over from documents outside the set and none was invented.
 
 ## Conflicts
@@ -83,8 +83,5 @@ READY — safe to route. No blockers and no competing variants.
 ## Files
 
 - `.planning/intel/decisions.md`
-- `.planning/intel/requirements.md`
-- `.planning/intel/constraints.md`
-- `.planning/intel/context.md`
 - `.planning/intel/SYNTHESIS.md`
 - `.planning/INGEST-CONFLICTS.md`

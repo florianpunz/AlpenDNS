@@ -129,10 +129,11 @@ Items acknowledged and deferred, most recent first:
 | Category | Item | Status | Deferred At | Milestone |
 |----------|------|--------|-------------|-----------|
 | Scope | Encrypted client listeners (DoT/DoH/DoQ) | Not implemented; client traffic is cleartext UDP/TCP | Pre-GSD | v1 |
-| Scope | Forward-zone failover | Done 2026-10-22 (ADR-0030, TODOS item 13) | Pre-GSD | v1 |
-| Scope | RFC 6303 built-in local zones | Done 2026-10-22 (ADR-0032, quick task 261022-s4q) | Pre-GSD | v1 |
 | Scope | Recursion, DDR/DNR, blocklist diff review, local-zone build-out, own parser as learning project | Optional, not planned for v1 | 2026-10-20 | Phase 10 (closed) |
 | Config | Per-list `refresh` is honoured only as the minimum across all lists — accepted 2026-10-31, a per-list schedule is not planned; EDNS `padding` and `doh_token` are documented but unimplemented | Open (CONCERNS.md) | Pre-GSD | unassigned |
+
+Forward-zone failover and the RFC 6303 built-in local zones were completed on
+2026-10-22 (ADR-0030, ADR-0032) and are no longer deferred.
 
 ## Session Continuity
 

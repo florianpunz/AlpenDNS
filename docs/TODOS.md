@@ -1174,15 +1174,5 @@ who has such a block today (B.8).
 
 ## The original list
 
-For reference, unchanged:
-
-- TCP slowloris — tcp.rs:86: timeout on the body read + a cap on concurrent connections. In a LAN one compromised device is enough to bring the resolver to its knees.
-- Configuration wizard in the web UI
-- Log rotation in full mode: logging/mod.rs writes append-only into a file that the process opens itself — systemd/journald does not reach it. Over months the query log grows without bound until the disk is full. Needs rotation (size/age)
-- When a website is on a blocklist -> a nice block page from the DNS server (Diese Seite wurde blockiert weil...)
-- Document the clock dependency: the project's own validation (ADR-0016) presupposes a correct host clock — a wrong clock makes every signed zone "bogus". For operations a sentence belongs in the runbook: NTP/systemd-timesyncd is a prerequisite, not optional.
-- For blocklists, record "age" in the UI — last updated (2 days...) ago
-- Implement config versioning: today the config is the specification (deny_unknown_fields). At the first breaking change (renaming a key) an old installation breaks with no migration path. Not a blocker for v1, but a version field + an explicit error message would be the investment that becomes expensive later if you did not make it early.
-- Grants/denials are only in RAM (temporary.rs). A restart loses them. That is defensible (they are time-limited), but it belongs documented as a deliberate decision — otherwise someone wonders after the reboot why the grant is gone.
-- Dependency updates: cargo deny runs, but who reacts to new RUSTSEC advisories? Set up Dependabot/Renovate so that the triage process for exceptions (like the documented time exception) is continuous instead of one-off.
-- Resilience stands as a phase 10 option (two instances)
+The ten items this stockpile started from are recorded in full in the sections
+above; their statuses are in the headings. No separate copy is kept here.
