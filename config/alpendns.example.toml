@@ -19,8 +19,9 @@
 # up as v4-mapped, which `[[client]]` nets do not match).
 listen_udp = ["0.0.0.0:53"]
 listen_tcp = ["0.0.0.0:53"]
-# Maximum queries in flight at the same time before SERVFAIL/drop.
-max_inflight = 4096
+# [not implemented — backlog] Maximum queries in flight before SERVFAIL/drop.
+# The parser does not know this key yet; uncomment it with the implementation.
+# max_inflight = 4096
 # Timeout for one complete client query including the upstream.
 query_timeout = "3s"
 
@@ -28,7 +29,8 @@ query_timeout = "3s"
 # Answer size for UDP; above it TC is set and the client is forced onto TCP.
 udp_payload_size = 1232
 # RFC 7830 / 8467: padding for encrypted transports.
-padding = true
+# [not implemented — backlog] The parser does not know `padding` yet.
+# padding = true
 
 # Rate limiting per client. ON by default — a resolver without a limit is an
 # amplification reflector as soon as it sees more than its own LAN
@@ -49,24 +51,26 @@ burst = 200
 # addresses the limiting itself would be the memory hog it is meant to prevent.
 max_clients = 8192
 
-# [PHASE 3+] Encrypted listeners for your own *clients* (laptop on the road,
-# phone). Not to be confused with the encrypted upstreams further down: those
-# exist, these listeners do not yet.
-[server.doh]
-enabled = false
-listen = "0.0.0.0:443"
-# The path token identifies the client, see [clients].
-path = "/dns-query"
-cert = "/etc/alpendns/tls/fullchain.pem"
-key = "/etc/alpendns/tls/privkey.pem"
-
-[server.dot]
-enabled = false
-listen = "0.0.0.0:853"
-
-[server.doq]
-enabled = false
-listen = "0.0.0.0:853"
+# [not implemented — backlog] Encrypted listeners for your own *clients* (laptop
+# on the road, phone). Not to be confused with the encrypted upstreams further
+# down: those exist, these listeners do not yet, and the parser rejects the
+# tables below. Uncomment them together with the implementation.
+#
+# [server.doh]
+# enabled = false
+# listen = "0.0.0.0:443"
+# # The path token identifies the client, see [clients].
+# path = "/dns-query"
+# cert = "/etc/alpendns/tls/fullchain.pem"
+# key = "/etc/alpendns/tls/privkey.pem"
+#
+# [server.dot]
+# enabled = false
+# listen = "0.0.0.0:853"
+#
+# [server.doq]
+# enabled = false
+# listen = "0.0.0.0:853"
 
 # ---------------------------------------------------------------------------
 # Upstreams
@@ -257,7 +261,7 @@ odoh = { enabled = false, proxy = "https://odoh-proxy.example/proxy" }
 #             /etc/logrotate.d/alpendns then decides how long the names lie
 #             there ("rotate 7" = seven days). See docs/OPERATIONS.md §6.
 mode = "aggregate"
-ring_seconds = 300
+ring_seconds = "5m"
 # Below this count a domain appears in no statistic.
 aggregate_k = 5
 
@@ -310,11 +314,13 @@ name = "kids-tablet"
 match = { ip = ["10.0.10.42"] }
 policy = "kids"
 
-[[client]]
-name = "florian-laptop"
-# Identified via DoH path token, works on the road too.
-match = { doh_token = "REPLACE_WITH_RANDOM_32_BYTES" }
-policy = "default"
+# [not implemented — backlog] Identified via DoH path token. Needs the
+# encrypted client listeners above; the parser does not know `doh_token` yet.
+#
+# [[client]]
+# name = "florian-laptop"
+# match = { doh_token = "REPLACE_WITH_RANDOM_32_BYTES" }
+# policy = "default"
 
 [[policy]]
 name = "default"

@@ -2495,6 +2495,20 @@ sinkhole_ipv6 = "fd00::10"
         assert!(err.contains("listener"), "{err}");
     }
 
+    /// Die Beispielkonfiguration ist die Spezifikation des Zielformats
+    /// (`CLAUDE.md` B.0). Sie muss durch denselben Parser laufen wie eine echte
+    /// Datei; sonst driften Doku und Code auseinander, und wer sie als
+    /// Startpunkt kopiert, scheitert am Start (B.1 Regel 5).
+    const EXAMPLE: &str = include_str!("../../../config/alpendns.example.toml");
+
+    #[test]
+    fn the_example_configuration_is_valid() {
+        let config = parse(EXAMPLE).expect("die Beispielkonfiguration muss parsen");
+        config
+            .validate()
+            .expect("die Beispielkonfiguration muss gültig sein");
+    }
+
     /// Die Datei, die das Debian-Paket nach `/etc/alpendns` legt. Sie ist der
     /// Auslieferungszustand, und der ist ein Abnahmekriterium (ROADMAP Phase 9,
     /// Schritt 6): frisch installiert soll der Server im eigenen Netz ohne

@@ -20,7 +20,7 @@ table, this table wins. Every row was checked against the code at HEAD `8f77b4a`
 
 | # | Concern | Evidence at 2026-10-31 | Effort | Why |
 |---|---|---|---|---|
-| 1 | Example config does not load | `alpendns check` fails at line 316 (`doh_token`); `max_inflight` and `edns.padding` are also absent from the parser | S | B.1.5 |
+| 1 | ~~Example config does not load~~ **resolved 2026-10-31** | Four unknown keys were commented and `ring_seconds` corrected; `the_example_configuration_is_valid` now parses the shipped file | — | B.1.5 |
 | 2 | `refresh = "0s"` reaches `tokio::time::interval` | `ListConfig.refresh` has no validation; tokio asserts `period > 0` | S | B.1.5 |
 | 3 | Reload swaps two `ArcSwap`s non-atomically | `reload.rs` stores the blueprint, then the lists | M | fail-closed |
 | 4 | Multi-question queries are truncated | `server/mod.rs:193` rejects only `queries.is_empty()` | S | correctness |
@@ -68,7 +68,11 @@ multi-question coverage (fix 4).
 
 ## Tech Debt
 
-**Example configuration drifts from the parser and does not load:**
+**Example configuration drifts from the parser and does not load — resolved (2026-10-31):**
+- The four unknown keys (`max_inflight`, `edns.padding`, `[server.doh/dot/doq]`,
+  `doh_token`) are commented and marked as not implemented; `ring_seconds = 300` was
+  the wrong type and is now `"5m"`. `the_example_configuration_is_valid` parses the
+  shipped file, so the next drift fails in CI.
 - Issue: `config/alpendns.example.toml` is declared the "specification of the target format", is shipped in the `.deb` under `/usr/share/doc/alpendns/`, and contains keys the parser rejects. `server.max_inflight` (line 15), `server.edns.padding` (line 23) and `match = { doh_token = ... }` (line 300) are absent from `crates/alpendns/src/config.rs`. `ServerConfig` (`config.rs:635`) has no `max_inflight`, `EdnsConfig` (`config.rs:692`) has no `padding`, `ClientMatch` (`config.rs:382`) only has `ip`. Verified by starting the built binary with the file: it aborts at line 300 with `unknown field 'doh_token'`.
 - Files: `config/alpendns.example.toml`, `crates/alpendns/src/config.rs`
 - Impact: `serde(deny_unknown_fields)` makes the documented example unusable as a starting point; a user copying it gets a startup failure. This directly contradicts hard rule B.1.5 ("server does not start with broken configuration") in spirit — the configuration *is* rejected, but the shipped documentation promises features that do not exist.
@@ -352,7 +356,10 @@ multi-question coverage (fix 4).
 
 ## Test Coverage Gaps
 
-**The shipped example config is not parsed by any test:**
+**The shipped example config is not parsed by any test — resolved (2026-10-31):**
+- `the_example_configuration_is_valid` in `config.rs` parses and validates
+  `config/alpendns.example.toml`; the first run already exposed four unknown keys and
+  a wrong `ring_seconds` type.
 - What's not tested: `config/alpendns.example.toml` round-trips through `Config::from_str`/validation.
 - Files: `config/alpendns.example.toml`, `crates/alpendns/src/config.rs`
 - Risk: the shipped documentation silently drifts and users hit startup failures; this gap already hides three unimplemented keys.
