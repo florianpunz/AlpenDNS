@@ -302,6 +302,7 @@ impl StatusSource for Fake {
                 allowed: 0,
                 passed: 9,
                 entries: 79_747,
+                update_failures: 0,
             },
             upstreams: vec![UpstreamStats {
                 name: "quad9".to_owned(),

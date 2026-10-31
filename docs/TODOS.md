@@ -235,7 +235,7 @@ until then zero, because in the default mode no file is opened at all.
 
 ---
 
-## 3. Age of the blocklists in the UI — done, except the update-failure counter
+## 3. Age of the blocklists in the UI — done.
 
 > For blocklists, record "age" in the UI — last updated (2 days…) ago
 
@@ -327,11 +327,14 @@ was wrong. `policy::run_updater`
 the old set and lets the age grow (B.1 rule 6). It was wired in phase 5
 ([main.rs:618](../crates/alpendns/src/main.rs#L618)); `blocking.<list>.refresh` feeds it.
 
-Two gaps remain, both small and both from the original step list:
+**Step 6 is done as well** (2026-10-31). A refresh that cannot replace the rule set calls
+`Engine::record_update_failure` and the count reaches `/metrics` as
+`alpendns_blocklist_update_failures_total`. The age alone was ambiguous: a growing age
+looks the same for a quiet list and for a broken updater; the counter separates them.
+The failing list is still named in the `error!` line.
 
-* **Step 6's counter is missing.** A failed update logs an `error!` line and nothing else;
-  the metric set has list age and entries but no failure counter, so the state is visible
-  only to someone reading the journal.
+One gap remains from the original step list:
+
 * **The interval is the minimum across lists, not per list**
   ([main.rs:348-355](../crates/alpendns/src/main.rs#L348-L355)): one list asking for six
   hours pulls every other list along with it. Step 5 asked for a per-list interval.
@@ -1139,8 +1142,8 @@ who has such a block today (B.8).
 6. **Item 2** (log rotation) — **done.**
 7. **Item 7** (config versioning) — **done:** (a) is built, (b) and (c) are decided in
    ADR-0024.
-8. **Item 3, step 6** — the update-failure counter is the one piece missing from an
-   otherwise built refresh scheduler. **3(a) and 3(b) are done.**
+8. **Item 3, step 6** — the update-failure counter. **Done.** 3(a), 3(b) and step 6
+   are in the tree; only the per-list interval from step 5 remains open.
 
 **Last or not at all:** item 9 (wizard), item 10 stage 3, and the search field from item
 8's recommended half (the block page itself was built).

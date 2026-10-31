@@ -380,6 +380,92 @@ async fn the_updater_fetches_once_right_after_start() {
     );
 }
 
+/// Ein fehlgeschlagener Abruf lässt den alten Regelstand stehen und wird gezählt.
+///
+/// Schritt 6 aus TODOS item 3: vorher stand der Ausfall nur im Journal, die
+/// Metrik zeigte nur Alter und Einträge. Ein wachsendes Alter allein ist
+/// mehrdeutig — es sieht genauso aus, wenn die Liste einfach ruhig ist.
+#[tokio::test]
+async fn a_failed_update_counts_and_keeps_the_old_rule_set() {
+    const REFRESH: Duration = Duration::from_secs(24 * 60 * 60);
+    const DEADLINE: Duration = Duration::from_secs(5);
+
+    let fake = http_fake(LIST_BODY, "\"v1\"").await;
+    // Der Server ist "weg": er nimmt die Verbindung an und schließt sie ohne
+    // Antwort. Der Loader hat keine Cache-Fassung, also scheitert der Abruf.
+    fake.down.store(true, Ordering::SeqCst);
+    let cache = TempDir::new("updater-failure");
+    let lists = Lists::new(
+        Loader::new(cache.path()).expect("Loader"),
+        vec![spec(
+            "block",
+            Source::Url(format!("http://{}/liste", fake.addr)),
+            Format::Hosts,
+        )],
+    );
+    let blueprint = Blueprint::new(
+        Vec::new(),
+        Arc::from("default"),
+        vec![PolicyBlueprint {
+            name: Arc::from("default"),
+            blocklists: vec![Arc::from("block")],
+            allowlists: Vec::new(),
+            regex: Arc::new(RegexRules::default()),
+            schedules: Vec::new(),
+        }],
+    );
+    let source = Arc::new(PolicySource::new(blueprint, lists));
+    // Der alte Stand ist leer; die neue Policy verweist auf eine Liste, die es
+    // nicht gibt. Genau dann bleibt der alte Stand in Kraft.
+    let engine = Arc::new(Engine::new(
+        Blueprint::new(Vec::new(), Arc::from("default"), Vec::new())
+            .build(&Default::default())
+            .expect("leerer Regelstand"),
+        0,
+        &BlockingConfig::default(),
+        Arc::new(TestClock::new()),
+        SystemWallClock,
+    ));
+    let filter = Arc::clone(&engine);
+
+    let shutdown = CancellationToken::new();
+    let running = tokio::spawn(run_updater(
+        engine,
+        source,
+        REFRESH,
+        Arc::new(Notify::new()),
+        shutdown.clone(),
+    ));
+
+    tokio::time::timeout(DEADLINE, fake.wait_for_requests(1))
+        .await
+        .expect("der Updater hat die Liste nicht abgerufen");
+    tokio::time::timeout(DEADLINE, async {
+        while filter.stats().update_failures == 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("der fehlgeschlagene Abruf wurde nicht gezählt");
+    assert_eq!(filter.stats().update_failures, 1);
+
+    // Der alte Stand gilt weiter: ohne die Liste blockt die Policy nichts.
+    let blocked = Name::from_ascii("ads.example.com.").expect("gültiger Name");
+    let peer = ctx().peer.ip();
+    let mut context = ctx();
+    assert_ne!(
+        filter.evaluate(&blocked, peer, &mut context),
+        Decision::Block,
+        "der fehlgeschlagene Abruf hat den Regelstand ersetzt"
+    );
+
+    shutdown.cancel();
+    tokio::time::timeout(DEADLINE, running)
+        .await
+        .expect("der Updater beendet sich nicht")
+        .expect("der Updater ist abgestürzt");
+}
+
 #[tokio::test]
 async fn the_second_load_gets_a_304_and_uses_the_cached_copy() {
     // Roadmap Schritt 8: kein erneutes Herunterladen, wenn sich nichts geändert hat.

@@ -377,6 +377,23 @@ pub fn render(snapshot: &Snapshot) -> String {
         );
     }
 
+    // Der Gegenpol zur Alterung: ein Alter, das nur wächst, ist mehrdeutig —
+    // eine ruhige Liste und ein kaputtes Nachladen sehen gleich aus. Erst
+    // dieser Zähler trennt beides.
+    let _ = writeln!(
+        out,
+        "# HELP alpendns_blocklist_update_failures_total Blocklist update cycles that kept the previous rule set"
+    );
+    let _ = writeln!(
+        out,
+        "# TYPE alpendns_blocklist_update_failures_total counter"
+    );
+    let _ = writeln!(
+        out,
+        "alpendns_blocklist_update_failures_total {}",
+        snapshot.policy.update_failures
+    );
+
     let _ = writeln!(
         out,
         "# HELP alpendns_upstream_queries_total Successful queries per upstream"
@@ -549,6 +566,7 @@ mod tests {
                 allowed: 3,
                 passed: 85,
                 entries: 79_747,
+                update_failures: 2,
             },
             upstreams: vec![UpstreamStats {
                 name: "quad9".to_owned(),
@@ -693,6 +711,7 @@ mod tests {
             "alpendns_lists{format=\"hosts\"} 2",
             "alpendns_lists{format=\"wildcard\"} 1",
             "alpendns_blocklist_age_seconds{list=\"ads\"} 3600",
+            "alpendns_blocklist_update_failures_total 2",
             "alpendns_blocked_by_reason_total{reason=\"blocklist\"} 9",
             "alpendns_blocked_by_reason_total{reason=\"other\"} 0",
             "alpendns_privacy_ecs_stripped_total 7",

@@ -216,6 +216,10 @@ struct Counters {
     blocked: AtomicU64,
     allowed: AtomicU64,
     passed: AtomicU64,
+    /// Wie oft ein Listen-Update den Regelstand nicht ersetzen konnte. Der
+    /// alte Stand gilt dann weiter (B.1 Regel 6); ohne diesen Zähler sähe man
+    /// das nur im Journal.
+    update_failures: AtomicU64,
 }
 
 /// Zähler über die Lebensdauer des Prozesses. Nur Summen, keine Namen.
@@ -226,6 +230,8 @@ pub struct PolicyStats {
     pub allowed: u64,
     pub passed: u64,
     pub entries: usize,
+    /// Update-Zyklen, die den vorigen Regelstand stehen ließen.
+    pub update_failures: u64,
 }
 
 /// Wertet Policies aus und beantwortet geblockte Anfragen selbst.
@@ -490,7 +496,17 @@ impl<C: Clock + Clone, W: WallClock> Engine<C, W> {
             allowed: self.counters.allowed.load(Ordering::Relaxed),
             passed: self.counters.passed.load(Ordering::Relaxed),
             entries: self.entries.load(Ordering::Relaxed),
+            update_failures: self.counters.update_failures.load(Ordering::Relaxed),
         }
+    }
+
+    /// Zählt einen Update-Zyklus, der den alten Regelstand stehen ließ.
+    ///
+    /// Aufgerufen vom [`run_updater`], nicht aus dem Anfragepfad.
+    pub fn record_update_failure(&self) {
+        self.counters
+            .update_failures
+            .fetch_add(1, Ordering::Relaxed);
     }
 }
 
@@ -725,13 +741,17 @@ pub async fn run_updater<C: Clock + Clone, W: WallClock>(
                     tracing::info!(entries, "lists updated");
                 }
                 Err(error) => {
+                    engine.record_update_failure();
                     tracing::error!(
                         %error,
                         "rule set cannot be built, the old one stays in effect"
                     );
                 }
             },
-            Err(error) => tracing::error!(%error, "update failed"),
+            Err(error) => {
+                engine.record_update_failure();
+                tracing::error!(%error, "update failed");
+            }
         }
     }
 }
