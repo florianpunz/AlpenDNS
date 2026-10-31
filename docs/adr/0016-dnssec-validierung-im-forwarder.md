@@ -2,6 +2,11 @@
 
 **Status:** accepted · **Date:** 2026-08-30 · **Concerns:** [ADR-0002](0002-hickory-proto-statt-eigenem-parser.md), [ADR-0003](0003-forwarder-first.md), [THREAT-MODEL.md](../THREAT-MODEL.md)
 
+**Update 2026-10-31:** The MSRV rose to 1.88 for the hickory 0.26.3
+dependencies, so the resolver picks `time` 0.3.55 and the RUSTSEC-2026-0009
+exception in `deny.toml` is removed. The reachability assessment below still
+stands; it is simply no longer needed.
+
 ## Context
 
 AlpenDNS is a forwarder. The answer comes from Quad9, Mullvad or whoever else,

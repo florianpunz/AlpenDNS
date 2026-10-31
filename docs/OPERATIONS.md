@@ -19,6 +19,9 @@ Linux program; other systems are not a target.
 
 ### Building the package
 
+Building from source needs Rust 1.88 or newer. On Debian 13 use `rustup`; the
+distribution's `rustc` is older. The prebuilt `.deb` needs no Rust toolchain.
+
 On a machine with a Rust toolchain, once:
 
 ```bash

@@ -213,10 +213,10 @@ impl OdohTransport {
         if self.privacy.strip_ecs {
             privacy::strip_ecs(&mut outbound);
         }
-        if self.privacy.padding {
-            if let Err(error) = privacy::pad_to_block(&mut outbound, privacy::PADDING_BLOCK) {
-                tracing::debug!(%error, "padding not possible");
-            }
+        if self.privacy.padding
+            && let Err(error) = privacy::pad_to_block(&mut outbound, privacy::PADDING_BLOCK)
+        {
+            tracing::debug!(%error, "padding not possible");
         }
 
         let wire = outbound

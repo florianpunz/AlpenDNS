@@ -586,7 +586,7 @@ async fn a_flooding_client_does_not_slow_down_the_others() {
             if socket.send(&packet("flut.example.", 1)).await.is_ok() {
                 sent += 1;
             }
-            if sent % 1000 == 0 {
+            if sent.is_multiple_of(1000) {
                 tokio::task::yield_now().await;
             }
         }

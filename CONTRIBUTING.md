@@ -55,13 +55,12 @@ Three steps, in this order:
 
 1. **Is the vulnerable path reachable from here?** The question is not "is the
    crate in the dependency tree" but "is the affected function called on a path
-   that touches data we do not control". The exception for `time` in
-   [`deny.toml`](deny.toml) is the pattern to copy: it names the crate, the
+   that touches data we do not control". An exception names the crate, the
    function, and why the two never meet here.
 2. **Reachable → fix it**, replacing the dependency if need be. Not reachable,
    or not fixable → an entry in `deny.toml` with a rationale **and a reversal
-   condition** — the one for `time` reads "falls away as soon as the MSRV rises
-   to 1.88".
+   condition** — a concrete event (a version, an MSRV, a removed feature) that
+   makes the exception unnecessary.
 3. **Every exception is read again on the next weekly failure.** An exception
    without a reversal condition is not an exception, it is a capitulation.
 

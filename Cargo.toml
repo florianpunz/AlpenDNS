@@ -5,7 +5,7 @@ members = ["crates/alpendns"]
 [workspace.package]
 version = "6.2.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 license = "AGPL-3.0-or-later"
 repository = "https://github.com/florianpunz/alpendns"
 # Zeigt auf die Demo, nicht auf das Repo: die ist für jemanden, der das Projekt
@@ -79,10 +79,9 @@ idna = "1.1"
 # landen beim selben Upstream. Die Liste ist einkompiliert — kein Netzabruf,
 # keine Laufzeitdatei, keine zweite Sorte Zustand (B.1 Regel 4).
 psl = "2.1"
-# Ortszeit mit korrekter Sommerzeit für Zeitpläne. Bewusst *nicht* `time`:
-# das steckt derzeit nur als dev-dependency im Baum, und genau darauf beruht die
-# Advisory-Ausnahme für RUSTSEC-2026-0009 in deny.toml. Als Produktionsabhängigkeit
-# wäre diese Begründung hinfällig.
+# Ortszeit mit korrekter Sommerzeit für Zeitpläne. `time` kommt über hickorys
+# DNSSEC-Feature ohnehin in den Produktionsbaum; jiff bleibt die direkte
+# Abhängigkeit für Zeitpläne.
 jiff = "0.2"
 # Regex-Regeln pro Policy. Die Engine ist endlich-automatenbasiert und kennt kein
 # Backtracking — katastrophale Laufzeiten sind damit ausgeschlossen, nicht nur
@@ -132,7 +131,7 @@ proptest = "1.11"
 rcgen = "0.14"
 # Nur für Tests: OffsetDateTime, um die Gültigkeitsspanne einer selbst
 # erzeugten RRSIG zu setzen (tests/dnssec.rs). Seit hickorys dnssec-Feature
-# liegt time ohnehin im Produktionsbaum, siehe deny.toml.
+# liegt time ohnehin im Produktionsbaum.
 time = { version = "0.3", default-features = false, features = ["std"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring"] }
 quinn = { version = "0.11", default-features = false, features = ["runtime-tokio", "rustls-ring"] }
