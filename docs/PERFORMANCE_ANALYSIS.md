@@ -40,7 +40,7 @@ cargo test --release --test load -- --ignored --nocapture --test-threads=1
 
 | # | Location | Problem | Solution | Measurement result | Effort |
 |---|---|---|---|---|---|
-| 1 | `server/mod.rs` `build_event` | builds `query_type`, `why` (Vec<String>), `findings` on **every** request, although `aggregate`/`none` discard them | materialise fields only when the log mode needs them | pending | M |
+| 1 | `server/mod.rs` `build_event` | builds `query_type`, `why` (Vec<String>), `findings` on **every** request, although `aggregate`/`none` discard them | materialise fields only when the log mode needs them | **measured 2026-10-31: −14 % q/s, rejected** | M |
 | 2 | `upstream/pool.rs` `is_down` | a `Mutex` lock per upstream per cache miss, although the value is written only on failure | `Mutex<Option<Instant>>` → `AtomicU64` (monotonic microseconds) | pending | S |
 | 3 | `policy/mod.rs` `resolve` | `asked` string (to_ascii + lowercase) on every request, needed only for the rebinding check | build it only when an answer detector is attached | pending | S |
 | 4 | `detect/dga/mod.rs` | `symbols`/`mean_surprise` allocate a Vec per label; labels are ≤ 63 characters | fixed-size stack buffer instead of a heap Vec | pending | S |
@@ -59,6 +59,17 @@ part of this analysis (see "Rejected approaches").
 ## The candidates in detail
 
 ### 1. `build_event` materialises name and reason in every log mode
+
+**Measured 2026-10-31 — rejected.** The mode-aware construction was implemented and
+compared with the same harness (`--test-threads=1`), two runs each side:
+
+| Corpus | before | after | change |
+|---|---:|---:|---:|
+| every query a new name | 41,330 / 42,468 q/s | 36,312 / 35,537 q/s | **−14 %** |
+| always the same name | 110,752 / 115,473 q/s | 103,943 / 108,230 q/s | **−6 %** |
+
+The expected saving did not materialise; the cause (likely lost inlining on the hot
+path) was not isolated. The candidate stays out until a version measures positive.
 
 **Current state.** [server/mod.rs:206–239](crates/alpendns/src/server/mod.rs#L206-L239)
 builds a `QueryEvent` for every answered request, and in it stand — always — `name`,

@@ -32,8 +32,13 @@ table, this table wins. Every row was checked against the code at HEAD `8f77b4a`
 | 10 | ~~`/api/lists` reports the startup entry counts~~ **resolved 2026-10-31** | The status reads the last successfully loaded `LoadedLists`, recorded by the updater after a successful swap | — | correctness |
 | 11 | Logging locks a global map per query (aggregate mode) | `logging/mod.rs:470-500`; the RCODE/block counters are atomic, the domain map is not | M (measure) | performance |
 | 12 | Pool health locks a mutex per upstream per miss | `upstream/pool.rs:47` | S (measure) | performance |
-| 13 | `build_event` materializes fields on every request | `server/mod.rs:223-253` | S (measure) | performance |
+| 13 | `build_event` materializes fields on every request | Measured 2026-10-31: a mode-aware build was **14 % slower** on the unique corpus; rejected and not merged | — | performance |
 | 14 | List reload is serial | `filter/mod.rs:84-116` | S (measure) | performance |
+
+**Measurement status (2026-10-31):** #13 was implemented and measured negative (−14 %
+q/s), so it was not merged. #11, #12 and #14 remain candidates for a dedicated
+`perf/*` session; the project rule is measure-before-merge and the load harness is the
+only accepted evidence.
 
 ### Accepted — by design, not defects
 
@@ -233,7 +238,10 @@ against a local peer, a systemd/`.deb` smoke test, and multi-question coverage (
 - Cause: `Mutex` where an atomic would do; violates the spirit of B.3 rule 5.
 - Improvement path: encode as `AtomicU64` monotonic microseconds, `0` = healthy (documented pending candidate 2 in `docs/PERFORMANCE_ANALYSIS.md`).
 
-**`build_event` materializes discarded fields on every request:**
+**`build_event` materializes discarded fields on every request — measured, rejected (2026-10-31):**
+- A mode-aware build was implemented and measured with `tests/load.rs`: 41,330/42,468 q/s
+  before versus 36,312/35,537 q/s after on the unique corpus (−14 %). Cause not
+  isolated; the change stays out. See `docs/PERFORMANCE_ANALYSIS.md` candidate 1.
 - Problem: `crates/alpendns/src/server/mod.rs:223-252` builds `query_type`, `why` (a `Vec<String>`, one `format!` per trace step) and `findings` on every request, then `aggregate`/`none` discard them.
 - Files: `crates/alpendns/src/server/mod.rs`, `crates/alpendns/src/trace.rs`
 - Cause: one `QueryEvent` shape regardless of log mode.
