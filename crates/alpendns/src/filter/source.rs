@@ -162,6 +162,10 @@ impl Loader {
         install_crypto_provider();
         let client = reqwest::Client::builder()
             .timeout(DOWNLOAD_TIMEOUT)
+            // Drei Umleitungen reichen für die üblichen Umzüge einer Liste;
+            // unbegrenzt könnte eine kompromittierte Herkunft den Abruf in
+            // beliebige Netze schicken (CONCERNS.md, Triage #9).
+            .redirect(reqwest::redirect::Policy::limited(3))
             .user_agent(concat!("alpendns/", env!("CARGO_PKG_VERSION")))
             .build()
             .map_err(|e| LoadError::Client(e.to_string()))?;

@@ -28,7 +28,7 @@ table, this table wins. Every row was checked against the code at HEAD `8f77b4a`
 | 6 | ~~UDP spawns an unbounded task per packet~~ **resolved 2026-10-31** | `server.max_inflight` bounds all UDP listeners with one semaphore; saturation drops the datagram | — | DoS |
 | 7 | ~~UI responses carry no security headers~~ **resolved 2026-10-31** | CSP (no inline), `nosniff`, `X-Frame-Options: DENY` and `Referrer-Policy` on API and UI; the theme script moved to `/theme.js` | — | security |
 | 8 | ~~Bearer token in `?token=`~~ **URL half resolved 2026-10-31**; `localStorage` remains a decision | The SSE stream uses `fetch` with the Authorization header; the API no longer reads a query token | — / M | security |
-| 9 | Blocklist downloads follow redirects unrestricted | `filter/source.rs:163` uses the default redirect policy | S | security |
+| 9 | ~~Blocklist downloads follow redirects unrestricted~~ **resolved 2026-10-31** | The HTTP client is limited to three redirects | — | security |
 | 10 | `/api/lists` reports the startup entry counts | `Runtime.lists` is the startup set; only the age is live | S | correctness |
 | 11 | Logging locks a global map per query (aggregate mode) | `logging/mod.rs:470-500`; the RCODE/block counters are atomic, the domain map is not | M (measure) | performance |
 | 12 | Pool health locks a mutex per upstream per miss | `upstream/pool.rs:47` | S (measure) | performance |
@@ -180,7 +180,9 @@ against a local peer, a systemd/`.deb` smoke test, and multi-question coverage (
 - Current mitigation: no external resources, no `innerHTML`, CSP absent but UI is same-origin and offline; tokens are per-client grants capped at 24 h (`MAX_GRANT`).
 - Recommendations: use a cookie with `HttpOnly`/`SameSite=Strict`, or at least keep the token out of the URL by using a header for SSE via a fetch-based stream. Add `Referrer-Policy` regardless.
 
-**Blocklist downloads follow redirects without restriction:**
+**Blocklist downloads follow redirects without restriction — resolved (2026-10-31):**
+- The download client is limited to three redirects. The final URL is still not
+  logged; the list name remains the log label.
 - Risk: `reqwest::Client::builder().timeout(DOWNLOAD_TIMEOUT)` in `crates/alpendns/src/filter/source.rs:163` uses the default redirect policy. A configured list URL can redirect to an arbitrary host, and the final URL is not checked. This is admin-controlled, so the honest risk is a compromised list host redirecting to an internal service (SSRF) or serving oversized/changed content.
 - Files: `crates/alpendns/src/filter/source.rs`
 - Current mitigation: `MAX_LIST_BYTES = 64 MiB` via `read_limited`, per-list URL is explicit, HTTPS expected.
