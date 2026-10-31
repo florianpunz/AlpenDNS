@@ -45,3 +45,6 @@
 # kommen, steht in docs/TESTING.md.
 /corpus/
 .claude/
+
+# GSD planning workspace — local state, not product
+/.planning/
