@@ -41,7 +41,7 @@ cargo test --release --test load -- --ignored --nocapture --test-threads=1
 | # | Location | Problem | Solution | Measurement result | Effort |
 |---|---|---|---|---|---|
 | 1 | `server/mod.rs` `build_event` | builds `query_type`, `why` (Vec<String>), `findings` on **every** request, although `aggregate`/`none` discard them | materialise fields only when the log mode needs them | **measured 2026-10-31: −14 % q/s, rejected** | M |
-| 2 | `upstream/pool.rs` `is_down` | a `Mutex` lock per upstream per cache miss, although the value is written only on failure | `Mutex<Option<Instant>>` → `AtomicU64` (monotonic microseconds) | pending | S |
+| 2 | `upstream/pool.rs` `is_down` | a `Mutex` lock per upstream per cache miss, although the value is written only on failure | `Mutex<Option<Instant>>` → `AtomicU64` (monotonic microseconds) | **superseded by #9: measured 2026-10-31, rejected** | S |
 | 3 | `policy/mod.rs` `resolve` | `asked` string (to_ascii + lowercase) on every request, needed only for the rebinding check | build it only when an answer detector is attached | pending | S |
 | 4 | `detect/dga/mod.rs` | `symbols`/`mean_surprise` allocate a Vec per label; labels are ≤ 63 characters | fixed-size stack buffer instead of a heap Vec | pending | S |
 | 5 | `upstream/strategy.rs` `registrable_domain` | PSL lookup + up to three string allocations per cache miss | hash the registrable domain without the last `to_owned()` | measured: no benefit (`load.rs` has no pool; the load binary is byte-identical) | S |
