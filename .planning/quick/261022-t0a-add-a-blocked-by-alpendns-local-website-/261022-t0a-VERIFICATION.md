@@ -1,7 +1,7 @@
 ---
 phase: 261022-t0a
 verified: 2026-10-22T19:59:12Z
-status: human_needed
+status: passed
 score: 8/8 must-haves verified
 covered_files: [".planning/quick/261022-t0a-add-a-blocked-by-alpendns-local-website-/261022-t0a-PLAN.md", ".planning/quick/261022-t0a-add-a-blocked-by-alpendns-local-website-/261022-t0a-SUMMARY.md", "config/alpendns.example.toml", "crates/alpendns/src/api/block_page.rs", "crates/alpendns/src/api/mod.rs", "crates/alpendns/src/api/ui.rs", "crates/alpendns/src/config.rs", "crates/alpendns/src/main.rs", "crates/alpendns/src/policy/mod.rs", "docs/OPERATIONS.md", "packaging/alpendns.toml", "web/blocked.html"]
 covered_digest: "v3:sha256:8b94c9a681668f44e5924824e687688f9c85eb35deb1321eea5209a5167aacdd"
@@ -128,6 +128,13 @@ Manual cross-check of the five locked decisions in `261022-t0a-CONTEXT.md`: own 
    **Test:** Request a very long (up to 253-byte) name on the same listener, then an unblocked name.
    **Expected:** The long name wraps inside the panel and the page does not scroll horizontally; the neutral page shows "No blocklist entry applies to this name." and its tab title does not say "Blocked".
    **Why human:** Wrapping and the absence of a scrollbar are browser layout outcomes; the test only asserts the CSS declaration and the title string.
+
+### Human Verification Result
+
+Approved by the maintainer on 2026-10-31. The blocked page (list and rule
+variants), the neutral page and the dark variant were reviewed in a browser and
+accepted; the neutral tab title does not claim a block and a long name wraps
+inside the panel. Both visual checks above are thereby closed.
 
 ### Gaps Summary
 
