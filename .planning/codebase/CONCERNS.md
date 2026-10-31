@@ -8,7 +8,63 @@ last_mapped_at: 2026-10-20
 
 **Partly reconciled 2026-10-31:** per-list `refresh` is accepted behaviour by decision
 (not a gap); forward-zone failover is built (TODOS item 13, ADR-0030) and is no longer
-missing. The remaining entries were not re-verified against the current tree.
+missing. The remaining entries were re-verified against HEAD `8f77b4a` in the triage
+below.
+
+## Triage (2026-10-31)
+
+The detailed sections below are the 2026-10-20 analysis; where they disagree with this
+table, this table wins. Every row was checked against the code at HEAD `8f77b4a`.
+
+### Confirmed — fix candidates, in order
+
+| # | Concern | Evidence at 2026-10-31 | Effort | Why |
+|---|---|---|---|---|
+| 1 | Example config does not load | `alpendns check` fails at line 316 (`doh_token`); `max_inflight` and `edns.padding` are also absent from the parser | S | B.1.5 |
+| 2 | `refresh = "0s"` reaches `tokio::time::interval` | `ListConfig.refresh` has no validation; tokio asserts `period > 0` | S | B.1.5 |
+| 3 | Reload swaps two `ArcSwap`s non-atomically | `reload.rs` stores the blueprint, then the lists | M | fail-closed |
+| 4 | Multi-question queries are truncated | `server/mod.rs:193` rejects only `queries.is_empty()` | S | correctness |
+| 5 | `forward_zone` targets are not checked to be on the LAN | validation rejects only encrypted transports and exact duplicates | S | B.1.7 |
+| 6 | UDP spawns an unbounded task per packet | `server/udp.rs:50`; `max_inflight` is not implemented | M | DoS |
+| 7 | UI responses carry no security headers | `api/ui.rs` sets only `Content-Type` and `Cache-Control` | S | security |
+| 8 | Bearer token in `localStorage` and `?token=` | `web/app.js:43,870`; the API accepts the query parameter | M, needs a decision | security |
+| 9 | Blocklist downloads follow redirects unrestricted | `filter/source.rs:163` uses the default redirect policy | S | security |
+| 10 | `/api/lists` reports the startup entry counts | `Runtime.lists` is the startup set; only the age is live | S | correctness |
+| 11 | Logging locks a global map per query (aggregate mode) | `logging/mod.rs:470-500`; the RCODE/block counters are atomic, the domain map is not | M (measure) | performance |
+| 12 | Pool health locks a mutex per upstream per miss | `upstream/pool.rs:47` | S (measure) | performance |
+| 13 | `build_event` materializes fields on every request | `server/mod.rs:223-253` | S (measure) | performance |
+| 14 | List reload is serial | `filter/mod.rs:84-116` | S (measure) | performance |
+
+### Accepted — by design, not defects
+
+- Temporary grants are volatile (`policy/temporary.rs`) — documented behaviour.
+- Detector cost of roughly 10 % — ADR-0019; the reversal condition is recorded.
+- Log buffering can lose up to one flush interval on a crash — throughput trade-off.
+- `expect()` is fatal only in CI — the CI flag is the enforcement point.
+- Cleartext client-facing DNS — v1 scope; encrypted client listeners are not built.
+- Large modules (`config.rs` 2,657 lines, `main.rs` 1,587 lines) — B.3 defers the split.
+
+### Stale — corrected in this file
+
+- RFC 6303 built-in zones: built 2026-10-22 (ADR-0032, TODOS item 11).
+- Forward-zone failover: built (ADR-0030, TODOS item 13).
+- Block page: built and visually approved (quick task 261022-t0a).
+- Configuration wizard and two-instance plan: discarded 2026-10-31.
+- Per-list `refresh`: accepted behaviour by decision 2026-10-31.
+
+### External — no action until upstream
+
+- TSIG panic — fixed only in `hickory-proto` 0.27 (ADR-0006; current is 0.26.3).
+- False `Bogus` on CNAME→NODATA — upstream PR #3595 (ADR-0028).
+- RUSTSEC-2026-0009 (`time` 0.3.45) — documented exception; removable at MSRV 1.88.
+- NRD detector — unevaluated, needs AlpenShield data.
+
+### Test gaps
+
+High priority and addressed first: the shipped example has no parse test, and zero
+durations are unvalidated. Still open after that: fuzz seeds, reload interleaving
+(fix 3), encrypted transports against a local peer, a systemd/`.deb` smoke test, and
+multi-question coverage (fix 4).
 
 ## Tech Debt
 
@@ -244,7 +300,7 @@ missing. The remaining entries were not re-verified against the current tree.
 
 ## Dependencies at Risk
 
-**`hickory-proto` / `hickory-net` 0.26.1:**
+**`hickory-proto` / `hickory-net` 0.26.3:**
 - Risk: TSIG panic with overflow checks and false `Bogus` on CNAME→NODATA (ADR-0028). Fixes are only in 0.27 alpha.
 - Impact: the known crash and ~1 % SERVFAILs; upgrading to 0.27 will be a breaking change.
 - Migration plan: track hickory releases, run the fuzz corpus and DNSSEC integration tests on the bump, and drop `known-crashes/` only when a stable release contains the fix.
@@ -275,17 +331,16 @@ missing. The remaining entries were not re-verified against the current tree.
 - Problem: the server only listens on UDP/TCP; `[server.doh]`, `[server.dot]`, `[server.doq]` in the example config are aspirational/marked `[PHASE 3+]`.
 - Blocks: private DNS on the client side; any deployment where the LAN is not trusted.
 
-**RFC 6303 built-in local zones:**
-- Problem: no built-in defaults for `localhost`, reverse zones, etc.; every deployment must configure them (TODOS item 11, ADR-0029).
-- Blocks: safe out-of-the-box behavior and correct handling of private reverse lookups.
+**RFC 6303 built-in local zones — resolved (2026-10-22).**
+- Built: the private reverse zones are answered locally (ADR-0032, TODOS item 11).
 
-**Forward-zone failover:**
-- Problem: `ForwardZone` has one `upstream` (`crates/alpendns/src/config.rs:775`); TODOS item 13 is open.
-- Blocks: resilience for the LAN forward path; a dead domain controller takes the zone down.
+**Forward-zone failover — resolved (2026-10-22).**
+- Built: `upstream` accepts a list of servers; `resolve::Failover` asks the next one (ADR-0030, TODOS item 13).
 
-**Operational features from the roadmap backlog:**
-- Problem: block page (TODOS 8), config wizard (TODOS 9), two-instance resilience (TODOS 10), config version/aliases (TODOS 7b) are not implemented.
-- Blocks: user-friendly blocking, guided setup, safe blue/green upgrades, and backward-compatible config evolution.
+**Operational features from the roadmap backlog — partly resolved.**
+- Block page: built and approved (quick task 261022-t0a).
+- Configuration wizard (TODOS 9) and two-instance resilience (TODOS 10): **discarded** on 2026-10-31.
+- Config version/aliases (TODOS 7b): still not implemented; the alias approach is decided in ADR-0024.
 
 **Documented-but-unimplemented config knobs:**
 - Problem: `max_inflight`, EDNS `padding`, and `doh_token` client matching exist only in `config/alpendns.example.toml`.
