@@ -30,15 +30,15 @@ table, this table wins. Every row was checked against the code at HEAD `8f77b4a`
 | 8 | ~~Bearer token in `?token=`~~ **URL half resolved 2026-10-31**; `localStorage` remains a decision | The SSE stream uses `fetch` with the Authorization header; the API no longer reads a query token | — / M | security |
 | 9 | ~~Blocklist downloads follow redirects unrestricted~~ **resolved 2026-10-31** | The HTTP client is limited to three redirects | — | security |
 | 10 | ~~`/api/lists` reports the startup entry counts~~ **resolved 2026-10-31** | The status reads the last successfully loaded `LoadedLists`, recorded by the updater after a successful swap | — | correctness |
-| 11 | Logging locks a global map per query (aggregate mode) | `logging/mod.rs:470-500`; the RCODE/block counters are atomic, the domain map is not | M (measure) | performance |
+| 11 | Logging locks a global map per query (aggregate mode) | Measured 2026-10-31: sharding gave 0 % unique / +4 % repeated (inside the ±3.6 % noise floor); rejected and not merged | — | performance |
 | 12 | Pool health locks a mutex per upstream per miss | `upstream/pool.rs:47` | S (measure) | performance |
 | 13 | `build_event` materializes fields on every request | Measured 2026-10-31: a mode-aware build was **14 % slower** on the unique corpus; rejected and not merged | — | performance |
 | 14 | List reload is serial | `filter/mod.rs:84-116` | S (measure) | performance |
 
-**Measurement status (2026-10-31):** #13 was implemented and measured negative (−14 %
-q/s), so it was not merged. #11, #12 and #14 remain candidates for a dedicated
-`perf/*` session; the project rule is measure-before-merge and the load harness is the
-only accepted evidence.
+**Measurement status (2026-10-31):** #11 (counter sharding) and #13 (`build_event`)
+were implemented and measured neutral or negative; both were rejected. #12 and #14
+remain candidates for a dedicated `perf/*` session; the project rule is
+measure-before-merge and the load harness is the only accepted evidence.
 
 ### Accepted — by design, not defects
 
@@ -217,7 +217,10 @@ against a local peer, a systemd/`.deb` smoke test, and multi-question coverage (
 
 ## Performance Bottlenecks
 
-**Logging takes global mutexes on every request:**
+**Logging takes global mutexes on every request — measured, rejected (2026-10-31):**
+- The exact counter table was sharded 16 ways and compared over ten runs: 0 % on the
+  unique corpus, +4 % on the repeated one — inside the ±3.6 % noise floor, with
+  overlapping ranges. The change was reverted. The table stays one mutex.
 - Problem: in `aggregate` mode `QueryLog::record` locks `counts: Mutex<Counts>` for every query (`crates/alpendns/src/logging/mod.rs:373,464-485`); `reportable` and `ring` are also global mutexes (`logging/mod.rs:376-377`). At the measured 84k q/s this is the main serialization point.
 - Files: `crates/alpendns/src/logging/mod.rs`, `crates/alpendns/src/logging/counts.rs`
 - Cause: one shared counter map; `Counts` is bounded at `MAX_TRACKED = 200_000`, but the lock itself is per request.

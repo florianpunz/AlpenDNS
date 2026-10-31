@@ -46,6 +46,7 @@ cargo test --release --test load -- --ignored --nocapture --test-threads=1
 | 4 | `detect/dga/mod.rs` | `symbols`/`mean_surprise` allocate a Vec per label; labels are ≤ 63 characters | fixed-size stack buffer instead of a heap Vec | pending | S |
 | 5 | `upstream/strategy.rs` `registrable_domain` | PSL lookup + up to three string allocations per cache miss | hash the registrable domain without the last `to_owned()` | measured: no benefit (`load.rs` has no pool; the load binary is byte-identical) | S |
 | 6 | `detect/typosquat.rs` `embeds` | `format!(".{protected}")` three times per entry per request | compute it once when the detector is built | measured: no benefit (+6.3 % q/s with detectors, inside a ±3.6 % noise floor) | S |
+| 7 | `logging/counts.rs` | the whole exact counter table behind one mutex, locked on every query | shard the table by the salted hash | **measured 2026-10-31: 0 % unique, +4 % repeated — inside the noise floor, rejected** | M |
 | — | detectors, total | run on every allow request | **none** — an accepted price, see below | **measured: ~10 %** | — |
 | — | tunneling mutex | a global mutex per request | **none for now** — reversal condition documented | **measured: part of the 10 %** | — |
 | — | cache hit `with_ttl` | deep clone of the answer per hit | **none** — the price of the hit | **measured: p50 18.8 µs** | — |
@@ -53,6 +54,22 @@ cargo test --release --test load -- --ignored --nocapture --test-threads=1
 The last three rows are **not candidates** — they are in the table because they are
 the loudest things in the hot path, and the decision to leave them as they are is
 part of this analysis (see "Rejected approaches").
+
+### 7. `logging/counts.rs` — sharded counter table
+
+**Measured 2026-10-31 — rejected.** One mutex around the whole table serialises
+every query, so sharding it 16 ways by the salted hash looked promising. Four
+sharded runs against six baseline runs, medians:
+
+| Corpus | baseline | sharded | change |
+|---|---:|---:|---:|
+| every query a new name | 45,567 q/s | 45,606 q/s | **0 %** |
+| always the same name | 124,191 q/s | 129,498 q/s | **+4 %** |
+
+The ranges overlap and +4 % sits inside the ±3.6 % noise floor; the unique corpus
+shows nothing. The added shard bookkeeping and the global cap do not pay for
+themselves, so the table stays as it is.
+
 
 ---
 
