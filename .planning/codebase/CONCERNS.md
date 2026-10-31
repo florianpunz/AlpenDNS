@@ -6,6 +6,10 @@ last_mapped_at: 2026-10-20
 
 **Analysis Date:** 2026-10-20
 
+**Partly reconciled 2026-10-31:** per-list `refresh` is accepted behaviour by decision
+(not a gap); forward-zone failover is built (TODOS item 13, ADR-0030) and is no longer
+missing. The remaining entries were not re-verified against the current tree.
+
 ## Tech Debt
 
 **Example configuration drifts from the parser and does not load:**
@@ -19,6 +23,7 @@ last_mapped_at: 2026-10-20
 - Files: `crates/alpendns/src/config.rs:441-460`, `crates/alpendns/src/filter/source.rs`, `crates/alpendns/src/main.rs:340-347`, `crates/alpendns/src/policy/mod.rs:572-611`
 - Impact: the configuration suggests per-list scheduling that does not exist; one fast list forces every list to be re-fetched at that cadence (or one slow list delays the rest). Silent misconfiguration, not an error.
 - Fix approach: either implement per-list scheduling (one task/interval per spec) or reject a per-list `refresh` that differs from the global one with a clear message.
+- Decision (2026-10-31): **not planned.** The minimum across all lists is the documented behaviour; a per-list schedule is discarded (`docs/TODOS.md` item 3, step 5).
 
 **`refresh = "0s"` is accepted and panics the updater:**
 - Issue: no validation of `ListConfig.refresh` in `Config::validate` (`crates/alpendns/src/config.rs`). `run_updater` passes `interval` straight to `tokio::time::interval` (`policy/mod.rs:579`), and tokio asserts `period > Duration::ZERO` (`tokio-1.53.1/src/time/interval.rs:74`). Confirmed by reading the vendored registry source.
@@ -79,7 +84,7 @@ last_mapped_at: 2026-10-20
 - Fix approach: return `FormErr` for `queries.len() != 1`, and add a test with QDCOUNT=2.
 
 **Forward targets are not checked to be on the LAN:**
-- Issue: `ForwardZone` (`crates/alpendns/src/config.rs:775`) holds a single `upstream`, and validation only rejects exact local/forward duplicates. It does not verify that a cleartext `forward_zone` target is a private/LAN address, although B.1 rule 7 permits cleartext only "into your own LAN". ADR-0029 also notes a forwarding loop (DC → AlpenDNS → DC) is possible.
+- Issue: `ForwardZone` holds its upstream server(s), and validation only rejects exact local/forward duplicates. It does not verify that a cleartext `forward_zone` target is a private/LAN address, although B.1 rule 7 permits cleartext only "into your own LAN". ADR-0029 also notes a forwarding loop (DC → AlpenDNS → DC) is possible.
 - Files: `crates/alpendns/src/config.rs`, `docs/adr/0029-nested-forward-zone.md`
 - Impact: a URL such as `udp://8.8.8.8` in a `forward_zone` would send cleartext DNS to the public internet, contrary to the stated security rule. Also, a misconfigured loop can generate unbounded upstream traffic.
 - Fix approach: validate that `forward_zone` upstreams resolve to loopback/private/link-local addresses (and document the loop risk), or require an explicit opt-in flag.
@@ -188,7 +193,7 @@ last_mapped_at: 2026-10-20
 
 **`forward_zone` handling:**
 - Files: `crates/alpendns/src/config.rs:775`, `crates/alpendns/src/zone.rs`/`ZoneRouter`, `crates/alpendns/src/upstream/`
-- Why fragile: a single upstream per forward zone (no failover, TODOS item 13), no LAN-address validation, and nested zone precedence across local/forward (ADR-0029) depends on the `LocalBackend` table carrying the forward names.
+- Why fragile: no LAN-address validation of forward targets, and nested zone precedence across local/forward (ADR-0029) depends on the `LocalBackend` table carrying the forward names. Failover is built (TODOS item 13, ADR-0030); the earlier note that it was missing is obsolete.
 - Safe modification: add failover as a list of upstreams with the same validation as pools; test nesting (local deeper than forward, forward deeper than local).
 - Test coverage: precedence is tested (ADR-0029); failover and loop prevention are not.
 

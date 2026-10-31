@@ -1,10 +1,11 @@
 # ADR-0025: Rebinding detector switches to block
 
-**Status:** proposed · **Date:** 2026-10-16 · **Affects:** phase 8 acceptance, detector defaults
+**Status:** rejected · **Date:** 2026-10-16 · **Decided:** 2026-10-31 · **Affects:** phase 8 acceptance, detector defaults
 
-> **Proposed, not decided.** The code default stays `flag` (ADR-0019). The
-> decision is made by the maintainer after the false-positive review of the
-> observation period; until then this document is a proposal.
+> **Rejected on 2026-10-31.** The maintainer decided on 2026-10-22 that all five
+> detectors stay on `flag` ([ROADMAP.md](../ROADMAP.md) phase 8); rebinding's
+> false alarms are handled by `allow_zones`. A switch to `block` remains a
+> separate, later decision per detector (CLAUDE.md B.8).
 
 ## Context
 

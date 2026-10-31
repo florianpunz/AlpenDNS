@@ -333,11 +333,11 @@ the old set and lets the age grow (B.1 rule 6). It was wired in phase 5
 looks the same for a quiet list and for a broken updater; the counter separates them.
 The failing list is still named in the `error!` line.
 
-One gap remains from the original step list:
+The only remaining gap from the original step list is closed by decision:
 
-* **The interval is the minimum across lists, not per list**
-  ([main.rs:348-355](../crates/alpendns/src/main.rs#L348-L355)): one list asking for six
-  hours pulls every other list along with it. Step 5 asked for a per-list interval.
+* **The interval is the minimum across lists, not per list** — **discarded
+  (2026-10-31).** One list asking for six hours pulls every other list along with
+  it; the minimum is the documented behaviour. A per-list schedule is not planned.
 
 **Effort:** (a) S, half an evening. (b) M, one to two evenings, plus an ADR.
 **Priority:** (a) low, (b) medium — a blocklist that is never updated is the quiet failure
@@ -633,7 +633,7 @@ finds nothing, and that is correct, not a gap.
 
 ---
 
-## 8. Block page — done: the page was built, not the search field
+## 8. Block page — done: the page was built; the search field is discarded (2026-10-31)
 
 > When a website is on a blocklist → a nice block page from the DNS server ("Diese Seite
 > wurde blockiert weil…")
@@ -699,7 +699,9 @@ third listener on port 80, HTTP only, `api/block_page.rs`, `web/blocked.html`, `
 on the response. The certificate caveat this section insists on is not buried: it stands
 in [OPERATIONS.md](OPERATIONS.md) under "A page for blocked names", together with the
 IPv4-only and HTTP-only limits. Steps 1 and 2 of the recommended half were never built —
-`explain` is still reachable only by clicking a log row.
+`explain` is still reachable only by clicking a log row. **Discarded (2026-10-31):** the
+search field will not be built; the combined sinkhole/rebinding test from step 3 is not
+planned either — the exemption holds structurally.
 
 Step 3 (the rebinding exemption) holds structurally: a blocked name returns from
 `block_response` before the answer ever reaches `inspect_answer`
@@ -1152,11 +1154,10 @@ who has such a block today (B.8).
 7. **Item 7** (config versioning) — **done:** (a) is built, (b) and (c) are decided in
    ADR-0024.
 8. **Item 3, step 6** — the update-failure counter. **Done.** 3(a), 3(b) and step 6
-   are in the tree; only the per-list interval from step 5 remains open.
+   are in the tree; the per-list interval from step 5 is discarded (2026-10-31).
 
-**Last or not at all:** the search field from item 8's recommended half (the block page
-itself was built). Item 9 (wizard) and item 10 (two instances) are discarded
-(2026-10-31).
+**Discarded (2026-10-31):** the search field from item 8's recommended half, item 9
+(wizard) and item 10 (two instances). The block page itself was built.
 
 **What is done together:**
 

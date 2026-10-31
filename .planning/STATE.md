@@ -88,8 +88,10 @@ Recent decisions affecting current work:
 - Phase 8: accepted 2026-10-22; NRD remains unevaluated without data from
   AlpenShield, and the decision on ADR-0025/ADR-0026 stays proposed.
 - Phase 10: closed 2026-10-31. Item 3 finished; the configuration wizard
-  (item 9) and the two-instance plan (item 10) are discarded. The remaining
-  bullets in `docs/ROADMAP.md` phase 10 are optional and not planned for v1.
+  (item 9) and the two-instance plan (item 10) are discarded. The two remaining
+  TODOS gaps — per-list `refresh` (item 3, step 5) and the block-page search
+  field (item 8) — are discarded as well. The remaining bullets in
+  `docs/ROADMAP.md` phase 10 are optional and not planned for v1.
 
 ### Blockers/Concerns
 
@@ -127,10 +129,10 @@ Items acknowledged and deferred, most recent first:
 | Category | Item | Status | Deferred At | Milestone |
 |----------|------|--------|-------------|-----------|
 | Scope | Encrypted client listeners (DoT/DoH/DoQ) | Not implemented; client traffic is cleartext UDP/TCP | Pre-GSD | v1 |
-| Scope | Forward-zone failover | Open (TODOS item 13) | Pre-GSD | v1 |
+| Scope | Forward-zone failover | Done 2026-10-22 (ADR-0030, TODOS item 13) | Pre-GSD | v1 |
 | Scope | RFC 6303 built-in local zones | Done 2026-10-22 (ADR-0032, quick task 261022-s4q) | Pre-GSD | v1 |
 | Scope | Recursion, DDR/DNR, blocklist diff review, local-zone build-out, own parser as learning project | Optional, not planned for v1 | 2026-10-20 | Phase 10 (closed) |
-| Config | Per-list `refresh` is honoured only as the minimum across all lists; `max_inflight`, EDNS `padding`, `doh_token` are documented but unimplemented | Open (CONCERNS.md) | Pre-GSD | unassigned |
+| Config | Per-list `refresh` is honoured only as the minimum across all lists — accepted 2026-10-31, a per-list schedule is not planned; `max_inflight`, EDNS `padding`, `doh_token` are documented but unimplemented | Open (CONCERNS.md) | Pre-GSD | unassigned |
 
 ## Session Continuity
 

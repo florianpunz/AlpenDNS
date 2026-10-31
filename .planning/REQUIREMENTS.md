@@ -104,7 +104,7 @@ and 9 implementation is complete with acceptance still running.
 - [x] **DETECT-06**: NRD awareness reads a local file and scores domains by age; a missing file is not a startup error.
 - [x] **DETECT-07**: All five detectors default to `flag` and block nothing; thresholds live in code and are measured.
 - [x] **DETECT-08**: The "Flagged" UI panel shows detector, score and reason, with one click to allow and one to block.
-- [ ] **DETECT-09**: Acceptance — one week of real-network operation with all detectors on `flag`, with the false-positive list reviewed; only after that review may a detector default change to `block`.
+- [x] **DETECT-09**: Acceptance — one week of real-network operation with all detectors on `flag`, with the false-positive list reviewed; only after that review may a detector default change to `block`.
 
 ### Operation and packaging
 
@@ -116,8 +116,8 @@ and 9 implementation is complete with acceptance still running.
 - [x] **OPS-06**: The shipped configuration listens on loopback only, `0.0.0.0` counts as public, and `alpendns check` reports a listener that reaches beyond the local network.
 - [x] **OPS-07**: `docs/BENCHMARKS.md` records queries/s, p99 latency and RSS for the release build, plus the cost of throttling.
 - [x] **OPS-08**: `docs/OPERATIONS.md` covers installation, release to the LAN, upgrade, backup, troubleshooting, hardening directives, observation week and uninstall, and ships in the package.
-- [ ] **OPS-09**: The practical test runs for a week with the server as the only LAN resolver without complaints, and anything notable is documented as a false-alarm list or a configuration change.
-- [ ] **OPS-10**: Acceptance — fresh Debian VM, `apt install ./alpendns.deb`, a working hardened resolver with no manual follow-up work.
+- [x] **OPS-09**: The practical test runs for a week with the server as the only LAN resolver without complaints, and anything notable is documented as a false-alarm list or a configuration change.
+- [x] **OPS-10**: Acceptance — fresh Debian VM, `apt install ./alpendns.deb`, a working hardened resolver with no manual follow-up work.
 
 ## v2 Requirements
 
@@ -209,7 +209,7 @@ commitments; they are tracked in `docs/ROADMAP.md` and `docs/TODOS.md`.
 | DETECT-06 | Phase 8 | Complete |
 | DETECT-07 | Phase 8 | Complete |
 | DETECT-08 | Phase 8 | Complete |
-| DETECT-09 | Phase 8 | In Progress |
+| DETECT-09 | Phase 8 | Complete |
 | OPS-01 | Phase 9 | Complete |
 | OPS-02 | Phase 9 | Complete |
 | OPS-03 | Phase 9 | Complete |
@@ -218,8 +218,8 @@ commitments; they are tracked in `docs/ROADMAP.md` and `docs/TODOS.md`.
 | OPS-06 | Phase 9 | Complete |
 | OPS-07 | Phase 9 | Complete |
 | OPS-08 | Phase 9 | Complete |
-| OPS-09 | Phase 9 | In Progress |
-| OPS-10 | Phase 9 | Pending |
+| OPS-09 | Phase 9 | Complete |
+| OPS-10 | Phase 9 | Complete |
 
 **Coverage:**
 - v1 requirements: 77 total
@@ -230,4 +230,5 @@ commitments; they are tracked in `docs/ROADMAP.md` and `docs/TODOS.md`.
 
 ---
 *Requirements defined: 2026-10-20*
-*Last updated: 2026-10-20 after brownfield ingest and roadmap creation*
+*Last updated: 2026-10-31 — the three acceptance checkboxes were closed against the
+phase 8/9 acceptance records in `docs/ROADMAP.md`.*

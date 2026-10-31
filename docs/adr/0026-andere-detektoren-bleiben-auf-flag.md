@@ -1,10 +1,11 @@
 # ADR-0026: DGA, tunneling, typosquat, NRD stay on flag
 
-**Status:** proposed · **Date:** 2026-10-16 · **Affects:** phase 8 acceptance, detector defaults
+**Status:** accepted · **Date:** 2026-10-16 · **Decided:** 2026-10-31 · **Affects:** phase 8 acceptance, detector defaults
 
-> **Proposed, not decided.** The code default stays `flag` (ADR-0019). The
-> decision is made by the maintainer after the false-positive review of the
-> observation period; until then this document is a proposal.
+> **Accepted on 2026-10-31.** The decision of 2026-10-22
+> ([ROADMAP.md](../ROADMAP.md) phase 8) keeps all five detectors on `flag`.
+> Rebinding stayed on `flag` as well; [ADR-0025](0025-rebinding-auf-block.md)
+> was rejected.
 
 ## Context
 
@@ -92,10 +93,11 @@ others.* Four heuristics together are worth more than any single one. Moving
 to `block` is a one-way door: once a detector blocks a site the user wants,
 they switch it off entirely and may not come back.
 
-Rebinding is the exception ([ADR-0025](0025-rebinding-auf-block.md)) because
-it is not a heuristic: it is a binary rule with no false positives after
-[ADR-0021](0021-rebinding-nur-erreichbare-adressen.md). The others require
-more validation.
+Rebinding was proposed as the exception ([ADR-0025](0025-rebinding-auf-block.md))
+because it is not a heuristic: it is a binary rule with no false positives after
+[ADR-0021](0021-rebinding-nur-erreichbare-adressen.md). That proposal was
+rejected; rebinding stays on `flag` too. Any further switch requires the
+validation below.
 
 ## Reversal condition
 
