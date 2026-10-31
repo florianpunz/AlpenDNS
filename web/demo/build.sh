@@ -4,14 +4,14 @@
 # Webserver gelegt werden kann — kein Rust-Prozess, kein Port, kein Token, kein
 # TLS.
 #
-# Das Verfahren ist bewusst klein: die drei Dateien, die der Server ausliefert
-# (web/index.html, web/app.css, web/app.js), werden in eine Datei gesetzt, dazu
-# die Demo-Schicht aus web/demo/demo.js. Die Demo *ist* damit die echte
-# Oberfläche — sie kann nicht anders aussehen als das Original, weil sie das
-# Original enthält. Eigen ist ihr nur die Datenquelle.
+# Das Verfahren ist bewusst klein: die vier Dateien, die der Server ausliefert
+# (web/index.html, web/app.css, web/theme.js, web/app.js), werden in eine Datei
+# gesetzt, dazu die Demo-Schicht aus web/demo/demo.js. Die Demo *ist* damit die
+# echte Oberfläche — sie kann nicht anders aussehen als das Original, weil sie
+# das Original enthält. Eigen ist ihr nur die Datenquelle.
 #
 # Deshalb cat und nicht sed: cat kopiert Bytes. Es gibt keine Ersetzungs- und
-# keine Escaping-Frage zu beantworten. Die beiden Anker werden als gequotete
+# keine Escaping-Frage zu beantworten. Die Anker werden als gequotete
 # case-Muster erkannt — ein Literal, kein regulärer Ausdruck.
 #
 # Aufruf:  sh web/demo/build.sh
@@ -28,6 +28,7 @@ root=$(CDPATH= cd -- "$here/../.." && pwd)
 
 src="$root/web/index.html"
 css="$root/web/app.css"
+theme="$root/web/theme.js"
 js="$root/web/app.js"
 demo="$here/demo.js"
 out="$root/web/dist/alpendns-demo.html"
@@ -37,7 +38,7 @@ fail() {
   exit 1
 }
 
-for file in "$src" "$css" "$js" "$demo"; do
+for file in "$src" "$css" "$theme" "$js" "$demo"; do
   [ -f "$file" ] || fail "fehlt: $file"
 done
 
@@ -56,6 +57,7 @@ trap 'rm -f -- "$tmp"' EXIT INT TERM
 # Schlussumbruch ab, die read sonst verwerfen würde.
 
 count_css=0
+count_theme=0
 count_js=0
 
 {
@@ -66,6 +68,14 @@ count_js=0
         printf '<style>\n'
         cat -- "$css"
         printf '</style>\n'
+        ;;
+      *'src="/theme.js"'*)
+        count_theme=$((count_theme + 1))
+        # Vor app.js und vor dem ersten Zeichnen: setzt data-theme, bevor
+        # app.css greift.
+        printf '<script>\n'
+        cat -- "$theme"
+        printf '</script>\n'
         ;;
       *'src="/app.js"'*)
         count_js=$((count_js + 1))
@@ -88,6 +98,7 @@ count_js=0
 # ── 2. Anker ─────────────────────────────────────────────────────────────────
 
 [ "$count_css" -eq 1 ] || fail "href=\"/app.css\" $count_css× gefunden, genau 1× erwartet"
+[ "$count_theme" -eq 1 ] || fail "src=\"/theme.js\" $count_theme× gefunden, genau 1× erwartet"
 [ "$count_js" -eq 1 ] || fail "src=\"/app.js\" $count_js× gefunden, genau 1× erwartet"
 
 # Das Setzen ist ein reines Nebeneinanderstellen. Enthielte eine der Dateien die
@@ -100,6 +111,7 @@ check_inline() {
 }
 
 check_inline "$css" '</style'
+check_inline "$theme" '</script'
 check_inline "$js" '</script'
 check_inline "$demo" '</script'
 
@@ -159,7 +171,7 @@ mv -- "$tmp" "$out"
 
 printf 'web/dist/alpendns-demo.html  %s Bytes\n\n' "$bytes"
 printf 'Aus welchen Ständen sie gebaut ist:\n'
-for file in "$src" "$css" "$js" "$demo"; do
+for file in "$src" "$css" "$theme" "$js" "$demo"; do
   printf '  %s  %s\n' "$(sha256sum -- "$file" | cut -d' ' -f1)" "${file#"$root/"}"
 done
 printf '\nBediente Endpunkte: %s\n' "$(printf '%s' "$served" | tr '\n' ' ')"
