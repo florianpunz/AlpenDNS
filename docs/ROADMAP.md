@@ -831,14 +831,20 @@ UAT session.
 
 ## Phase 10 — Optional, discardable at any time
 
-No order, no obligation. As the mood and the need take you:
+No order, no obligation. **None of the remaining items is planned for v1** — they stand as
+discardable stockpile. Two entries were decided against on 2026-10-31: a second instance
+for redundancy (below) and the configuration wizard in the web UI (`docs/TODOS.md` item 9;
+configuration is edited by hand).
 
 * **Recursion** via `hickory-recursor` behind the existing `ResolveBackend` trait
   ([ADR-0003](adr/0003-forwarder-first.md)), incl. QNAME minimisation.
 * **DDR/DNR** (RFC 9462/9463): LAN clients find your encrypted endpoint
   automatically and switch from cleartext to DoH/DoT ([FEATURES.md](FEATURES.md), P5).
 * **Blocklist diff review** before applying a list update (O3).
-* **Two instances** with a synchronized policy state for fault tolerance.
+* **Two instances** — **discarded 2026-10-31.** A second instance with a
+  synchronized policy state was considered and rejected: `Restart=on-failure`
+  brings the single process back in about two seconds, and peer sync would be a
+  permanent second thing to keep correct.
 * **Local zones, built out**: PTR generated from the A records, a TTL per
   record, reload without a restart, an editing surface in the UI. Built is the
   static table ([ADR-0023](adr/0023-lokale-zonen.md)); everything beyond it is

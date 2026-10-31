@@ -715,7 +715,12 @@ forgetfulness. **B.8 decision for the author** — taken 2026-10-22 in favour of
 
 ---
 
-## 9. Configuration wizard in the web UI
+## 9. Configuration wizard in the web UI — discarded (2026-10-31)
+
+**Decision.** Not built. Configuration is edited by hand. A writing wizard would have to
+soften `ProtectSystem=strict` with `ReadWritePaths=/etc/alpendns` and would run into the
+Debian conffile contract — the same constraint that ruled out automatic migration in
+item 7. The finding and the obstacles below stay as the record of why.
 
 **Finding.** The API today is read-only plus four writing endpoints for time-limited
 entries (`/api/allow` and `/api/deny`, each POST and DELETE,
@@ -785,7 +790,12 @@ per operator.
 
 ---
 
-## 10. Resilience with two instances
+## 10. Resilience with two instances — discarded (2026-10-31)
+
+**Decision.** Not built. A second instance with synchronized policy state is more
+machinery than the failure modes justify: `Restart=on-failure` brings the single process
+back in about two seconds, and stages 2 and 3 would leave a permanent second thing to
+keep correct. No peer sync. The analysis below stays as the record.
 
 > Resilience stands as a phase 10 option (two instances).
 > [ROADMAP.md](ROADMAP.md): "Two instances with a synchronized policy state."
@@ -1137,35 +1147,27 @@ who has such a block today (B.8).
 
 **After that, as needed:**
 
-5. **Item 10, stages 0 and 1** — measure, document, config hash. The measurement decides
-   whether anything is built further at all.
+5. **Item 10** — **discarded** (2026-10-31): no second instance, no peer sync.
 6. **Item 2** (log rotation) — **done.**
 7. **Item 7** (config versioning) — **done:** (a) is built, (b) and (c) are decided in
    ADR-0024.
 8. **Item 3, step 6** — the update-failure counter. **Done.** 3(a), 3(b) and step 6
    are in the tree; only the per-list interval from step 5 remains open.
 
-**Last or not at all:** item 9 (wizard), item 10 stage 3, and the search field from item
-8's recommended half (the block page itself was built).
+**Last or not at all:** the search field from item 8's recommended half (the block page
+itself was built). Item 9 (wizard) and item 10 (two instances) are discarded
+(2026-10-31).
 
 **What is done together:**
 
 * **Item 2 + finding B3:** the `BufWriter` belongs in the same move as the rotation. Both
   are done.
-* **Item 3(b) + item 10 stage 1:** both answer "is this instance still running with the
-  right state?" — list age and config hash belong in the same header of the UI. The list
-  age is there; the config hash is the open half.
-* **Item 7 + item 9:** both concern the way configuration gets into the system. The
-  validation endpoint from item 9 is the same path as the field suggestion from item 7 —
-  build once, use twice.
+* **Item 7 + item 9:** the question "does AlpenDNS ever write into `/etc/alpendns/`?"
+  is settled by discarding item 9: it does not. Item 7's `alpendns migrate` writes
+  nothing either.
 * **Item 8 + rebinding detector:** the sinkhole exemption is due even without a block page,
   as soon as someone uses `block_mode = "sinkhole"`. That is to be checked independently of
   the rest of item 8.
-
-**What contradicts itself:** item 9 (the wizard writes config) and item 7 (`alpendns
-migrate` writes nothing) both run into the Debian conffile contract. The decision "does
-AlpenDNS ever write into `/etc/alpendns/` itself?" has to be made **once** and then holds
-for both.
 
 ---
 

@@ -1,19 +1,19 @@
 ---
 gsd_state_version: "1.0"
 current_phase: 10
-current_phase_name: no obligation; phases 0 to 9 accepted
-status: executing
-stopped_at: UAT for phases 8 and 9 completed; both accepted and recorded in
-last_updated: "2026-10-30T17:28:03.640Z"
-last_activity: 2026-10-30
-last_activity_desc: "Completed quick task 261030-pn3: TODOS audit, every item reconciled with the tree"
+current_phase_name: closed; phase 10 stockpile discarded, phases 0 to 9 accepted
+status: complete
+stopped_at: Phase 10 closed; wizard and two-instance plan discarded, item 3 finished
+last_updated: "2026-10-31T12:00:00.000Z"
+last_activity: 2026-10-31
+last_activity_desc: "Closed phase 10: configuration wizard and two-instance plan discarded, item 3 finished"
 state_head: 281aa96a38ccc62f6449535c2ad1c741be52fcd1
 progress:
   total_phases: 11
-  completed_phases: 10
+  completed_phases: 11
   total_plans: 0
   completed_plans: 0
-  percent: 91
+  percent: 100
 ---
 
 # Project State
@@ -25,18 +25,19 @@ See: .planning/PROJECT.md (updated 2026-10-20)
 **Core value:** Queries are filtered on the operator's own machine and forwarded
 encrypted: no query name leaves the process unless the configured logging mode
 explicitly allows it.
-**Current focus:** v1 accepted — phases 0 to 9 complete; phase 10 is the
-optional stockpile.
+**Current focus:** v1 accepted — phases 0 to 9 complete; phase 10 closed on
+2026-10-31 with the stockpile discarded.
 
 ## Current Position
 
-Phase: 10 of 11 (Optional stockpile) — no obligation; phases 0 to 9 accepted
+Phase: 10 of 11 (Optional stockpile) — closed 2026-10-31; phases 0 to 9 accepted
 Plan: none — implementation is complete
-Status: v1 accepted on 2026-10-22; phase 10 (optional) is the only phase left
-Last activity: 2026-10-30 - Completed quick task 261030-pn3: TODOS audit, every item reconciled with the tree
+Status: v1 accepted on 2026-10-22; phase 10 closed without plans (wizard and
+two-instance plan discarded, item 3 finished)
+Last activity: 2026-10-31 - Closed phase 10: configuration wizard and two-instance plan discarded, item 3 finished
 
-Progress: [█████████░] 91% — 10 of 11 phases accepted (phase 10 is optional and
-unscheduled).
+Progress: [██████████] 100% — phases 0 to 9 accepted, phase 10 closed as
+discarded.
 
 ## Performance Metrics
 
@@ -86,7 +87,9 @@ Recent decisions affecting current work:
 
 - Phase 8: accepted 2026-10-22; NRD remains unevaluated without data from
   AlpenShield, and the decision on ADR-0025/ADR-0026 stays proposed.
-- Phase 10: optional items in `docs/TODOS.md` and `docs/ROADMAP.md` phase 10.
+- Phase 10: closed 2026-10-31. Item 3 finished; the configuration wizard
+  (item 9) and the two-instance plan (item 10) are discarded. The remaining
+  bullets in `docs/ROADMAP.md` phase 10 are optional and not planned for v1.
 
 ### Blockers/Concerns
 
@@ -126,12 +129,12 @@ Items acknowledged and deferred, most recent first:
 | Scope | Encrypted client listeners (DoT/DoH/DoQ) | Not implemented; client traffic is cleartext UDP/TCP | Pre-GSD | v1 |
 | Scope | Forward-zone failover | Open (TODOS item 13) | Pre-GSD | v1 |
 | Scope | RFC 6303 built-in local zones | Done 2026-10-22 (ADR-0032, quick task 261022-s4q) | Pre-GSD | v1 |
-| Scope | Recursion, DDR/DNR, blocklist diff review, two instances, local-zone build-out, own parser as learning project | Optional stockpile | 2026-10-20 | Phase 10 |
+| Scope | Recursion, DDR/DNR, blocklist diff review, local-zone build-out, own parser as learning project | Optional, not planned for v1 | 2026-10-20 | Phase 10 (closed) |
 | Config | Per-list `refresh` is honoured only as the minimum across all lists; `max_inflight`, EDNS `padding`, `doh_token` are documented but unimplemented | Open (CONCERNS.md) | Pre-GSD | unassigned |
 
 ## Session Continuity
 
-Last session: 2026-10-22
-Stopped at: UAT for phases 8 and 9 completed; both accepted and recorded in
-ROADMAP.md and STATE.md.
-Resume file: None — phase 10 is optional and starts item by item when wanted.
+Last session: 2026-10-31
+Stopped at: Phase 10 closed. The configuration wizard and the two-instance
+plan were discarded; item 3 was finished with the update-failure counter.
+Resume file: None — the project is complete for v1.

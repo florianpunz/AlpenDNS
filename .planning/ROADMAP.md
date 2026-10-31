@@ -2,8 +2,11 @@
 
 ## Overview
 
-This is a brownfield roadmap. Phases 0 to 9 are implemented and accepted;
-phase 10 is an optional, discardable stockpile. The roadmap therefore records
+This is a brownfield roadmap. Phases 0 to 9 are implemented and accepted.
+Phase 10 was closed on 2026-10-31: the two committed items — the configuration
+wizard (TODOS item 9) and a second instance for redundancy (TODOS item 10) —
+were discarded, and item 3 was finished. The remaining stockpile bullets stay
+listed as optional and are not planned for v1. The roadmap therefore records
 what exists and what remains instead of planning a greenfield build.
 
 `docs/ROADMAP.md` remains canonical for phase state, acceptance history and
@@ -17,7 +20,7 @@ the ADR intel in `.planning/intel/decisions.md` and those acceptance criteria.
 - Integer phases (1, 2, 3): planned milestone work.
 - Phase 0 is the pre-existing scaffolding phase from `docs/ROADMAP.md`.
 - Decimal phases (2.1, 2.2): urgent insertions after planning, via `/gsd-phase --insert`.
-- Phase 10 is optional and has no order or obligation.
+- Phase 10 is closed: optional stockpile, discarded on 2026-10-31.
 
 - [x] **Phase 0: Scaffolding** - Workspace, fmt/clippy, cargo-deny and CI; the Definition of Done is green locally and in CI.
 - [x] **Phase 1: A server that answers** - UDP/TCP forwarding to one upstream with answer validation, strict config and graceful shutdown.
@@ -29,7 +32,7 @@ the ADR intel in `.planning/intel/decisions.md` and those acceptance criteria.
 - [x] **Phase 7: Privacy build-out** - PSL-backed `split_by_zone` with seed rotation, privacy budget, local DNSSEC, ODoH and k-anonymity.
 - [x] **Phase 8: Heuristics without a cloud** - Five local detectors, all defaulting to `flag`; accepted on 2026-10-22 after three observation periods.
 - [x] **Phase 9: Operation and packaging** - systemd unit, `.deb`, rate limiting and safe defaults; accepted on 2026-10-22 after the fresh-VM install and the practical test.
-- [ ] **Phase 10: Optional stockpile** - Discardable items from `docs/ROADMAP.md` and `docs/TODOS.md`, item by item, no obligation.
+- [x] **Phase 10: Optional stockpile** - Closed 2026-10-31; the wizard and the two-instance plan were discarded, item 3 finished. Remaining bullets are optional and not planned for v1.
 
 ## Phase Details
 
@@ -176,20 +179,20 @@ the ADR intel in `.planning/intel/decisions.md` and those acceptance criteria.
 
 ### Phase 10: Optional stockpile
 **Goal**: Optional improvements that are taken up only when wanted; discardable at any time without weakening accepted v1 behavior.
-**State**: Not scheduled. The stockpile lives in `docs/ROADMAP.md` phase 10 and in `docs/TODOS.md` (recursion behind `ResolveBackend`, DDR/DNR, blocklist diff review, two instances, local-zone build-out, own parser as a learning project, plus the open TODOS items).
+**State**: Closed 2026-10-31. The configuration wizard and the two-instance plan were discarded; item 3 (blocklist age) was finished with the update-failure counter. What remains in `docs/ROADMAP.md` phase 10 (recursion, DDR/DNR, blocklist diff review, local-zone build-out, own parser) is optional stockpile and not planned for v1.
 **Depends on**: Nothing mandatory; every item starts from the accepted phases 0 to 9.
 **Requirements**: None — optional by design.
 **Success Criteria** (what must be TRUE):
   1. Work is taken item by item from `docs/TODOS.md` or `docs/ROADMAP.md`, each with its own finding, design and verify plan.
   2. Nothing in the stockpile regresses accepted v1 behavior; the four Definition-of-Done commands stay green.
   3. Recursion, if ever built, sits behind `ResolveBackend` without pre-built unused structures (ADR-0003).
-**Plans**: TBD — one item at a time.
+**Plans**: None — phase closed without plans; items were taken from `docs/TODOS.md` individually.
 
 ## Progress
 
 **Execution Order:**
 Phases execute in numeric order: 0 → 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9.
-Phase 10 has no order and no obligation.
+Phase 10 is closed and discarded; nothing follows it.
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -203,4 +206,4 @@ Phase 10 has no order and no obligation.
 | 7. Privacy build-out | — | Complete | 2026-08-31 |
 | 8. Heuristics without a cloud | — | Complete | 2026-10-22 |
 | 9. Operation and packaging | — | Complete | 2026-10-22 |
-| 10. Optional stockpile | — | Not scheduled | — |
+| 10. Optional stockpile | — | Complete | 2026-10-31 (closed as discarded, no plans) |
