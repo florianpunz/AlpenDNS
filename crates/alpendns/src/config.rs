@@ -684,6 +684,11 @@ pub struct ServerConfig {
     pub listen_udp: Vec<SocketAddr>,
     #[serde(default)]
     pub listen_tcp: Vec<SocketAddr>,
+    /// Wie viele Anfragen gleichzeitig in Bearbeitung sein dürfen. Über UDP
+    /// wird bei Sättigung verworfen — eine Antwort an eine womöglich gefälschte
+    /// Absenderadresse wäre die Reflexion, gegen die gedrosselt wird.
+    #[serde(default = "default_max_inflight")]
+    pub max_inflight: usize,
     /// Zeitbudget für eine komplette Anfrage inklusive Upstream.
     #[serde(with = "humantime_serde", default = "default_query_timeout")]
     pub query_timeout: Duration,
@@ -691,6 +696,10 @@ pub struct ServerConfig {
     pub edns: EdnsConfig,
     #[serde(default)]
     pub rate_limit: RateLimitConfig,
+}
+
+const fn default_max_inflight() -> usize {
+    4096
 }
 
 /// Drosselung pro Client.
@@ -1222,6 +1231,13 @@ impl Config {
         if self.server.listen_udp.is_empty() && self.server.listen_tcp.is_empty() {
             return Err(ConfigError::Invalid(
                 "no listener configured: server.listen_udp and server.listen_tcp are both empty"
+                    .to_owned(),
+            ));
+        }
+        if self.server.max_inflight == 0 {
+            return Err(ConfigError::Invalid(
+                "server.max_inflight = 0 would drop every query before it is handled; \
+                 set a positive number"
                     .to_owned(),
             ));
         }
@@ -2595,6 +2611,23 @@ sinkhole_ipv6 = "fd00::10"
         config
             .validate()
             .expect("die Beispielkonfiguration muss gültig sein");
+    }
+
+    #[test]
+    fn max_inflight_defaults_to_4096_and_zero_is_a_startup_error() {
+        let config = valid(MINIMAL);
+        assert_eq!(config.server.max_inflight, 4096);
+
+        let text = MINIMAL.replace(
+            "listen_tcp = [\"127.0.0.1:5353\"]",
+            "listen_tcp = [\"127.0.0.1:5353\"]\nmax_inflight = 0",
+        );
+        let config = parse(&text).expect("muss parsen");
+        let error = config
+            .validate()
+            .expect_err("0 muss ein Startfehler sein")
+            .to_string();
+        assert!(error.contains("max_inflight"), "{error}");
     }
 
     /// Die Datei, die das Debian-Paket nach `/etc/alpendns` legt. Sie ist der

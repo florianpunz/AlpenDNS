@@ -14,6 +14,7 @@ use std::sync::Arc;
 
 use hickory_proto::op::{Message, OpCode, ResponseCode};
 use tokio::net::{TcpListener, UdpSocket};
+use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
@@ -88,6 +89,9 @@ impl<B: ResolveBackend> Server<B> {
             server: self,
             udp,
             tcp,
+            // Eine Grenze für alle UDP-Listener zusammen: sie teilen sich
+            // Backend, Cache und Upstreams, also auch die Last.
+            inflight: Arc::new(Semaphore::new(config.max_inflight)),
         })
     }
 }
@@ -98,6 +102,8 @@ pub struct Bound<B> {
     server: Server<B>,
     udp: Vec<Arc<UdpSocket>>,
     tcp: Vec<TcpListener>,
+    /// Erlaubnisse für gleichzeitig laufende UDP-Anfragen.
+    inflight: Arc<Semaphore>,
 }
 
 impl<B: ResolveBackend> Bound<B> {
@@ -130,7 +136,10 @@ impl<B: ResolveBackend> Bound<B> {
                 Arc::clone(&self.server.backend),
                 Arc::clone(&self.server.log),
                 self.server.limiter.clone(),
-                self.server.udp_payload_size,
+                udp::Limits {
+                    payload_size: self.server.udp_payload_size,
+                    inflight: Arc::clone(&self.inflight),
+                },
                 shutdown.clone(),
                 tracker.clone(),
             ));

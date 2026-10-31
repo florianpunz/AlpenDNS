@@ -19,9 +19,10 @@
 # up as v4-mapped, which `[[client]]` nets do not match).
 listen_udp = ["0.0.0.0:53"]
 listen_tcp = ["0.0.0.0:53"]
-# [not implemented — backlog] Maximum queries in flight before SERVFAIL/drop.
-# The parser does not know this key yet; uncomment it with the implementation.
-# max_inflight = 4096
+# Maximum queries in flight at the same time. Above it, UDP queries are dropped
+# (not refused): an answer to a possibly forged address is the reflection the
+# rate limiting exists to prevent. One limit covers all UDP listeners.
+max_inflight = 4096
 # Timeout for one complete client query including the upstream.
 query_timeout = "3s"
 

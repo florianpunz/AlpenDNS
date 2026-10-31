@@ -25,7 +25,7 @@ table, this table wins. Every row was checked against the code at HEAD `8f77b4a`
 | 3 | ~~Reload swaps two `ArcSwap`s non-atomically~~ **resolved 2026-10-31** | Blueprint and lists now live in one `ArcSwap<PolicyState>` and are published with a single store | — | fail-closed |
 | 4 | ~~Multi-question queries are truncated~~ **resolved 2026-10-31** | The handler requires exactly one question and answers `FormErr` otherwise; `two_questions_get_formerr_and_do_not_reach_the_upstream` pins it | — | correctness |
 | 5 | ~~`forward_zone` targets are not checked to be on the LAN~~ **resolved 2026-10-31** | Validation accepts only loopback, private and link-local targets; two tests cover public rejection and local acceptance | — | B.1.7 |
-| 6 | UDP spawns an unbounded task per packet | `server/udp.rs:50`; `max_inflight` is not implemented | M | DoS |
+| 6 | ~~UDP spawns an unbounded task per packet~~ **resolved 2026-10-31** | `server.max_inflight` bounds all UDP listeners with one semaphore; saturation drops the datagram | — | DoS |
 | 7 | UI responses carry no security headers | `api/ui.rs` sets only `Content-Type` and `Cache-Control` | S | security |
 | 8 | Bearer token in `localStorage` and `?token=` | `web/app.js:43,870`; the API accepts the query parameter | M, needs a decision | security |
 | 9 | Blocklist downloads follow redirects unrestricted | `filter/source.rs:163` uses the default redirect policy | S | security |
@@ -204,7 +204,10 @@ against a local peer, a systemd/`.deb` smoke test, and multi-question coverage (
 - Cause: one shared counter map; `Counts` is bounded at `MAX_TRACKED = 200_000`, but the lock itself is per request.
 - Improvement path: shard the counters by hash (as `ratelimit` does), or batch via per-core counters merged by the flusher. Measure with `cargo test --release --test load -- --ignored --nocapture --test-threads=1` before/after.
 
-**UDP spawns an unbounded task per packet:**
+**UDP spawns an unbounded task per packet — resolved (2026-10-31):**
+- `server.max_inflight` (default 4096) is one semaphore across all UDP listeners;
+  a permit is taken before the task is spawned and released with it. Saturation
+  drops the datagram, consistent with the rate limiter (ADR-0020).
 - Problem: `crates/alpendns/src/server/udp.rs:50` calls `tracker.spawn` for every received datagram with no global in-flight cap. The rate limiter runs *inside* `handle_request` (`server/mod.rs:174`), i.e. after the task exists.
 - Files: `crates/alpendns/src/server/udp.rs`, `crates/alpendns/src/server/mod.rs`, `crates/alpendns/src/config.rs:635`
 - Cause: `max_inflight` is documented in the example config but not implemented; TCP has `MAX_CONNECTIONS = 64` (`tcp.rs`), UDP has no equivalent.
@@ -360,7 +363,9 @@ against a local peer, a systemd/`.deb` smoke test, and multi-question coverage (
 - Configuration wizard (TODOS 9) and two-instance resilience (TODOS 10): **discarded** on 2026-10-31.
 - Config version/aliases (TODOS 7b): still not implemented; the alias approach is decided in ADR-0024.
 
-**Documented-but-unimplemented config knobs:**
+**Documented-but-unimplemented config knobs — partly resolved (2026-10-31):**
+- `max_inflight` is implemented. EDNS `padding` and `doh_token` client matching
+  remain config-only and are commented in the example.
 - Problem: `max_inflight`, EDNS `padding`, and `doh_token` client matching exist only in `config/alpendns.example.toml`.
 - Blocks: padding-based privacy on the wire, connection limits, and token-based client identity for future DoH.
 
