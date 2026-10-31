@@ -898,3 +898,75 @@ fn counting_structure_memory_and_speed() {
         );
     }
 }
+
+/// Wie lange das Laden mehrerer Listen dauert.
+///
+/// Vier Listen, jede hinter einem Server, der 250 ms braucht. Nacheinander
+/// summiert sich das auf eine Sekunde; mit begrenzter Nebenläufigkeit bleibt
+/// es bei der Wartezeit einer Liste. Der Test ist eine Messung, kein
+/// CI-Gate — deshalb `#[ignore]` wie die übrigen Lasttests.
+#[tokio::test]
+#[ignore = "Lastmessung: braucht Sekunden und einen lokalen Server"]
+async fn list_reload_latency() {
+    use std::path::PathBuf;
+
+    use alpendns::filter::Lists;
+    use alpendns::filter::source::{ListSpec, Loader, Source};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    const DELAY: Duration = Duration::from_millis(250);
+    const LISTS: usize = 4;
+    const BODY: &str = "ads.example\ntracker.example\n";
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let addr = listener.local_addr().expect("local_addr");
+    tokio::spawn(async move {
+        while let Ok((mut stream, _)) = listener.accept().await {
+            tokio::spawn(async move {
+                let mut buf = [0_u8; 1024];
+                let _ = stream.read(&mut buf).await;
+                tokio::time::sleep(DELAY).await;
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{BODY}",
+                    BODY.len()
+                );
+                let _ = stream.write_all(response.as_bytes()).await;
+            });
+        }
+    });
+
+    let cache: PathBuf = std::env::temp_dir().join(format!(
+        "alpendns-list-latency-{}-{}",
+        std::process::id(),
+        Instant::now().elapsed().as_nanos()
+    ));
+    std::fs::create_dir_all(&cache).expect("cache dir");
+    let loader = Loader::new(cache.clone()).expect("Loader");
+    let specs: Vec<ListSpec> = (0..LISTS)
+        .map(|index| ListSpec {
+            name: format!("list{index}"),
+            source: Source::Url(format!("http://{addr}/list{index}")),
+            format: Format::Domains,
+        })
+        .collect();
+    let lists = Lists::new(loader, specs);
+
+    let started = Instant::now();
+    let loaded = lists.load(true).await.expect("Listen laden");
+    let elapsed = started.elapsed();
+    let _ = std::fs::remove_dir_all(&cache);
+
+    assert_eq!(loaded.total_entries(), 2 * LISTS);
+    println!(
+        "{LISTS} lists × {} ms server delay: {:?} (serial would be {:?})",
+        DELAY.as_millis(),
+        elapsed,
+        DELAY * LISTS as u32
+    );
+    assert!(
+        elapsed < DELAY * 2,
+        "das Laden ist nicht nebenläufig: {elapsed:?} für {LISTS} Listen"
+    );
+}

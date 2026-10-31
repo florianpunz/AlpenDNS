@@ -47,6 +47,8 @@ cargo test --release --test load -- --ignored --nocapture --test-threads=1
 | 5 | `upstream/strategy.rs` `registrable_domain` | PSL lookup + up to three string allocations per cache miss | hash the registrable domain without the last `to_owned()` | measured: no benefit (`load.rs` has no pool; the load binary is byte-identical) | S |
 | 6 | `detect/typosquat.rs` `embeds` | `format!(".{protected}")` three times per entry per request | compute it once when the detector is built | measured: no benefit (+6.3 % q/s with detectors, inside a ±3.6 % noise floor) | S |
 | 7 | `logging/counts.rs` | the whole exact counter table behind one mutex, locked on every query | shard the table by the salted hash | **measured 2026-10-31: 0 % unique, +4 % repeated — inside the noise floor, rejected** | M |
+| 8 | `filter/mod.rs` `Lists::load` | downloads every list one after another | four-way concurrency, processed in config order | **measured 2026-10-31: 1.07 s → 258 ms for 4 lists behind a 250 ms server, accepted** | S |
+| 9 | `upstream/pool.rs` `is_down` | a `Mutex` per upstream per cache miss | `AtomicU64` of monotonic microseconds | **measured 2026-10-31: 0–3 %, inside the noise floor, rejected** | S |
 | — | detectors, total | run on every allow request | **none** — an accepted price, see below | **measured: ~10 %** | — |
 | — | tunneling mutex | a global mutex per request | **none for now** — reversal condition documented | **measured: part of the 10 %** | — |
 | — | cache hit `with_ttl` | deep clone of the answer per hit | **none** — the price of the hit | **measured: p50 18.8 µs** | — |
@@ -69,6 +71,33 @@ sharded runs against six baseline runs, medians:
 The ranges overlap and +4 % sits inside the ±3.6 % noise floor; the unique corpus
 shows nothing. The added shard bookkeeping and the global cap do not pay for
 themselves, so the table stays as it is.
+
+### 8. `filter/mod.rs` — concurrent list downloads
+
+**Measured 2026-10-31 — accepted.** `Lists::load` fetched one list after another,
+so startup and every refresh waited for the sum of the servers' latencies. Four
+lists now download concurrently (and are parsed, logged and failed in
+configuration order afterwards). The new ignored measurement
+`list_reload_latency` serves four lists behind a 250 ms server:
+
+| Version | elapsed |
+|---|---:|
+| one after another | 1.07 s |
+| four-way concurrent | 258 ms |
+
+The measurement test fails on the serial implementation and passes on the
+concurrent one, so it is a usable guard, not only a printout.
+
+### 9. `upstream/pool.rs` — atomic down deadline
+
+**Measured 2026-10-31 — rejected.** `is_down` locked a `Mutex<Option<Instant>>` for
+every upstream on every cache miss. Replacing it with an `AtomicU64` of monotonic
+microseconds (epoch taken from the same clock at pool construction) was measured
+over two runs against a baseline median of 45,567 q/s: 46,012 and 48,033 q/s — a
+median ~3 % higher, inside the ±3.6 % noise floor. The lock is uncontended and
+taken only on misses; the simpler version stays.
+
+
 
 
 ---

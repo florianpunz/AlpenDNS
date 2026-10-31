@@ -31,14 +31,13 @@ table, this table wins. Every row was checked against the code at HEAD `8f77b4a`
 | 9 | ~~Blocklist downloads follow redirects unrestricted~~ **resolved 2026-10-31** | The HTTP client is limited to three redirects | — | security |
 | 10 | ~~`/api/lists` reports the startup entry counts~~ **resolved 2026-10-31** | The status reads the last successfully loaded `LoadedLists`, recorded by the updater after a successful swap | — | correctness |
 | 11 | Logging locks a global map per query (aggregate mode) | Measured 2026-10-31: sharding gave 0 % unique / +4 % repeated (inside the ±3.6 % noise floor); rejected and not merged | — | performance |
-| 12 | Pool health locks a mutex per upstream per miss | `upstream/pool.rs:47` | S (measure) | performance |
+| 12 | Pool health locks a mutex per upstream per miss | Measured 2026-10-31: replacing it with an atomic gave 0–3 %, inside the noise floor; rejected and not merged | — | performance |
 | 13 | `build_event` materializes fields on every request | Measured 2026-10-31: a mode-aware build was **14 % slower** on the unique corpus; rejected and not merged | — | performance |
-| 14 | List reload is serial | `filter/mod.rs:84-116` | S (measure) | performance |
+| 14 | ~~List reload is serial~~ **resolved 2026-10-31** | Loads run with 4-way concurrency and are processed in config order afterwards; measured 1.07 s → 258 ms for 4 lists behind a 250 ms server | — | performance |
 
-**Measurement status (2026-10-31):** #11 (counter sharding) and #13 (`build_event`)
-were implemented and measured neutral or negative; both were rejected. #12 and #14
-remain candidates for a dedicated `perf/*` session; the project rule is
-measure-before-merge and the load harness is the only accepted evidence.
+**Measurement status (2026-10-31):** #14 measured positive (1.07 s → 258 ms) and was
+merged; #11 (counter sharding) and #13 (`build_event`) measured neutral or negative
+and were rejected; #12 (pool-health mutex) measured within noise and was rejected.
 
 ### Accepted — by design, not defects
 
@@ -235,7 +234,10 @@ against a local peer, a systemd/`.deb` smoke test, and multi-question coverage (
 - Cause: `max_inflight` is documented in the example config but not implemented; TCP has `MAX_CONNECTIONS = 64` (`tcp.rs`), UDP has no equivalent.
 - Improvement path: add a semaphore/`max_inflight` around UDP tasks (and reject/drop when saturated). This also bounds memory under a spoofed flood.
 
-**Pool health uses a mutex per upstream per cache miss:**
+**Pool health uses a mutex per upstream per cache miss — measured, rejected (2026-10-31):**
+- `down_until` was replaced by an `AtomicU64` of monotonic microseconds and compared
+  over four runs: 0–3 % on the unique corpus, inside the noise floor. The lock is
+  uncontended and taken only on misses; the change was reverted.
 - Problem: `is_down` locks `health.down_until: Mutex<Option<Instant>>` (`crates/alpendns/src/upstream/pool.rs:47,368-373`) for every upstream on every miss, although it is written rarely.
 - Files: `crates/alpendns/src/upstream/pool.rs`
 - Cause: `Mutex` where an atomic would do; violates the spirit of B.3 rule 5.
@@ -256,7 +258,11 @@ against a local peer, a systemd/`.deb` smoke test, and multi-question coverage (
 - Cause: accepted design (ADR-0019); measured worst run 15 %.
 - Improvement path: rejected until the documented reversal condition (throughput below two thirds) or a profiler points here; DGA stack buffers and pool mutex are the cheap candidates.
 
-**List reload is serial:**
+**List reload is serial — resolved (2026-10-31):**
+- Downloads run with four-way concurrency (`futures_util::buffer_unordered`), while
+  parsing, logging and the strict-mode error are processed in configuration order.
+  Measured with the new ignored `list_reload_latency`: 4 lists behind a 250 ms server
+  took 1.07 s before and 258 ms after.
 - Problem: `Lists::load` (`crates/alpendns/src/filter/mod.rs`) iterates specs and downloads one after another; startup and each refresh inherit the sum of list download times.
 - Files: `crates/alpendns/src/filter/mod.rs`, `crates/alpendns/src/filter/source.rs`
 - Cause: simple sequential loop; no concurrency limit.

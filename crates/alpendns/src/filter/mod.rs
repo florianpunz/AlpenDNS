@@ -12,8 +12,10 @@ pub mod source;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use futures_util::StreamExt as _;
+
 use matcher::Matcher;
-use source::{Age, ListSpec, LoadError, Loader};
+use source::{Age, ListSpec, LoadError, Loaded, Loader};
 
 /// Alle geladenen Listen, nach Namen.
 ///
@@ -92,10 +94,39 @@ impl Lists {
     /// Erststart ein Fehler (lieber kein DNS als ungefiltertes DNS, B.1 Regel 6),
     /// bei einem späteren Update nur eine Warnung — dann gilt weiter, was schon
     /// geladen war.
+    ///
+    /// Geladen wird mit begrenzter Nebenläufigkeit: ein Haushalt hat selten mehr
+    /// als eine Handvoll Listen, und nacheinander summiert sich die Wartezeit
+    /// jedes Servers. Verarbeitet wird danach in Konfigurationsreihenfolge,
+    /// damit Logs und der strikte Fehler nicht davon abhängen, welche Liste
+    /// zuerst antwortet.
     pub async fn load(&self, strict: bool) -> Result<LoadedLists, LoadError> {
+        const CONCURRENCY: usize = 4;
+
+        let results: Vec<(usize, Result<Loaded, LoadError>)> =
+            futures_util::stream::iter(self.specs.iter().cloned().enumerate())
+                .map(|(index, spec)| {
+                    let loader = self.loader.clone();
+                    async move { (index, loader.load(&spec).await) }
+                })
+                .buffer_unordered(CONCURRENCY)
+                .collect()
+                .await;
+
+        let mut by_index: Vec<Option<Result<Loaded, LoadError>>> =
+            (0..self.specs.len()).map(|_| None).collect();
+        for (index, result) in results {
+            if let Some(slot) = by_index.get_mut(index) {
+                *slot = Some(result);
+            }
+        }
+
         let mut by_name = HashMap::with_capacity(self.specs.len());
-        for spec in &self.specs {
-            match self.loader.load(spec).await {
+        for (spec, result) in self.specs.iter().zip(by_index) {
+            let Some(result) = result else {
+                continue;
+            };
+            match result {
                 Ok(loaded) => {
                     let parsed = parser::parse(&loaded.text, spec.format);
                     let entries = parsed.entries.len();
