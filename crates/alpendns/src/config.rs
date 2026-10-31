@@ -5,9 +5,8 @@
 //! `deny_unknown_fields`: ein Tippfehler in einem Schlüssel ist ein Startfehler,
 //! kein stilles Ignorieren.
 //!
-//! Abgebildet ist bewusst nur die Teilmenge, die Phase 1 wirklich umsetzt. Die
-//! Namen folgen `config/alpendns.example.toml`, damit spätere Phasen Felder
-//! ergänzen statt das Format zu brechen.
+//! Abgebildet ist die vollständige v1-Konfiguration. Die Namen folgen
+//! `config/alpendns.example.toml`.
 
 use std::net::SocketAddr;
 use std::path::Path;
@@ -52,9 +51,8 @@ pub enum ConfigError {
 #[serde(deny_unknown_fields)]
 pub struct Config {
     pub server: ServerConfig,
-    /// In Phase 1 genau ein Pool mit genau einem Resolver. Die Liste steht
-    /// trotzdem schon hier, weil `config/alpendns.example.toml` das Zielformat
-    /// so beschreibt — Phase 3 füllt sie, ohne das Format zu ändern.
+    /// Ein Pool mit beliebig vielen Resolvern. Die Liste steht hier, weil
+    /// `config/alpendns.example.toml` das Format so beschreibt.
     #[serde(default)]
     pub upstream_pool: Vec<UpstreamPool>,
     #[serde(default)]
@@ -1328,8 +1326,8 @@ impl Config {
         }
         if self.upstream_pool.len() > 1 {
             return Err(ConfigError::Invalid(format!(
-                "{} upstream pools configured. Which pool applies to which client is \
-                 decided by policies, which arrive in phase 5. Until then exactly one is allowed.",
+                "{} upstream pools configured. Exactly one pool is supported today; \
+                 per-client pool selection was not implemented.",
                 self.upstream_pool.len()
             )));
         }

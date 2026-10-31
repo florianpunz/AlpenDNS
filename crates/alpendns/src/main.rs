@@ -33,8 +33,8 @@ use tokio_util::sync::CancellationToken;
 /// Abstand, in dem die Cache-Bilanz im Log erscheint.
 ///
 /// Fünf Minuten sind ein Kompromiss: oft genug, um beim Zusehen etwas zu sehen,
-/// selten genug, dass ein Dauerbetrieb das Log nicht zumüllt. Ein abfragbarer
-/// Endpunkt dafür kommt in Phase 6.
+/// selten genug, dass ein Dauerbetrieb das Log nicht zumüllt. Die Werte stehen
+/// über den Metrik-Endpunkt und `/api/status` bereit.
 const STATS_INTERVAL: Duration = Duration::from_secs(300);
 
 /// Wohin das Paket die logrotate-Regel legt (`packaging/logrotate/`).
@@ -216,7 +216,7 @@ fn run() -> anyhow::Result<()> {
     let block_page_config = config.block_page;
     let timeout = server_config.query_timeout;
 
-    // Ein Pool; mehrere auszuwählen ist Sache der Policies in Phase 5.
+    // Ein Pool; eine Auswahl pro Client wurde nicht umgesetzt.
     let pool_config = config
         .upstream_pool
         .into_iter()
@@ -417,8 +417,8 @@ fn run() -> anyhow::Result<()> {
             SystemClock,
         );
         // Handle auf den Cache behalten, bevor das Backend in den Server wandert:
-        // beim Herunterfahren soll die Trefferquote im Log stehen. Ein
-        // Metrik-Endpunkt dafür kommt in Phase 6.
+        // beim Herunterfahren soll die Trefferquote im Log stehen. Die Werte
+        // stehen auch über den Metrik-Endpunkt und `/api/status` bereit.
         let cache = Arc::clone(caching.cache());
         let backend = PolicyBackend::new(Arc::clone(&engine), caching);
         // Pflicht, bevor der Server irgendwo lauscht, wo er nicht nur sein

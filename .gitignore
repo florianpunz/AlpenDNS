@@ -35,7 +35,7 @@
 # cargo-fuzz
 /crates/*/fuzz/target/
 /crates/*/fuzz/artifacts/
-# Von libFuzzer erzeugt; kuratierte Eingaben liegen in fuzz/seeds/
+# Von libFuzzer erzeugt; kuratierte Crash-Eingaben liegen in fuzz/known-crashes/
 /crates/*/fuzz/corpus/
 /crates/*/fuzz/coverage/
 

@@ -1,9 +1,7 @@
 # AlpenDNS — a minimal configuration that runs.
 #
-# The full target configuration is in alpendns.example.toml. This file contains
-# only the keys that are implemented already (as of phase 7) — the server does
-# not accept more than that either: unknown keys are a startup error, not a
-# warning.
+# The full reference is in alpendns.example.toml. This file contains only the
+# keys needed to run; unknown keys are a startup error, not a warning.
 #
 
 [server]

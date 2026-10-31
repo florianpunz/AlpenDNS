@@ -1,8 +1,7 @@
 //! Listener und Request-Pipeline.
 //!
-//! In Phase 1 ist die Pipeline kurz: parsen, weiterleiten, antworten. Cache,
-//! Policy und Filter hängen sich in späteren Phasen zwischen `handle_request`
-//! und das [`ResolveBackend`] (ARCHITECTURE.md §1).
+//! Die Pipeline ist parsen, Ratenbegrenzung, auflösen über die Backend-Kette
+//! und die Antwort in den [`QueryLog`] geben (ARCHITECTURE.md §1).
 
 mod tcp;
 mod udp;
@@ -166,9 +165,8 @@ impl<B: ResolveBackend> Bound<B> {
 /// Gibt `None` zurück, wenn es nichts gibt, worauf man antworten könnte — dann
 /// wird das Paket kommentarlos verworfen.
 ///
-/// Geloggt wird hier bewusst ohne Query-Namen (CLAUDE.md B.1, Regel 3). Die
-/// Log-Schicht, die Namen abhängig vom konfigurierten Modus behandeln darf,
-/// kommt in Phase 6.
+/// Geloggt wird hier bewusst ohne Query-Namen (CLAUDE.md B.1, Regel 3). Der
+/// [`QueryLog`] entscheidet nach dem konfigurierten Modus, was davon bleibt.
 pub(crate) async fn handle_request<B: ResolveBackend>(
     backend: &B,
     raw: &[u8],
