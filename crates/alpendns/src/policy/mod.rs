@@ -729,12 +729,15 @@ pub async fn run_updater<C: Clock + Clone, W: WallClock>(
             _ = ticker.tick() => {}
             () = wake.notified() => {}
         }
-        let blueprint = source.blueprint();
-        let lists = source.lists();
+        // Beide Hälften aus demselben Stand: ein Reload tauscht sie zusammen,
+        // damit hier kein Blueprint auf eine Liste trifft, die es in seinem
+        // Listensatz noch nicht gibt.
+        let state = source.state();
+        let lists = state.lists();
         // Nicht strikt: ein Ausfall jetzt darf den laufenden Betrieb nicht
         // ungefiltert machen (B.1 Regel 6).
         match lists.load(false).await {
-            Ok(loaded) => match blueprint.build(&loaded) {
+            Ok(loaded) => match state.blueprint().build(&loaded) {
                 Ok(set) => {
                     let entries = loaded.total_entries();
                     engine.replace(set, entries);

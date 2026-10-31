@@ -17,49 +17,62 @@ use crate::policy::Blueprint;
 
 /// Der Teil der Konfiguration, den ein Reload austauschen darf.
 ///
-/// Beide Hälften sitzen hinter `ArcSwap`: Anfragen lesen ohne Sperre, ein
-/// Reload tauscht den Zeiger atomar (CLAUDE.md B.3 Regel 5). Der Fehlerfall —
-/// eine Konfiguration, die sich nicht bauen lässt — lässt die alten Werte
-/// stehen.
+/// Blueprint und Listenquellen stehen **zusammen** in einem `ArcSwap`: ein
+/// Reload, der den Blueprint auf eine Liste zeigen lässt, die die Listenhälfte
+/// noch nicht kennt, wäre genau das Fester zwischen zwei Stores, das diese
+/// Struktur schließt. Anfragen lesen ohne Sperre, ein Reload tauscht den
+/// Zeiger atomar (CLAUDE.md B.3 Regel 5). Der Fehlerfall — eine Konfiguration,
+/// die sich nicht bauen lässt — lässt die alten Werte stehen.
 #[derive(Debug)]
 pub struct PolicySource {
-    blueprint: ArcSwap<Blueprint>,
-    lists: ArcSwap<Lists>,
+    state: ArcSwap<PolicyState>,
+}
+
+/// Blueprint und Listenquellen aus **einem** Reload.
+#[derive(Debug)]
+pub struct PolicyState {
+    blueprint: Blueprint,
+    lists: Lists,
+}
+
+impl PolicyState {
+    pub const fn blueprint(&self) -> &Blueprint {
+        &self.blueprint
+    }
+
+    pub const fn lists(&self) -> &Lists {
+        &self.lists
+    }
 }
 
 impl PolicySource {
     pub fn new(blueprint: Blueprint, lists: Lists) -> Self {
         Self {
-            blueprint: ArcSwap::from_pointee(blueprint),
-            lists: ArcSwap::from_pointee(lists),
+            state: ArcSwap::from_pointee(PolicyState { blueprint, lists }),
         }
     }
 
     /// Baut die Policy-Schicht aus einer neuen Konfiguration neu und tauscht sie ein.
     ///
-    /// Schlägt das fehl, bleibt der alte Stand unangetastet — ein Reload darf
-    /// nie dazu führen, dass gefiltert werden sollte, aber nicht gefiltert wird
-    /// (ARCHITECTURE.md §7). Dass eine Policy auf eine Liste verweist, die nicht
-    /// geladen werden kann, fällt hier noch nicht auf; das prüft
-    /// [`crate::policy::run_updater`] beim Bauen des Regelstands und lässt dann
-    /// ebenfalls den alten Stand gelten.
+    /// Beide Hälften werden zuerst gebaut und dann in einem Schritt veröffentlicht;
+    /// ein Fehler davor lässt den alten Stand vollständig stehen. Dass eine Policy
+    /// auf eine Liste verweist, die nicht geladen werden kann, fällt hier noch
+    /// nicht auf; das prüft [`crate::policy::run_updater`] beim Bauen des
+    /// Regelstands und lässt dann ebenfalls den alten Stand gelten.
     pub fn reload(&self, config: &Config, loader: &Loader) -> Result<(), ConfigError> {
         let blueprint = Blueprint::from_config(config)?;
         let specs = specs_from_config(&config.blocklist, &config.allowlist);
         let lists = Lists::new(loader.clone(), specs);
-        self.blueprint.store(Arc::new(blueprint));
-        self.lists.store(Arc::new(lists));
+        self.state.store(Arc::new(PolicyState { blueprint, lists }));
         Ok(())
     }
 
-    /// Der aktuelle Blueprint — für `run_updater`, das daraus den Regelstand baut.
-    pub fn blueprint(&self) -> Arc<Blueprint> {
-        self.blueprint.load_full()
-    }
-
-    /// Die aktuellen Listenquellen — für `run_updater`, das sie periodisch lädt.
-    pub fn lists(&self) -> Arc<Lists> {
-        self.lists.load_full()
+    /// Ein konsistenter Stand für Leser und den Updater.
+    ///
+    /// Beide Hälften stammen aus demselben Reload. Wer sie einzeln lädt, kann
+    /// zwischen zwei Reloads einen gemischten Stand sehen.
+    pub fn state(&self) -> Arc<PolicyState> {
+        self.state.load_full()
     }
 }
 
@@ -126,9 +139,10 @@ mod tests {
 
     /// Baut aus dem aktuellen Stand des `source` eine Engine und wertet den Namen aus.
     async fn decide(source: &PolicySource, name: &str) -> Decision {
-        let loaded = source.lists().load(true).await.expect("Listen laden");
+        let state = source.state();
+        let loaded = state.lists().load(true).await.expect("Listen laden");
         let engine = Engine::new(
-            source.blueprint().build(&loaded).expect("Regelstand"),
+            state.blueprint().build(&loaded).expect("Regelstand"),
             loaded.total_entries(),
             &BlockingConfig::default(),
             SystemClock,

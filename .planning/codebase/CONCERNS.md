@@ -22,7 +22,7 @@ table, this table wins. Every row was checked against the code at HEAD `8f77b4a`
 |---|---|---|---|---|
 | 1 | ~~Example config does not load~~ **resolved 2026-10-31** | Four unknown keys were commented and `ring_seconds` corrected; `the_example_configuration_is_valid` now parses the shipped file | — | B.1.5 |
 | 2 | ~~`refresh = "0s"` reaches `tokio::time::interval`~~ **resolved 2026-10-31** | Validation rejects a zero refresh on an enabled list; `a_zero_refresh_is_a_startup_error` pins it | — | B.1.5 |
-| 3 | Reload swaps two `ArcSwap`s non-atomically | `reload.rs` stores the blueprint, then the lists | M | fail-closed |
+| 3 | ~~Reload swaps two `ArcSwap`s non-atomically~~ **resolved 2026-10-31** | Blueprint and lists now live in one `ArcSwap<PolicyState>` and are published with a single store | — | fail-closed |
 | 4 | Multi-question queries are truncated | `server/mod.rs:193` rejects only `queries.is_empty()` | S | correctness |
 | 5 | `forward_zone` targets are not checked to be on the LAN | validation rejects only encrypted transports and exact duplicates | S | B.1.7 |
 | 6 | UDP spawns an unbounded task per packet | `server/udp.rs:50`; `max_inflight` is not implemented | M | DoS |
@@ -93,7 +93,10 @@ against a local peer, a systemd/`.deb` smoke test, and multi-question coverage (
 - Impact: with the release profile (`panic = "abort"`, `Cargo.toml`) the process aborts at startup; in debug the spawned updater task dies and lists never refresh again. Requires an admin typo, but B.1.5 says broken configuration must not start at all.
 - Fix approach: reject `refresh == 0` in validation with a message, or treat `0` as "never refresh" the way `seed_rotation` does (`pool.rs:352`).
 
-**List reload swaps two `ArcSwap`s non-atomically:**
+**List reload swaps two `ArcSwap`s non-atomically — resolved (2026-10-31):**
+- `PolicySource` now holds one `ArcSwap<PolicyState>` containing blueprint and lists;
+  `reload` builds both and publishes them with a single store. Readers and the
+  updater take one snapshot (`state()`), so a mixed generation cannot be observed.
 - Issue: `reload::PolicySource::reload` (`crates/alpendns/src/reload.rs:46-52`) stores the new blueprint first and the new lists second. A query between the two stores can see the new policy referencing a list that is not in the old `ArcSwap`. `Blueprint::build` returns `UnknownList` for a missing list (`policy/mod.rs:423`), and the documented contract is "failure leaves the old state", which is only true per-swap, not across both.
 - Files: `crates/alpendns/src/reload.rs`, `crates/alpendns/src/policy/mod.rs`
 - Impact: a short window after SIGHUP/reload in which policy evaluation can error or fall back. Low probability, hard to reproduce, and it undercuts the fail-closed guarantee.
@@ -235,7 +238,10 @@ against a local peer, a systemd/`.deb` smoke test, and multi-question coverage (
 
 ## Fragile Areas
 
-**`reload.rs` and the policy source:**
+**`reload.rs` and the policy source — resolved (2026-10-31):**
+- Blueprint and lists share one swap; the interleaving window is structurally gone.
+  Failure handling still differs between startup (strict) and runtime (non-strict,
+  keep the old set), deliberately.
 - Files: `crates/alpendns/src/reload.rs`, `crates/alpendns/src/policy/mod.rs`
 - Why fragile: two `ArcSwap`s must agree; a reload either half-applies or leaves old rules. Failure handling differs between startup (strict) and runtime (non-strict, keep old set).
 - Safe modification: change the pair into one swapped struct; add a test that forces a failure mid-reload and asserts the resolver still behaves consistently.
@@ -387,7 +393,9 @@ against a local peer, a systemd/`.deb` smoke test, and multi-question coverage (
 - Risk: interop regressions on dependency upgrades (TLS, HTTP/2, ODoH) appear only in the field.
 - Priority: Medium; a local TLS test server (no internet) would close most of it.
 
-**Reload failure and interleaving are untested:**
+**Reload failure and interleaving are untested — partly resolved (2026-10-31):**
+- Failure during reload is covered (`reload_rejects_a_broken_config_and_keeps_the_old_state`).
+  The interleaving window no longer exists: blueprint and lists are one `ArcSwap`.
 - What's not tested: a failing list download during reload, and the two-`ArcSwap` window.
 - Files: `crates/alpendns/src/reload.rs`, `crates/alpendns/src/policy/mod.rs`
 - Risk: inconsistent policy state after SIGHUP.

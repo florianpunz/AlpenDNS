@@ -378,7 +378,10 @@ fn run() -> anyhow::Result<()> {
 
         // Erststart ist strikt: lieber gar kein DNS als ungefiltertes DNS
         // (B.1 Regel 6). Spätere Ausfälle behandelt run_updater nachsichtig.
-        let loaded = policy_source
+        // Blueprint und Listen aus demselben Stand — der Reload tauscht beide
+        // zusammen ein.
+        let policy_state = policy_source.state();
+        let loaded = policy_state
             .lists()
             .load(true)
             .await
@@ -407,7 +410,7 @@ fn run() -> anyhow::Result<()> {
             .collect();
         let engine = Arc::new(
             Engine::new(
-                policy_source.blueprint().build(&loaded)?,
+                policy_state.blueprint().build(&loaded)?,
                 entries,
                 &blocking_config,
                 SystemClock,
@@ -682,7 +685,7 @@ fn count_formats(lists: &[ListInfo]) -> Vec<(String, u64)> {
 /// "gerade geholt" sagt und genau das stille Scheitern verdeckt, das sie
 /// aufdecken soll.
 fn list_ages(source: &PolicySource) -> std::collections::HashMap<String, Age> {
-    source.lists().ages().into_iter().collect()
+    source.state().lists().ages().into_iter().collect()
 }
 
 /// Ergänzt eine Liste um ihr Alter. Siehe [`list_ages`].
