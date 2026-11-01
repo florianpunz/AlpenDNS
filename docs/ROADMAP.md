@@ -4,7 +4,7 @@ The plan is cut into phases. Every phase has a **Goal**, a **checklist in verify
 format** (see CLAUDE.md, part A.4) and an **acceptance criterion**. A phase counts
 as done when the acceptance criterion is met — not when the code compiles.
 
-**Phases 0 to 9 — implemented and accepted; v1 is complete.** The acceptance is
+**Phases 0 to 9 — implemented and accepted; the feature set is complete.** The acceptance is
 documented in phases 8 and 9: three observation periods on the real network, the
 controlled tunneling test and the Debian run on a fresh VM.
 
@@ -831,7 +831,7 @@ UAT session.
 
 ## Phase 10 — Optional, discardable at any time
 
-No order, no obligation. **None of the remaining items is planned for v1** — they stand as
+No order, no obligation. **None of the remaining items is planned** — they stand as
 discardable stockpile. Two entries were decided against on 2026-10-31: a second instance
 for redundancy (below) and the configuration wizard in the web UI (`docs/TODOS.md` item 9;
 configuration is edited by hand).

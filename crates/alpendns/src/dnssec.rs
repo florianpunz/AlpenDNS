@@ -127,7 +127,7 @@ pub fn verdict(message: &Message) -> Verdict {
 /// **Grenze, die dokumentiert gehört:** ein Client, der selbst validieren
 /// möchte, bekommt hier nichts mehr dafür. AlpenDNS validiert *für* seine
 /// Clients, es reicht keine Kette durch. Das ist eine bewusste Vereinfachung
-/// für v1 und in ADR-0016 als solche vermerkt.
+/// und in ADR-0016 als solche vermerkt.
 pub fn strip_records(message: &mut Message) -> usize {
     let before = message
         .answers

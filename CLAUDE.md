@@ -68,10 +68,10 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 ### B.0 What this is
 
-AlpenDNS is a privacy-focused DNS server in Rust for Linux (Debian/Ubuntu). v1
+AlpenDNS is a privacy-focused DNS server in Rust for Linux (Debian/Ubuntu). It
 is a **forwarding resolver**: it accepts queries from the LAN, filters them
 against blocklists and policies, and forwards them encrypted (DoT/DoH/DoQ) to
-upstreams. Recursion from the root servers is **not** a v1 goal and may never
+upstreams. Recursion from the root servers is **not** a goal and may never
 be. The architecture keeps the door open for it (a trait behind the cache), but
 nothing is built for it in advance.
 

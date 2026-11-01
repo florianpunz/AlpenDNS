@@ -6,7 +6,7 @@
 //! dieses Projekt (CLAUDE.md B.3).
 //!
 //! **Datenstruktur:** eine `HashMap` mit Suffix-Nachschlag, wie in der Roadmap
-//! für v1 vorgesehen. Für `a.b.example.com` werden bis zu vier Schlüssel
+//! vorgesehen. Für `a.b.example.com` werden bis zu vier Schlüssel
 //! probiert. Bloom-Filter und invertierter Trie (ARCHITECTURE.md §3) kommen
 //! erst, wenn der Benchmark zeigt, dass es nötig ist — erst messen, dann
 //! optimieren.

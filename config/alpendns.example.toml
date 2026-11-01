@@ -186,7 +186,7 @@ records = [
   { name = "_dmarc",  type = "TXT",   value = '"v=DMARC1; p=none"' },
 ]
 
-# v1 knows exactly six types: A, AAAA, CNAME, TXT, PTR and SRV. Everything else
+# AlpenDNS knows exactly six types: A, AAAA, CNAME, TXT, PTR and SRV. Everything else
 # (MX, NS, SOA, DNSKEY …) is a startup error with a reason instead of a silent
 # ignore — a table is not a zone file.
 #

@@ -80,7 +80,7 @@ that lies deeper than the matching local zone wins, and `LocalBackend` hands the
 name to the `ZoneRouter`. It knows those names, not the router's backend; the
 forwarding itself stays in the router.
 
-For recursion, v1 does not implement a variant of its own: the slot where a
+For recursion, AlpenDNS does not implement a variant of its own: the slot where a
 `RecursiveBackend` would sit is the trait itself. If one joins, nothing changes
 in layers 1, 2, 3 and 5. That is the entire preparation for recursion —
 deliberately, nothing more is built in advance

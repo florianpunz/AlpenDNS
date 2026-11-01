@@ -1,7 +1,7 @@
 //! Die Schnittstelle zwischen Server-Pipeline und Namensauflösung.
 //!
 //! Das ist die Stelle aus ARCHITECTURE.md §1, an der eine spätere Rekursion
-//! eingehängt würde. v1 hat genau eine Implementierung ([`crate::upstream::ForwardBackend`]),
+//! eingehängt würde. AlpenDNS hat genau eine Implementierung ([`crate::upstream::ForwardBackend`]),
 //! und ADR-0003 zählt auf, was dieser Trait ausdrücklich *nicht* rechtfertigt:
 //! keine Root-Hints, keine Delegation-Strukturen, keine Konfigurationsschlüssel
 //! für etwas, das es nicht gibt.
@@ -50,7 +50,7 @@ pub enum ResolveError {
     CachedFailure,
 }
 
-/// Löst eine Anfrage auf — in v1 durch Weiterleiten an einen Upstream.
+/// Löst eine Anfrage auf — heute durch Weiterleiten an einen Upstream.
 ///
 /// Übergeben wird die vollständige Nachricht und nicht nur die Frage: ein
 /// Forwarder reicht Flags und EDNS-Optionen mit weiter, ein späterer Rekursor

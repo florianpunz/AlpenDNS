@@ -19,9 +19,8 @@ servers is deliberately not a goal.
   <img alt="The AlpenDNS web UI" src="docs/images/ui-card.png" width="96%">
 </div>
 
-> **Status.** Phases 1–9 are implemented and accepted; v1 is complete. Where
-> that stands, with numbers and open gaps:
-> [docs/ROADMAP.md](docs/ROADMAP.md).
+> **Status.** AlpenDNS is feature-complete. Where that stands, with numbers and
+> open gaps: [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## About
 
@@ -42,7 +41,7 @@ the questions they leave open:
 
 Not to replace Pi-hole — to answer the questions it leaves open.
 
-## What v1 can do
+## What AlpenDNS can do
 
 | | |
 |---|---|
@@ -59,7 +58,7 @@ Not to replace Pi-hole — to answer the questions it leaves open.
 Encrypted client listeners (DoT/DoH/DoQ) and client identification via DoH path
 tokens or mTLS are planned, not built — policies distinguish clients by IP today.
 
-## What v1 is not
+## What AlpenDNS is not
 
 * **Not recursive.** It queries upstreams, not the root servers; the slot where
   recursion would hook in stays open

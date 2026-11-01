@@ -5,7 +5,7 @@
 //! `deny_unknown_fields`: ein Tippfehler in einem Schlüssel ist ein Startfehler,
 //! kein stilles Ignorieren.
 //!
-//! Abgebildet ist die vollständige v1-Konfiguration. Die Namen folgen
+//! Abgebildet ist die vollständige Konfiguration. Die Namen folgen
 //! `config/alpendns.example.toml`.
 
 use std::net::SocketAddr;
