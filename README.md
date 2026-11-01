@@ -19,8 +19,9 @@ servers is deliberately not a goal.
   <img alt="The AlpenDNS web UI" src="docs/images/ui-card.png" width="96%">
 </div>
 
-> **Status.** AlpenDNS is feature-complete. Where that stands, with numbers and
-> open gaps: [docs/ROADMAP.md](docs/ROADMAP.md).
+> **Status.** Feature-complete, in maintenance. Running in production in a
+> homelab since August 2026. Where it stands, with numbers and open gaps:
+> [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## About
 
@@ -85,50 +86,49 @@ The web UI is on <http://127.0.0.1:8053>; the token sits in `api.token_file`.
 
 ### As a service
 
+`cargo deb -p alpendns` builds the Debian package. Installation, the systemd
+unit and the open-resolver warning are in
+[docs/OPERATIONS.md](docs/OPERATIONS.md).
+
+### Container
+
 ```bash
-cargo install cargo-deb --locked
-cargo deb -p alpendns
-sudo apt install ./target/debian/alpendns_<version>-1_amd64.deb
+docker run -d --name alpendns \
+  -p 53:53/udp -p 53:53/tcp \
+  -p 8053:8053 -p 9153:9153 \
+  -v alpendns-lib:/var/lib/alpendns \
+  -v alpendns-cache:/var/cache/alpendns \
+  ghcr.io/florianpunz/alpendns:latest
 ```
 
-The resolver then runs unprivileged and listens on every IPv4 interface
-(`0.0.0.0`), so a client in the LAN only needs to be pointed at this machine's
-address. On a host that also has a public address that makes it an open
-resolver: keep port 53 closed from outside, or enter this machine's LAN address
-in `/etc/alpendns/alpendns.toml` and run
-`sudo alpendns -c /etc/alpendns/alpendns.toml check`.
+The image ships a configuration at `/etc/alpendns/alpendns.toml`; to use your
+own, mount it there. The API token is created in `/var/lib/alpendns` on first
+start and reached with `docker cp alpendns:/var/lib/alpendns/api.token .`.
+Binding port 53 as the unprivileged container user works because Docker sets
+`net.ipv4.ip_unprivileged_port_start=0`; where that setting is missing, add
+`--cap-add NET_BIND_SERVICE`. The API shows query names, so publish port 8053
+only on a trusted network. Volumes, upgrades and the rest:
+[docs/OPERATIONS.md](docs/OPERATIONS.md#container).
 
 ## Documentation
 
 * [Operating](docs/OPERATIONS.md) — install, upgrade, backup, troubleshooting
-* [Roadmap](docs/ROADMAP.md) — the current phase and its acceptance criteria
+* [Roadmap](docs/ROADMAP.md) — current state, acceptance criteria, open items
 * [Architecture](docs/ARCHITECTURE.md) — structure, request pipeline, data model
-* [Features](docs/FEATURES.md) — catalog with cost/benefit assessment
-* [Testing](docs/TESTING.md) — strategy, and the definition of done
-* [Benchmarks](docs/BENCHMARKS.md) · [Threat model](docs/THREAT-MODEL.md) · [Decisions](docs/adr/)
-* [Configuration reference](config/alpendns.example.toml) — the full format, including
-  sections not yet implemented, marked `[not implemented — backlog]`
+* [Features](docs/FEATURES.md) · [Testing](docs/TESTING.md) ·
+  [Benchmarks](docs/BENCHMARKS.md) · [Threat model](docs/THREAT-MODEL.md) ·
+  [Decisions](docs/adr/)
+* [Configuration reference](config/alpendns.example.toml) — the full format,
+  including sections not yet implemented, marked `[not implemented — backlog]`
 
-The [live demo](https://florianpunz.github.io/alpendns/) is this web UI with recorded
-data, no install — built from [`web/demo/`](web/demo/).
+The [live demo](https://florianpunz.github.io/AlpenDNS/) is this web UI with
+recorded data, no install — built from [`web/demo/`](web/demo/).
 
 ## Development
 
-Rust stable (`rust-toolchain.toml` pins the version).
-
-```bash
-cargo build
-cargo test --all-features
-```
-
-The **definition of done** — `cargo fmt --all --check`,
-`cargo clippy --all-targets --all-features -- -D warnings`,
-`cargo test --all-features`, `cargo deny check` — has to be green before a change
-counts as finished; [docs/TESTING.md](docs/TESTING.md) adds the manual smoke
-test, the fuzzing targets and the measurement runs.
-
-[CONTRIBUTING.md](CONTRIBUTING.md) covers setup and what this project expects of
-a change. Security problems go to [SECURITY.md](SECURITY.md), not a public issue.
+Rust stable ([`rust-toolchain.toml`](rust-toolchain.toml) selects it).
+[CONTRIBUTING.md](CONTRIBUTING.md) covers setup, the definition of done and
+what a change must bring.
 
 ## License
 
