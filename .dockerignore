@@ -1,0 +1,9 @@
+target/
+.git/
+.planning/
+docs/images/
+web/demo/
+corpus/
+lists/
+web/node_modules/
+web/dist/

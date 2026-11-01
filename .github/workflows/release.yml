@@ -49,6 +49,9 @@ jobs:
   publish:
     needs: deb
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
     steps:
       - uses: actions/checkout@v7
       - name: Fetch the packages
@@ -84,3 +87,22 @@ jobs:
           # explizit. Ohne die Zeile bricht der Schritt mit Exit-Code 4 ab.
           GH_TOKEN: ${{ github.token }}
         run: gh release create "v${{ steps.v.outputs.version }}" dist/*.deb --generate-notes
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push the image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/florianpunz/alpendns:${{ steps.v.outputs.version }}
+            ghcr.io/florianpunz/alpendns:latest

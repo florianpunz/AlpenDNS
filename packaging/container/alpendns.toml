@@ -1,0 +1,86 @@
+[server]
+listen_udp = ["0.0.0.0:53"]
+listen_tcp = ["0.0.0.0:53"]
+query_timeout = "3s"
+
+[server.edns]
+udp_payload_size = 1232
+
+[server.rate_limit]
+enabled = true
+per_client_qps = 100
+burst = 200
+max_clients = 8192
+
+[[upstream_pool]]
+name = "default"
+strategy = "split_by_zone"
+seed_rotation = "24h"
+
+[[upstream_pool.resolver]]
+name = "quad9"
+addr = "dot://9.9.9.9:853"
+tls_name = "dns.quad9.net"
+
+[[upstream_pool.resolver]]
+name = "mullvad"
+addr = "doh://194.242.2.4/dns-query"
+tls_name = "dns.mullvad.net"
+
+[[upstream_pool.resolver]]
+name = "dnsforge"
+addr = "doh://176.9.93.198/dns-query"
+tls_name = "dnsforge.de"
+
+[cache]
+max_entries = 100_000
+min_ttl = "10s"
+max_ttl = "24h"
+max_negative_ttl = "15m"
+serve_stale = true
+serve_stale_max = "1h"
+prefetch = true
+prefetch_threshold = 0.85
+
+[privacy]
+strip_ecs = true
+padding = true
+cookies = true
+dns0x20 = true
+
+[privacy.logging]
+mode = "aggregate"
+ring_seconds = "5m"
+aggregate_k = 5
+
+[blocking]
+mode = "nxdomain"
+cache_dir = "/var/cache/alpendns/lists"
+
+[[blocklist]]
+name = "stevenblack-unified"
+url = "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts"
+format = "hosts"
+refresh = "24h"
+enabled = true
+
+[detection]
+dga = { action = "flag", threshold = 0.75 }
+tunneling = { action = "flag", threshold = 0.75, window = "5m", allow_zones = [] }
+rebinding = { action = "flag", allow_zones = [] }
+typosquat = { action = "flag", threshold = 0.85, protect = [] }
+nrd = { action = "flag", max_age = "30d", source = "/var/lib/alpendns/nrd.txt" }
+
+[api]
+enabled = true
+listen = "0.0.0.0:8053"
+token_file = "/var/lib/alpendns/api.token"
+
+[metrics]
+enabled = true
+listen = "0.0.0.0:9153"
+path = "/metrics"
+
+[block_page]
+enabled = false
+listen = "0.0.0.0:80"

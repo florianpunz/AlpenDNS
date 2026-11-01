@@ -1,0 +1,50 @@
+[server]
+listen_udp = ["0.0.0.0:53"]
+listen_tcp = ["0.0.0.0:53"]
+query_timeout = "3s"
+
+[server.rate_limit]
+enabled = true
+per_client_qps = 100
+burst = 200
+max_clients = 8192
+
+[[upstream_pool]]
+name = "default"
+strategy = "split_by_zone"
+
+[[upstream_pool.resolver]]
+name = "unused"
+addr = "dot://127.0.0.1:853"
+tls_name = "localhost"
+
+[[local_zone]]
+zone = "example.com"
+records = [
+  { name = "@", type = "A", value = "192.0.2.1" },
+]
+
+[blocking]
+mode = "nxdomain"
+cache_dir = "/var/cache/alpendns/lists"
+
+[[blocklist]]
+name = "smoke"
+path = "/etc/alpendns/blocklist.txt"
+format = "hosts"
+refresh = "24h"
+
+[privacy.logging]
+mode = "aggregate"
+ring_seconds = "5m"
+aggregate_k = 5
+
+[api]
+enabled = true
+listen = "0.0.0.0:8053"
+token_file = "/var/lib/alpendns/api.token"
+
+[metrics]
+enabled = true
+listen = "0.0.0.0:9153"
+path = "/metrics"

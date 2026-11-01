@@ -383,6 +383,65 @@ in the browser. Without JavaScript it stays in light mode. A
 `prefers-reduced-transparency` in the system turns the blur off — the page stays
 readable, just without the material.
 
+### Container
+
+The image is published for `amd64` and `arm64` as
+`ghcr.io/florianpunz/alpendns`. It contains the same binary as the package and
+a configuration at `/etc/alpendns/alpendns.toml` derived from the packaged one.
+Two deliberate differences: the API and the metrics endpoint listen on
+`0.0.0.0` so their ports can be published, and metrics are on. Per-client rate
+limiting stays on.
+
+```bash
+docker run -d --name alpendns \
+  -p 53:53/udp -p 53:53/tcp \
+  -p 8053:8053 -p 9153:9153 \
+  -v alpendns-lib:/var/lib/alpendns \
+  -v alpendns-cache:/var/cache/alpendns \
+  ghcr.io/florianpunz/alpendns:latest
+```
+
+The configuration is baked into `/etc/alpendns`; mount your own file or
+directory over it to change it. The first start downloads the configured
+blocklist; without internet it aborts, as the package does (B.1 rule 6).
+
+| Path | What |
+|---|---|
+| `/etc/alpendns` | Configuration |
+| `/var/lib/alpendns` | API token and NRD file |
+| `/var/cache/alpendns` | Downloaded blocklists |
+
+The container runs as UID `65532`. Binding port 53 needs no privilege there:
+Docker sets `net.ipv4.ip_unprivileged_port_start=0` in the container's network
+namespace. On a runtime that does not set it, add
+`--cap-add NET_BIND_SERVICE`.
+
+The API token is created in `/var/lib/alpendns` on first start:
+
+```bash
+docker cp alpendns:/var/lib/alpendns/api.token .
+```
+
+The API shows query names. Publish port 8053 only on a trusted network, the
+same rule as for the interface above. Metrics carry no names and need no token.
+
+`check` needs no shell, only the binary:
+
+```bash
+docker exec alpendns /usr/local/bin/alpendns -c /etc/alpendns/alpendns.toml check
+```
+
+To upgrade, pull the new image and recreate the container with the same
+volumes. The configuration inside the image is replaced with the image; an
+edited file belongs in a mounted `/etc/alpendns`.
+
+```bash
+docker pull ghcr.io/florianpunz/alpendns:latest
+docker rm -f alpendns
+```
+
+Start it again with the `docker run` command above.
+
 ---
 
 ## 2. Upgrade

@@ -32,6 +32,61 @@ jobs:
       - name: Test
         run: cargo test --all-features
 
+  container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build the image
+        run: docker build -t alpendns:ci .
+      - name: Check the shipped configuration
+        run: docker run --rm alpendns:ci -c /etc/alpendns/alpendns.toml check
+      - name: Run the container
+        run: |
+          set -euo pipefail
+          docker run -d --name alpendns-ci \
+            -p 15353:53/udp -p 15353:53/tcp \
+            -p 18053:8053 -p 19153:9153 \
+            -v alpendns-ci-lib:/var/lib/alpendns \
+            -v alpendns-ci-cache:/var/cache/alpendns \
+            -v "$PWD/packaging/container/smoke:/etc/alpendns:ro" \
+            alpendns:ci
+      - name: Smoke test
+        run: |
+          set -euo pipefail
+          for _ in $(seq 1 30); do
+            if dig +time=1 +tries=1 @127.0.0.1 -p 15353 example.com >/dev/null 2>&1; then
+              break
+            fi
+            sleep 1
+          done
+          answer="$(dig +short @127.0.0.1 -p 15353 example.com A || true)"
+          if [ -z "$answer" ]; then
+            docker logs alpendns-ci
+            exit 1
+          fi
+          test "$answer" = "192.0.2.1"
+          status="$(dig +noall +comments @127.0.0.1 -p 15353 blocked.smoke | sed -n 's/.*status: \([A-Z]*\).*/\1/p')"
+          test "$status" = "NXDOMAIN"
+          for _ in $(seq 1 30); do
+            if curl -s -o /dev/null http://127.0.0.1:18053/api/status; then
+              break
+            fi
+            sleep 1
+          done
+          token="$(docker cp alpendns-ci:/var/lib/alpendns/api.token - | tar -xO)"
+          test -n "$token"
+          test "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $token" http://127.0.0.1:18053/api/status)" = "200"
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18053/api/status)" = "401"
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:19153/metrics)" = "200"
+          test "$(docker inspect --format '{{.Config.User}}' alpendns-ci)" = "65532:65532"
+          pid="$(docker inspect --format '{{.State.Pid}}' alpendns-ci)"
+          test "$(ps -o uid= -p "$pid" | tr -d ' ')" = "65532"
+      - name: Stop the container
+        if: always()
+        run: |
+          docker rm -f alpendns-ci || true
+          docker volume rm alpendns-ci-lib alpendns-ci-cache || true
+
   deny:
     runs-on: ubuntu-latest
     permissions:
