@@ -1069,6 +1069,11 @@ document.addEventListener("keydown", (event) => {
   openCommand();
 });
 
+$("command").addEventListener("click", (event) => {
+  const dialog = $("command");
+  if (event.target === dialog) dialog.close();
+});
+
 $("command-form").addEventListener("submit", (event) => {
   event.preventDefault();
   const name = $("command-input").value.trim();

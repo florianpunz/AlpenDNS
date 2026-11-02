@@ -612,6 +612,15 @@ mod tests {
     }
 
     #[test]
+    fn clicking_beside_the_command_bar_closes_it() {
+        assert!(
+            SCRIPT.contains("event.target === dialog"),
+            "ein Klick neben die Command-Bar schließt sie nicht"
+        );
+        assert!(SCRIPT.contains("dialog.close()"));
+    }
+
+    #[test]
     fn the_inspector_shows_a_vertical_pipeline() {
         assert!(INDEX.contains("class=\"pipeline\""));
         for part in ["describeStep", "step-label", "step-detail", "is-key"] {
