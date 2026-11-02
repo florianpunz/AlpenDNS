@@ -541,9 +541,6 @@ h2 {
 /* ── Auffällige Anfragen ───────────────────────────────────────────────── */
 
 .flagged { margin: 0; padding: 0 var(--s-16) var(--s-16); list-style: none; }
-/* Der Satz zu den Knöpfen: gleiche Kante wie die Liste darunter, ein halber
-   Schritt Abstand nach unten. */
-.flagged-note { padding: 0 var(--s-16) var(--s-8); }
 .flagged li { padding: var(--s-8) 0; border-top: 1px solid var(--hairline); }
 .flagged li:first-child { border-top: 0; }
 
@@ -608,26 +605,23 @@ h2 {
   color: var(--muted);
 }
 
-/* Die Kette ist eine Aufzählung, keine Tabelle: die Reihenfolge ist die Aussage. */
-.chain { margin: var(--s-16) 0 0; padding: 0; list-style: none; counter-reset: step; }
+/* Die Kette ist eine Aufzählung in zwei Spalten: links die Station, rechts das
+   Ergebnis. Die Reihenfolge bleibt die Aussage; die Nummer trug nichts bei. */
+.chain { margin: var(--s-16) 0 0; padding: 0; list-style: none; }
 .chain li {
-  position: relative;
-  padding: 0 0 0 var(--s-24);
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--s-16);
+  padding: var(--s-4) 0;
+  border-top: 1px solid var(--hairline);
   font-size: var(--t-small);
-  color: var(--muted);
-  line-height: 1.7;
+  line-height: 1.5;
 }
-.chain li::before {
-  content: counter(step);
-  counter-increment: step;
-  position: absolute;
-  left: 0;
-  font-size: var(--t-micro);
-  color: var(--faint);
-  font-variant-numeric: tabular-nums;
-}
+.chain li:first-child { border-top: 0; }
+.chain .step-label { color: var(--faint); }
+.chain .step-detail { color: var(--muted); overflow-wrap: anywhere; }
 /* Der letzte Schritt trägt die Entscheidung und darf sie zeigen. */
-.chain li:last-child { color: var(--text); }
+.chain li:last-child .step-detail { color: var(--text); }
 
 /* ── Leere Flächen sagen, warum sie leer sind ──────────────────────────── */
 
