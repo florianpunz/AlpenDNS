@@ -6,6 +6,7 @@ const POLL_MS = 5000;
 const HISTORY_MS = 60000;
 const MAX_ROWS = 200;
 const SPARK_SECONDS = 60;
+const SPARK_BUCKET = 10;
 const MS_WARN = 250;
 const ERROR_RCODES = new Set(["SERVFAIL", "REFUSED", "FORMERR", "NOTIMP"]);
 
@@ -31,7 +32,12 @@ const entries = [];
 const pending = [];
 let flushScheduled = false;
 
-const series = { queries: [], blocked: [], cache: [], latency: [] };
+const series = {
+  queries: new Array(SPARK_SECONDS).fill(0),
+  blocked: new Array(SPARK_SECONDS).fill(0),
+  cache: new Array(SPARK_SECONDS).fill(0),
+  latency: new Array(SPARK_SECONDS).fill(0),
+};
 let bucket = { queries: 0, blocked: 0, cache: 0, ms: 0 };
 
 function td(className) {
@@ -169,15 +175,21 @@ function pushSample(name, value) {
   if (values.length > SPARK_SECONDS) values.shift();
 }
 
-function drawSpark(name, peak) {
-  const values = series[name];
-  if (values.length < 2) {
-    setPath(`s-${name}`, "");
-    return;
+function bucketSamples(values) {
+  const points = [];
+  for (let start = 0; start < values.length; start += SPARK_BUCKET) {
+    const slice = values.slice(start, start + SPARK_BUCKET);
+    points.push(slice.reduce((sum, value) => sum + value, 0) / slice.length);
   }
+  return points;
+}
+
+function drawSpark(name, ceiling) {
+  const points = bucketSamples(series[name]);
+  const peak = ceiling ?? Math.max(1, ...points);
   setPath(
     `s-${name}`,
-    linePath(values, Math.max(1, peak), 240 / (SPARK_SECONDS - 1), 34, 28),
+    linePath(points, peak, 240 / (points.length - 1), 34, 28),
   );
 }
 
@@ -190,10 +202,10 @@ function tickSparks() {
   pushSample("latency", queries ? bucket.ms / queries : 0);
   bucket = { queries: 0, blocked: 0, cache: 0, ms: 0 };
 
-  drawSpark("queries", Math.max(...series.queries));
+  drawSpark("queries");
   drawSpark("blocked", 100);
   drawSpark("cache", 100);
-  drawSpark("latency", Math.max(...series.latency));
+  drawSpark("latency");
 }
 
 function setReachable(reachable) {
@@ -228,8 +240,6 @@ function renderStatus(next) {
       ? `${reachable} of ${upstreams.length} upstreams reachable${protocol}`
       : "no upstream configured",
     `up ${formatUptime(next.uptime_seconds)}`,
-    `version ${next.version}`,
-    `logging mode ${next.logging_mode}`,
   ].join(" · ");
 
   $("m-queries").textContent = thousands(next.queries);
@@ -251,6 +261,7 @@ function renderStatus(next) {
   renderReasons(next.block_reasons ?? []);
   renderFooter(next);
   syncEmptyStates();
+  fitSide();
 }
 
 function renderUpstreams(next) {
@@ -272,14 +283,11 @@ function renderUpstreams(next) {
     name.append(transport);
 
     const latency = span("up-latency");
-    if (upstream.p50_ms === null || upstream.p50_ms === undefined) {
+    if (upstream.rtt_ms === null || upstream.rtt_ms === undefined) {
       latency.textContent = "–";
     } else {
-      latency.textContent =
-        `${msText(upstream.p50_ms)} / ${msText(upstream.p95_ms)} ms`;
-      if (upstream.p95_ms !== null && upstream.p95_ms >= MS_WARN) {
-        latency.classList.add("is-warn");
-      }
+      latency.textContent = `avg ${msText(upstream.rtt_ms)} ms`;
+      if (upstream.rtt_ms >= MS_WARN) latency.classList.add("is-warn");
     }
 
     const bar = span("up-bar");
@@ -444,6 +452,7 @@ async function refreshHistory() {
   computeShares(view);
   drawDay(view);
   if (status) renderUpstreams(status);
+  fitSide();
 }
 
 async function refreshLists() {
@@ -640,6 +649,50 @@ function addRow(event) {
   }
 }
 
+function updateSideHint() {
+  const side = $("side");
+  const more = side.scrollHeight - side.scrollTop - side.clientHeight > 4;
+  $("side-more").hidden = !more;
+}
+
+function fitSide() {
+  const side = $("side");
+  if (matchMedia("(max-width: 1000px)").matches) {
+    side.style.height = "";
+    $("side-more").hidden = true;
+    return;
+  }
+  const available = side.parentElement.clientHeight;
+  let height = 0;
+  for (const panel of side.querySelectorAll(".side-panel")) {
+    const bottom = panel.offsetTop + panel.offsetHeight;
+    if (bottom <= available + 0.5) height = bottom;
+  }
+  side.style.height = height > 0 ? `${height + 1}px` : "";
+
+  const more = $("side-more");
+  if (height > 0 && available - height >= 52) {
+    more.style.top = `${height + 8}px`;
+    more.style.bottom = "auto";
+  } else {
+    more.style.top = "";
+    more.style.bottom = "";
+  }
+  updateSideHint();
+}
+
+function showMorePanels() {
+  const side = $("side");
+  const view = side.getBoundingClientRect();
+  const next = [...side.querySelectorAll(".side-panel")].find((panel) => {
+    const box = panel.getBoundingClientRect();
+    return box.top >= view.top - 1 && box.bottom > view.bottom + 1;
+  });
+  if (!next) return;
+  const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  next.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "start" });
+}
+
 function syncEmptyStates() {
   const total = entries.length;
   const visible = entries.filter((entry) => !entry.tr.hidden).length;
@@ -714,6 +767,40 @@ function describeStep(step) {
   return { label: "Step", detail: step, key: false };
 }
 
+function pipelineItem({ label, detail, key }) {
+  const item = document.createElement("li");
+  if (key) item.classList.add("is-key");
+  const station = span("step-label");
+  station.textContent = label;
+  const outcome = span("step-detail");
+  outcome.textContent = detail;
+  item.append(station, outcome);
+  return item;
+}
+
+function answerStep(record) {
+  const recorded = (record.why ?? []).find((step) =>
+    /^(from cache \(|Upstream '|from local zone |the same question failed)/.test(step),
+  );
+  if (recorded) return describeStep(recorded);
+  switch (record.source) {
+    case "cache":
+      return { label: "Answer", detail: "cache", key: true };
+    case "local":
+      return { label: "Answer", detail: "local zone", key: true };
+    case "failed":
+      return { label: "Answer", detail: "failed · upstream not asked", key: true };
+    case "blocked":
+      return null;
+    default:
+      return {
+        label: "Answer",
+        detail: `upstream · ${msText(record.ms)} ms`,
+        key: true,
+      };
+  }
+}
+
 function renderInspector(answer, record) {
   const subject = $("inspect-name");
   subject.textContent = answer.domain;
@@ -734,16 +821,19 @@ function renderInspector(answer, record) {
 
   const list = $("inspect-steps");
   list.replaceChildren();
+  let answered = false;
   for (const step of answer.steps ?? []) {
-    const { label, detail, key } = describeStep(step);
-    const item = document.createElement("li");
-    if (key) item.classList.add("is-key");
-    const station = span("step-label");
-    station.textContent = label;
-    const outcome = span("step-detail");
-    outcome.textContent = detail;
-    item.append(station, outcome);
-    list.append(item);
+    const described = describeStep(step);
+    if (described.label === "Answer") answered = true;
+    list.append(pipelineItem(described));
+  }
+  let fromLog = false;
+  if (!answered && record) {
+    const step = answerStep(record);
+    if (step) {
+      list.append(pipelineItem(step));
+      fromLog = true;
+    }
   }
   if (list.childElementCount === 0) {
     const item = document.createElement("li");
@@ -753,10 +843,17 @@ function renderInspector(answer, record) {
     list.append(item);
   }
 
-  lastTrace = (answer.steps ?? []).join("\n");
+  lastTrace = [...list.children]
+    .map((item) => {
+      const label = item.querySelector(".step-label")?.textContent ?? "";
+      const detail = item.querySelector(".step-detail")?.textContent ?? "";
+      return `${label}: ${detail}`;
+    })
+    .join("\n");
   lastSubject = answer.domain;
-  $("inspect-note").textContent =
-    "Evaluated now against the current lists, not replayed from the log.";
+  $("inspect-note").textContent = fromLog
+    ? "Evaluated now against the current lists; the answer is the one that was recorded."
+    : "Evaluated now against the current lists, not replayed from the log.";
   $("inspect-allow").hidden = !answer.blocked;
   $("inspect-allow").textContent = "Allow this domain";
   $("inspect-allow").disabled = false;
@@ -828,6 +925,7 @@ async function refreshFlagged() {
     ? `mode '${quietMode}': the server keeps no names, so nothing can appear here.`
     : "No heuristic has flagged anything.";
   syncEmptyStates();
+  fitSide();
 }
 
 function flaggedRow(entry, finding) {
@@ -971,6 +1069,7 @@ async function start() {
     refreshFlagged(),
     refreshLists(),
   ]);
+  fitSide();
 
   if (started) return;
   started = true;
@@ -1062,6 +1161,10 @@ $("bogus-review").addEventListener("click", () => {
 });
 
 $("command-open").addEventListener("click", openCommand);
+
+$("side").addEventListener("scroll", updateSideHint);
+$("side-more").addEventListener("click", showMorePanels);
+window.addEventListener("resize", fitSide);
 
 document.addEventListener("keydown", (event) => {
   if (event.key !== "/" || isTyping(event.target) || $("inspector").open) return;

@@ -39,7 +39,8 @@
   --band-4: #cbc8bd;
 
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "DejaVu Sans Mono", "Ubuntu Mono", "Noto Sans Mono", "Cascadia Mono", monospace;
 
   --t-micro: 0.6875rem;
   --t-small: 0.8125rem;
@@ -452,9 +453,7 @@ svg {
 .spark {
   width: 100%;
   height: 38px;
-  margin-top: var(--s-4);
-  padding-top: var(--s-4);
-  border-top: 1px solid var(--hairline-soft);
+  margin-top: var(--s-8);
   overflow: visible;
 }
 
@@ -796,12 +795,56 @@ svg {
   stroke-linejoin: round;
 }
 
+.rail {
+  position: relative;
+  min-height: 0;
+}
+
 .side {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: var(--s-16);
+  height: 100%;
   min-height: 0;
+  padding-bottom: var(--s-24);
   overflow-y: auto;
+  scroll-snap-type: y proximity;
+}
+
+.side-panel {
+  scroll-snap-align: start;
+}
+
+.side-more {
+  position: absolute;
+  left: 50%;
+  bottom: var(--s-8);
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--hairline);
+  border-radius: 50%;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  color: var(--muted);
+  transform: translateX(-50%);
+}
+
+.side-more:hover {
+  color: var(--text);
+}
+
+.side-more svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .side-panel .panel-head {
@@ -1484,7 +1527,13 @@ svg {
   }
 
   .side {
+    height: auto;
     overflow: visible;
+    padding-bottom: 0;
+  }
+
+  .side-more {
+    display: none !important;
   }
 
   .metrics {

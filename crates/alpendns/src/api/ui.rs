@@ -468,14 +468,22 @@ mod tests {
     }
 
     #[test]
-    fn the_mode_stands_in_the_status_line() {
+    fn the_mode_and_version_stand_in_the_footer() {
+        for id in ["id=\"foot-mode\"", "id=\"foot-version\""] {
+            assert!(INDEX.contains(id), "{id} fehlt");
+        }
         assert!(
-            INDEX.contains("id=\"status-detail\""),
-            "kein Status im Kopf"
+            SCRIPT.contains("next.logging_mode"),
+            "der Modus kommt nicht vom Server"
+        );
+        assert!(SCRIPT.contains("AlpenDNS ${next.version}"));
+        assert!(
+            !SCRIPT.contains("logging mode ${next.logging_mode}"),
+            "der Modus steht wieder in der Statuszeile"
         );
         assert!(
-            SCRIPT.contains("logging mode ${next.logging_mode}"),
-            "der Modus kommt nicht vom Server"
+            !SCRIPT.contains("version ${next.version}"),
+            "die Version steht wieder in der Statuszeile"
         );
     }
 
@@ -522,15 +530,21 @@ mod tests {
     }
 
     #[test]
-    fn upstream_rows_show_status_share_and_percentiles() {
+    fn upstream_rows_show_status_share_and_average() {
         assert!(SCRIPT.contains("up-dot"), "kein Status");
         assert!(SCRIPT.contains("up-bar"), "kein Anteil");
         assert!(
             SCRIPT.contains("computeShares"),
             "der Anteil wird nicht gerechnet"
         );
-        assert!(SCRIPT.contains("upstream.p50_ms"), "kein Median");
-        assert!(SCRIPT.contains("upstream.p95_ms"), "kein p95");
+        assert!(
+            SCRIPT.contains("upstream.rtt_ms"),
+            "keine Durchschnittslatenz"
+        );
+        assert!(
+            !SCRIPT.contains("upstream.p50_ms"),
+            "die Anzeige greift wieder auf Perzentile zurück"
+        );
     }
 
     #[test]
@@ -570,8 +584,8 @@ mod tests {
     fn incoming_events_are_drawn_once_per_frame() {
         assert!(SCRIPT.contains("requestAnimationFrame(flushRows)"));
         assert!(
-            !SCRIPT.contains("offsetHeight"),
-            "eine Höhe wird je Zeile gemessen und erzwingt Layout"
+            !SCRIPT.contains("row.offsetHeight") && !SCRIPT.contains("tr.offsetHeight"),
+            "eine Zeilenhöhe wird gemessen und erzwingt Layout"
         );
     }
 
@@ -601,6 +615,63 @@ mod tests {
         assert!(
             SCRIPT.contains("event.skipped ?? 0"),
             "der Puls verliert die ausgelassenen Anfragen"
+        );
+    }
+
+    #[test]
+    fn the_sparkline_has_a_baseline_and_a_fixed_window() {
+        assert!(
+            SCRIPT.contains("const SPARK_BUCKET = 10;"),
+            "kein 10-s-Eimer"
+        );
+        assert!(
+            SCRIPT.contains("new Array(SPARK_SECONDS).fill(0)"),
+            "ohne Daten steht keine Grundlinie"
+        );
+        assert!(
+            SCRIPT.contains("values.slice(start, start + SPARK_BUCKET)"),
+            "die Werte werden nicht geglättet"
+        );
+        assert!(
+            SCRIPT.contains("240 / (points.length - 1)"),
+            "die Linie füllt die Zelle nicht"
+        );
+        assert!(
+            !rule(".spark").contains("border-top"),
+            "die Trennlinie über der Sparkline ist zurück"
+        );
+    }
+
+    #[test]
+    fn the_inspector_always_shows_an_answer_step() {
+        assert!(
+            SCRIPT.contains("function answerStep"),
+            "kein Antwortschritt"
+        );
+        assert!(
+            SCRIPT.contains("if (!answered && record)"),
+            "erlaubte Namen enden ohne Antwort"
+        );
+        assert!(
+            SCRIPT.contains("the answer is the one that was recorded"),
+            "die Herkunft des Antwortschritts fehlt"
+        );
+    }
+
+    #[test]
+    fn the_side_column_shows_that_more_follows() {
+        assert!(
+            INDEX.contains("id=\"side-more\""),
+            "kein Hinweis auf mehr Inhalt"
+        );
+        assert!(SCRIPT.contains("function updateSideHint"));
+        assert!(
+            SCRIPT.contains("scrollHeight - side.scrollTop - side.clientHeight"),
+            "der Hinweis hängt nicht am Überlauf"
+        );
+        assert!(
+            rule(".side-panel").contains("scroll-snap-align: start"),
+            "die Panels rasten nicht ein"
         );
     }
 
