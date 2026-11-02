@@ -134,6 +134,7 @@ under log mode `ring`, without a query log existing anywhere.
 
 What the interface looks like is not an architecture question: the design
 language is in CLAUDE.md B.6, the material in
+[ADR-0034](adr/0034-stein-statt-himmel.md), which replaced the material of
 [ADR-0022](adr/0022-glas-als-flaeche.md). Architecturally the UI is a handful of
 static files that live inside the binary and are served over four routes — it
 does not know the pipeline, and queries it through the same API every other

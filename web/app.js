@@ -1,61 +1,49 @@
-// AlpenDNS — Web-UI.
-//
-// Kein Framework, kein Build-Schritt, keine externe Ressource: die Seite liegt
-// im Binary und funktioniert ohne Internet (CLAUDE.md B.6). Der Token wird im
-// Browser gehalten und bei jeder Anfrage mitgeschickt; der Server kennt keine
-// Sitzungen.
-//
-// Die Leitidee ist die aus ADR-0004: alles zeigen, nichts merken. Jede Kurve
-// auf dieser Seite kommt aus Zählern, nie aus Namen — die Zeitreihe unter
-// /api/history kann gar keinen Namen enthalten, weil sie keine Felder dafür
-// hat. Was an Namen sichtbar ist, hat entweder die k-Schwelle überschritten
-// oder steht im Ringpuffer, den der Log-Modus erlaubt.
-//
-// Benutzt werden genau die Endpunkte, die es gibt: /api/status für den Rahmen,
-// /api/events und /api/recent für das Protokoll, /api/top für die Nebenspalte,
-// /api/history für die Kurven und /api/explain für den Klick auf eine Zeile.
-//
-// Unter Last gilt: der Strom diktiert nicht das Tempo der Seite. Ereignisse
-// werden gesammelt und höchstens einmal je Bild gezeichnet — sonst erzwingt
-// jede einzelne Anfrage ein Layout, und bei einem Lasttest steht der Browser.
-// Der Server deckelt zusätzlich, wie viele Nachrichten er je Sekunde schickt.
 "use strict";
 
 const TOKEN_KEY = "alpendns.token";
-/** Derselbe Schlüssel, den das kurze Skript im Kopf der Seite liest. */
 const THEME_KEY = "alpendns.theme";
-/** So viele Zeilen hält das Protokoll. Darüber fällt die älteste heraus. */
-const MAX_ROWS = 300;
 const POLL_MS = 5000;
-/** Die Zeitreihe wächst in Fünf-Minuten-Schritten; öfter zu fragen bringt nichts. */
-const HISTORY_MS = 60_000;
-/** Breite der Sparkline in Sekunden. */
+const HISTORY_MS = 60000;
+const MAX_ROWS = 200;
 const SPARK_SECONDS = 60;
-/** Ab hier gilt eine Antwort als schnell bzw. als langsam (Millisekunden). */
-const MS_FAST = 20;
-const MS_SLOW = 100;
-/** So viele Upstreams bekommen ein eigenes Band; der Rest wird zusammengefasst. */
-const SPLIT_BANDS = 4;
+const MS_WARN = 250;
+const ERROR_RCODES = new Set(["SERVFAIL", "REFUSED", "FORMERR", "NOTIMP"]);
 
-// Nur aus dem Speicher des Browsers. Den Token zusätzlich aus der URL zu lesen
-// wäre bequem und würde ihn in jeden Verlauf schreiben; für den Live-Strom ist
-// er dort unvermeidlich, überall sonst nicht.
 let token = localStorage.getItem(TOKEN_KEY) || "";
 let stream = null;
-/** Gesetzt, solange der Server in einem Modus läuft, der keine Namen behält. */
+let status = null;
+let history = null;
+let shares = [];
+let listInfos = [];
+let filter = "all";
+let searchTerm = "";
 let quietMode = "";
-/** Ohne Namen (Modus none/aggregate) hat das Protokoll keine Namensspalte. */
 let namesAvailable = true;
+let started = false;
+let selectedEntry = null;
+let inspectSeq = 0;
+let lastTrace = "";
+let lastSubject = "";
 
 const $ = (id) => document.getElementById(id);
 
-/** Baut eine Zelle über textContent. Fremde Daten werden nie als Auszeichnung
- *  eingefügt: ein Domainname aus dem Netz ist Text, kein Markup. */
-function cell(text, className) {
-  const td = document.createElement("td");
-  td.textContent = text;
-  if (className) td.className = className;
-  return td;
+const entries = [];
+const pending = [];
+let flushScheduled = false;
+
+const series = { queries: [], blocked: [], cache: [], latency: [] };
+let bucket = { queries: 0, blocked: 0, cache: 0, ms: 0 };
+
+function td(className) {
+  const cell = document.createElement("td");
+  cell.className = className;
+  return cell;
+}
+
+function span(className) {
+  const node = document.createElement("span");
+  node.className = className;
+  return node;
 }
 
 async function api(path) {
@@ -66,13 +54,24 @@ async function api(path) {
   return response.json();
 }
 
-// ── Zahlen ────────────────────────────────────────────────────────────────
-//
-// Deutsches Format überall: Punkt als Tausendertrennung, Komma als
-// Dezimalzeichen. Eine Oberfläche, die "1,234" und "1.234" mischt, lässt jede
-// Zahl zweimal lesen.
+async function post(path, body) {
+  const response = await fetch(path, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) throw new Error(String(response.status));
+  return response.json();
+}
 
 const LOCALE = "en-US";
+
+const TRANSPORTS = { dot: "DoT", doh: "DoH", doq: "DoQ" };
+
+const transportLabel = (value) => TRANSPORTS[value] ?? String(value).toUpperCase();
 
 const thousands = (value) => Number(value ?? 0).toLocaleString(LOCALE);
 
@@ -88,30 +87,17 @@ const decimal = (value, digits) =>
     maximumFractionDigits: digits,
   });
 
-/** Die Uhrzeit aus einem Zeitstempel.
- *
- *  /api/recent liefert den vollen ISO-Stempel, der Live-Strom nur die Uhrzeit.
- *  Im Protokoll steht beides untereinander, also wird hier vereinheitlicht —
- *  ein Datum in jeder Zeile wäre in einem Live-Protokoll ohnehin Ballast. */
+function msText(value) {
+  if (value === null || value === undefined) return "–";
+  return value >= 100 ? decimal(value, 0) : decimal(value, 1);
+}
+
 function clockTime(at) {
   return at.includes("T") ? at.slice(11, 19) : at;
 }
 
-/** Teil der Plattform, keine Bibliothek: die Liste der Sprachen, die ein
- *  Browser mitbringt, ist genau die, die er auch formatiert. */
 const RELATIVE = new Intl.RelativeTimeFormat(LOCALE, { numeric: "auto" });
 
-/** "2 days ago" aus einem absoluten Zeitpunkt.
- *
- *  Der Server liefert absolute Zeitpunkte, die relative Aussage entsteht hier.
- *  Der Grund ist nicht Sparsamkeit, sondern Haltbarkeit: "vor 3 Stunden" ist
- *  eine Aussage über den Moment, in dem sie gelesen wird, und der Server weiß
- *  nicht, wann das ist. Als absolute Zahl kommt sie an, als relative steht sie
- *  da — und altert mit der Seite mit, statt auf einer Antwort von gestern zu
- *  beruhen.
- *
- *  Die Einheit ist die größte passende: "90 minutes ago" liest niemand,
- *  "2 hours ago" schon. */
 function relativeTime(iso, now = Date.now()) {
   const then = Date.parse(iso);
   if (Number.isNaN(then)) return null;
@@ -132,15 +118,6 @@ function relativeTime(iso, now = Date.now()) {
   return RELATIVE.format(Math.round(seconds), "second");
 }
 
-/** Die Farbklasse für eine Latenz — oder keine, wenn sie nichts zu sagen hat.
- *  Dieselben Schwellen für Upstreams und Protokoll, sonst hieße dieselbe Farbe
- *  an zwei Stellen zweierlei. */
-function latencyClass(ms) {
-  if (ms < MS_FAST) return "ms-fast";
-  if (ms < MS_SLOW) return null;
-  return "ms-slow";
-}
-
 function formatUptime(seconds) {
   const d = Math.floor(seconds / 86400);
   const h = Math.floor((seconds % 86400) / 3600);
@@ -150,71 +127,6 @@ function formatUptime(seconds) {
   return `${m} min`;
 }
 
-/** Der Punkt neben der Laufzeit: ist der Status gerade abrufbar? */
-function setReachable(reachable) {
-  const box = $("reach");
-  box.classList.toggle("is-stale", !reachable);
-  box.title = reachable
-    ? "Status is reachable"
-    : "No response — the numbers are the last known state";
-}
-
-/** Leere Flächen sagen, warum sie leer sind. Die Tabelle weicht dabei ganz:
- *  ein Spaltenkopf ohne Zeilen fällt in sich zusammen und sieht kaputt aus. */
-function syncEmptyStates() {
-  const hasRows = $("log").childElementCount > 0;
-  $("log-empty").hidden = hasRows;
-  $("log-table").hidden = !hasRows;
-  $("top-empty").hidden = $("top").childElementCount > 0;
-  $("flagged-empty").hidden = $("flagged").childElementCount > 0;
-  $("lists-empty").hidden = $("lists").childElementCount > 0;
-}
-
-/** Setzt den Pfad eines eingebetteten Diagramms.
- *
- *  Alle Kurven dieser Seite laufen hier durch: das <path> steht im HTML, das
- *  Skript setzt nur sein d. Kein Element wird im SVG-Namensraum erzeugt, keine
- *  Bibliothek geladen (B.6). */
-function setPath(id, d) {
-  const path = $(id);
-  path.setAttribute("d", d);
-}
-
-// ── Die Sparkline ─────────────────────────────────────────────────────────
-//
-// Sie zählt die Anfragen des Live-Stroms je Sekunde — dieselbe Quelle wie das
-// Protokoll, kein zusätzlicher Endpunkt. Der Puffer wächst von einer Sekunde
-// auf sechzig und schiebt erst dann: so füllt sich die Linie von links, statt
-// eine Minute Nullen zu behaupten, die niemand beobachtet hat.
-
-const spark = [0];
-
-function drawSpark() {
-  if (spark.length < 2) {
-    setPath("spark", "");
-    return;
-  }
-  // Der Maßstab folgt der Spitze; mindestens 1, damit eine ruhige Minute flach
-  // am Boden liegt statt durch Rundungsrauschen zu zappeln.
-  setPath("spark", linePath(spark, Math.max(1, ...spark), 240 / (SPARK_SECONDS - 1), 39, 38));
-}
-
-function tickSpark() {
-  spark.push(0);
-  if (spark.length > SPARK_SECONDS) spark.shift();
-  // Im Hintergrund weiterzählen, aber nicht zeichnen: ein Diagramm, das
-  // niemand sieht, ist reine Rechenzeit.
-  if (!document.hidden) drawSpark();
-}
-
-/** Eine geglättete Linie durch gleich breite Punkte, von links nach rechts.
- *
- *  Catmull-Rom als kubische Bézier: jeder Messwert bleibt auf der Kurve, die
- *  Steigung kommt aus den beiden Nachbarn. Drei Segmente je Punkt, also lineare
- *  Arbeit — bei 288 Eimern einmal je Minute, bei der Sparkline einmal je
- *  Sekunde. Kein Nachlauf, keine Animation: der letzte Wert steht sofort an
- *  seinem Platz. Die Kontrollpunkte werden auf das Diagramm begrenzt, sonst
- *  schösse eine einzelne Spitze über die Nulllinie hinaus. */
 function linePath(values, peak, step, base, span) {
   if (values.length === 0) return "";
   const top = base - span;
@@ -223,7 +135,9 @@ function linePath(values, peak, step, base, span) {
     index * step,
     base - (value / peak) * span,
   ]);
-  if (points.length === 1) return `M${points[0][0].toFixed(1)} ${points[0][1].toFixed(1)}`;
+  if (points.length === 1) {
+    return `M${points[0][0].toFixed(1)} ${points[0][1].toFixed(1)}`;
+  }
 
   const segments = [`M${points[0][0].toFixed(1)} ${points[0][1].toFixed(1)}`];
   const last = points.length - 1;
@@ -232,8 +146,6 @@ function linePath(values, peak, step, base, span) {
     const from = points[i];
     const to = points[i + 1];
     const after = points[i + 2 > last ? last : i + 2];
-    // Ein Drittel der Sehne zwischen den Nachbarn: die klassische
-    // Catmull-Rom-Umrechnung.
     const c1x = from[0] + (to[0] - before[0]) / 6;
     const c1y = clamp(from[1] + (to[1] - before[1]) / 6);
     const c2x = to[0] - (after[0] - from[0]) / 6;
@@ -247,166 +159,196 @@ function linePath(values, peak, step, base, span) {
   return segments.join("");
 }
 
-// ── Die Zeitreihe: 24 Stunden aus Zählern ─────────────────────────────────
-//
-// Der Server hält 288 Eimer à fünf Minuten im Arbeitsspeicher. Ein Neustart
-// setzt sie zurück, und das ist kein Mangel: was der Prozess nicht überlebt,
-// kann auch niemand später auslesen.
-
-const DAY_WIDTH = 240;
-const DAY_HEIGHT = 52;
-const SPLIT_HEIGHT = 44;
-
-function drawDay(history) {
-  const buckets = history.buckets ?? [];
-  // Ein einzelner Punkt ist noch keine Kurve.
-  const ready = buckets.length >= 2;
-  $("day-empty").hidden = ready;
-  for (const id of ["chart-traffic", "chart-cache"]) $(id).hidden = !ready;
-  document.querySelector(".axis").hidden = !ready;
-  if (!ready) return;
-
-  const step = DAY_WIDTH / (buckets.length - 1);
-  const queries = buckets.map((bucket) => bucket.queries);
-  const blocked = buckets.map((bucket) => bucket.blocked);
-  // Beide Kurven teilen sich den Maßstab: sonst sähen zwei geblockte Anfragen
-  // aus wie tausend, und der Vergleich, um den es geht, wäre gelogen.
-  const peak = Math.max(1, ...queries);
-  setPath("day-queries", linePath(queries, peak, step, DAY_HEIGHT - 1, DAY_HEIGHT - 2));
-  setPath("day-blocked", linePath(blocked, peak, step, DAY_HEIGHT - 1, DAY_HEIGHT - 2));
-
-  // Die Trefferquote ist ein Anteil und hat deshalb einen festen Maßstab von
-  // null bis eins — eine automatische Skalierung würde ruhige Phasen
-  // dramatisieren.
-  const rate = buckets.map((bucket) => {
-    const total = bucket.cache_hits + bucket.cache_misses;
-    return total === 0 ? 0 : bucket.cache_hits / total;
-  });
-  setPath("day-cache", linePath(rate, 1, step, DAY_HEIGHT - 1, DAY_HEIGHT - 2));
+function setPath(id, d) {
+  $(id).setAttribute("d", d);
 }
 
-/** Die Aufteilung der Anfragen auf die Upstreams, als gestapelte Flächen.
- *
- *  Die Frage dahinter ist keine Auslastungsfrage, sondern eine Privacy-Frage:
- *  wenn split_by_zone funktioniert, sieht kein Resolver mehr als seinen Teil
- *  der Namen. Eine schiefe Fläche heißt, dass einer zu viel sieht. */
-function drawSplit(history) {
-  const buckets = history.buckets ?? [];
-  const names = history.upstreams ?? [];
-  const bands = Math.min(SPLIT_BANDS, Math.max(names.length, 1));
-  const step = buckets.length > 1 ? DAY_WIDTH / (buckets.length - 1) : 0;
+function pushSample(name, value) {
+  const values = series[name];
+  values.push(value);
+  if (values.length > SPARK_SECONDS) values.shift();
+}
 
-  // Anteile je Eimer, auf höchstens vier Bänder gefaltet.
-  const shares = buckets.map((bucket) => {
-    const values = new Array(bands).fill(0);
-    (bucket.upstreams ?? []).forEach((value, index) => {
-      const slot = Math.min(index, bands - 1);
-      values[slot] += value;
-    });
-    const total = values.reduce((sum, value) => sum + value, 0);
-    return total === 0 ? values.map(() => 0) : values.map((value) => value / total);
-  });
+function drawSpark(name, peak) {
+  const values = series[name];
+  if (values.length < 2) {
+    setPath(`s-${name}`, "");
+    return;
+  }
+  setPath(
+    `s-${name}`,
+    linePath(values, Math.max(1, peak), 240 / (SPARK_SECONDS - 1), 34, 28),
+  );
+}
 
-  for (let band = 0; band < SPLIT_BANDS; band += 1) {
-    const path = `split-${band + 1}`;
-    if (band >= bands || buckets.length < 2) {
-      setPath(path, "");
-      continue;
-    }
-    // Obere Kante hin, untere Kante zurück: eine geschlossene Fläche ohne
-    // Lücken zwischen den Bändern.
-    const upper = [];
-    const lower = [];
-    shares.forEach((values, index) => {
-      const x = (index * step).toFixed(1);
-      let below = 0;
-      for (let i = 0; i < band; i += 1) below += values[i];
-      const top = below + values[band];
-      upper.push(`${x} ${(SPLIT_HEIGHT - top * SPLIT_HEIGHT).toFixed(1)}`);
-      lower.push(`${x} ${(SPLIT_HEIGHT - below * SPLIT_HEIGHT).toFixed(1)}`);
-    });
-    lower.reverse();
-    setPath(path, `M${upper.join(" L")} L${lower.join(" L")} Z`);
+function tickSparks() {
+  if (document.hidden) return;
+  const queries = bucket.queries;
+  pushSample("queries", queries);
+  pushSample("blocked", queries ? (bucket.blocked / queries) * 100 : 0);
+  pushSample("cache", queries ? (bucket.cache / queries) * 100 : 0);
+  pushSample("latency", queries ? bucket.ms / queries : 0);
+  bucket = { queries: 0, blocked: 0, cache: 0, ms: 0 };
+
+  drawSpark("queries", Math.max(...series.queries));
+  drawSpark("blocked", 100);
+  drawSpark("cache", 100);
+  drawSpark("latency", Math.max(...series.latency));
+}
+
+function setReachable(reachable) {
+  $("health-dot").classList.toggle("is-stale", !reachable);
+  $("health-dot").classList.toggle("is-live", reachable);
+  if (!reachable) {
+    $("health").textContent = "Status unreachable";
+    $("status-detail").textContent =
+      "No response from the API — the numbers are the last known state.";
   }
 }
 
-async function refreshHistory() {
-  const history = await api("/api/history");
-  drawDay(history);
-  drawSplit(history);
+function renderStatus(next) {
+  status = next;
+  quietMode = next.logging_mode === "ring" || next.logging_mode === "full"
+    ? ""
+    : next.logging_mode;
+  namesAvailable = quietMode === "";
+
+  const upstreams = next.upstreams ?? [];
+  const reachable = upstreams.filter((upstream) => !upstream.down).length;
+  const transports = new Set(upstreams.map((upstream) => upstream.transport));
+  const protocol = transports.size === 1 ? ` over ${transportLabel([...transports][0])}` : "";
+  const healthy = upstreams.length > 0 && reachable === upstreams.length;
+
+  $("health").textContent = healthy ? "Resolving normally" : "Resolving with problems";
+  $("health-dot").classList.toggle("is-live", healthy);
+  $("health-dot").classList.toggle("is-stale", !healthy);
+
+  $("status-detail").textContent = [
+    upstreams.length
+      ? `${reachable} of ${upstreams.length} upstreams reachable${protocol}`
+      : "no upstream configured",
+    `up ${formatUptime(next.uptime_seconds)}`,
+    `version ${next.version}`,
+    `logging mode ${next.logging_mode}`,
+  ].join(" · ");
+
+  $("m-queries").textContent = thousands(next.queries);
+  $("m-blocked").textContent = percent(next.block_rate);
+  $("m-blocked-sub").textContent = `${thousands(next.blocked)} queries`;
+  $("m-cache").textContent = percent(next.cache_hit_rate);
+
+  if (next.latency?.p50_ms !== null && next.latency?.p50_ms !== undefined) {
+    $("m-latency").textContent = `${msText(next.latency.p50_ms)} ms`;
+    $("m-latency-sub").textContent =
+      `median · p95 ${msText(next.latency.p95_ms)} ms`;
+  } else {
+    $("m-latency").textContent = "–";
+    $("m-latency-sub").textContent = "no measurement yet";
+  }
+
+  renderUpstreams(next);
+  renderPrivacy(next);
+  renderReasons(next.block_reasons ?? []);
+  renderFooter(next);
+  syncEmptyStates();
 }
 
-// ── Frage 1: Läuft er? ────────────────────────────────────────────────────
-
-function renderUpstreams(list) {
+function renderUpstreams(next) {
   const box = $("upstreams");
   box.replaceChildren();
+
+  const list = next.upstreams ?? [];
   list.forEach((upstream, index) => {
     const item = document.createElement("li");
+    item.className = "upstream";
 
-    // Das Band ordnet die Zeile der Fläche darüber zu; der Punkt sagt, ob der
-    // Upstream gerade antwortet. Zwei Zeichen, zwei Aussagen.
-    const swatch = document.createElement("span");
-    swatch.className = `swatch band-${Math.min(index + 1, SPLIT_BANDS)}`;
+    const dot = span("up-dot");
+    if (upstream.down) dot.classList.add("is-down");
 
-    const dot = document.createElement("span");
-    dot.className = `up-dot ${upstream.down ? "is-down" : "is-up"}`;
-
-    const name = document.createElement("span");
-    name.className = "up-name";
+    const name = span("up-name");
     name.textContent = upstream.name;
-    name.title = `${upstream.name} over ${upstream.transport.toUpperCase()}`;
+    const transport = span("up-transport");
+    transport.textContent = transportLabel(upstream.transport);
+    name.append(transport);
 
-    const rtt = document.createElement("span");
-    rtt.className = "up-rtt";
-    if (upstream.down) {
-      rtt.textContent = "down";
-    } else if (upstream.rtt_ms === null) {
-      rtt.textContent = "–";
+    const latency = span("up-latency");
+    if (upstream.p50_ms === null || upstream.p50_ms === undefined) {
+      latency.textContent = "–";
     } else {
-      rtt.textContent = `${decimal(upstream.rtt_ms, 0)} ms`;
-      const slot = latencyClass(upstream.rtt_ms);
-      if (slot) rtt.classList.add(slot);
+      latency.textContent =
+        `${msText(upstream.p50_ms)} / ${msText(upstream.p95_ms)} ms`;
+      if (upstream.p95_ms !== null && upstream.p95_ms >= MS_WARN) {
+        latency.classList.add("is-warn");
+      }
     }
 
-    item.append(swatch, dot, name, rtt);
+    const bar = span("up-bar");
+    const fill = span("");
+    const share = shares[index] ?? 0;
+    fill.style.width = `${share.toFixed(1)}%`;
+    bar.title = `${share.toFixed(1)} % of upstream answers in the last 24 hours`;
+    bar.append(fill);
+
+    item.append(dot, name, latency, bar);
     box.append(item);
   });
 
-  // Der Transport-Mix gehört in die Kopfzeile des Panels: er beantwortet
-  // "verschlüsselt womit", und das ist eine Eigenschaft der ganzen Gruppe.
   const mix = new Map();
   for (const upstream of list) {
     mix.set(upstream.transport, (mix.get(upstream.transport) ?? 0) + 1);
   }
   $("up-note").textContent = [...mix]
-    .map(([transport, count]) => `${count}× ${transport.toUpperCase()}`)
+    .map(([transport, count]) => `${count}× ${transportLabel(transport)}`)
     .join(" · ");
 }
 
-/** Der aktive Log-Modus, als Kennzahl im Kopf neben Version und Laufzeit. */
-function renderMode(status) {
-  $("mode").textContent = status.logging_mode;
-  quietMode =
-    status.logging_mode === "none" || status.logging_mode === "aggregate"
-      ? status.logging_mode
-      : "";
+function setPrivacy(id, enabled, text) {
+  const value = $(id);
+  const row = value.closest(".privacy-row");
+  row.classList.toggle("is-off", !enabled);
+  value.textContent = enabled ? text : "Off";
 }
 
-/** Die Verteilung der Block-Gründe als ein Balken. */
+function renderPrivacy(next) {
+  const switches = next.privacy?.enabled ?? {};
+  const counters = next.privacy ?? {};
+
+  setPrivacy("pc-ecs", switches.ecs, `${thousands(counters.ecs_stripped)} seen`);
+  setPrivacy("pc-pad", switches.padding, `${thousands(counters.padded)} padded`);
+  setPrivacy(
+    "pc-secure",
+    next.dnssec.enabled,
+    `${thousands(next.dnssec.secure)} valid`,
+  );
+  setPrivacy(
+    "pc-bogus",
+    next.dnssec.enabled,
+    `${thousands(next.dnssec.bogus)} dropped`,
+  );
+  setPrivacy(
+    "pc-case",
+    switches.case_randomization,
+    `${thousands(counters.case_randomized)} randomized`,
+  );
+  setPrivacy("pc-cookie", switches.cookies, `${thousands(counters.cookies)} sent`);
+
+  $("bogus-review").hidden = !(next.dnssec.bogus > 0 && namesAvailable);
+}
+
+const REASON_LABELS = {
+  blocklist: "Blocklist",
+  regex: "Regex rule",
+  schedule: "Schedule",
+  temporary_deny: "temporarily denied",
+  dga: "Generated name",
+  tunneling: "Tunneling",
+  rebinding: "Rebinding",
+  typosquat: "Typosquatting",
+  nrd: "Newly registered",
+  other: "unassigned",
+};
+
 function renderReasons(reasons) {
-  const LABELS = {
-    blocklist: "Blocklist",
-    regex: "Regex rule",
-    schedule: "Schedule",
-    temporary_deny: "temporarily denied",
-    dga: "Generated name",
-    tunneling: "Tunneling",
-    rebinding: "Rebinding",
-    typosquat: "Typosquatting",
-    nrd: "Newly registered",
-    other: "unassigned",
-  };
   const total = reasons.reduce((sum, entry) => sum + entry.count, 0);
   const bar = $("reason-bar");
   const legend = $("reason-legend");
@@ -417,148 +359,321 @@ function renderReasons(reasons) {
   $("reason-empty").hidden = total !== 0;
   if (total === 0) return;
 
-  // Nur die Gründe, die auch vorkommen. Seit Phase 8 sind es zehn Kategorien,
-  // und neun leere Legendenzeilen wären keine Information, sondern Rauschen.
-  const present = reasons.filter((entry) => entry.count > 0);
-  present.forEach((entry, index) => {
-    // Die Graustufen-Rampe hat vier Stufen (B.6). Bei mehr Kategorien wiederholt
-    // sie sich; die Zuordnung trägt ohnehin die Legende, nicht der Ton.
-    const band = `band-${(index % SPLIT_BANDS) + 1}`;
+  reasons
+    .filter((entry) => entry.count > 0)
+    .forEach((entry, index) => {
+      const band = `band-${(index % 4) + 1}`;
 
-    const segment = document.createElement("span");
-    segment.className = band;
-    segment.style.width = `${(entry.count / total) * 100}%`;
-    segment.title = `${LABELS[entry.reason] ?? entry.reason}: ${thousands(entry.count)}`;
-    bar.append(segment);
+      const segment = span(band);
+      segment.style.width = `${(entry.count / total) * 100}%`;
+      segment.title = `${REASON_LABELS[entry.reason] ?? entry.reason}: ${thousands(entry.count)}`;
+      bar.append(segment);
 
-    const item = document.createElement("li");
-    const swatch = document.createElement("span");
-    swatch.className = `swatch ${band}`;
-    const name = document.createElement("span");
-    name.className = "n";
-    name.textContent = LABELS[entry.reason] ?? entry.reason;
-    const count = document.createElement("span");
-    count.className = "c";
-    count.textContent = thousands(entry.count);
-    item.append(swatch, name, count);
-    legend.append(item);
-  });
+      const item = document.createElement("li");
+      const swatch = span(`swatch ${band}`);
+      const name = span("");
+      name.textContent = REASON_LABELS[entry.reason] ?? entry.reason;
+      const count = span("count");
+      count.textContent = thousands(entry.count);
+      item.append(swatch, name, count);
+      legend.append(item);
+    });
+}
+
+function renderFooter(next) {
+  const oldest = listInfos
+    .map((info) => info.fetched_at)
+    .filter(Boolean)
+    .sort()[0];
+  const entriesText = `${thousands(next.list_entries)} blocklist entries`;
+  $("foot-lists").textContent = oldest
+    ? `${entriesText} · oldest list updated ${relativeTime(oldest)}`
+    : entriesText;
+
+  $("foot-mode").textContent = next.persists_to_disk
+    ? "Every query is also written to the log file (mode full)."
+    : {
+        ring: "Names are kept in memory only (mode ring).",
+        aggregate: "Queries are counted without names (mode aggregate).",
+        none: "Only counters are kept (mode none).",
+      }[next.logging_mode] ?? `Logging mode ${next.logging_mode}.`;
+  $("foot-version").textContent = `AlpenDNS ${next.version}`;
 }
 
 async function refreshStatus() {
-  const status = await api("/api/status");
+  const next = await api("/api/status");
   setReachable(true);
+  renderStatus(next);
+  return next;
+}
 
-  $("version").textContent = status.version;
-  $("uptime").textContent = formatUptime(status.uptime_seconds);
+function computeShares(view) {
+  const sums = (view.upstreams ?? []).map(() => 0);
+  for (const item of view.buckets ?? []) {
+    (item.upstreams ?? []).forEach((value, index) => {
+      sums[index] = (sums[index] ?? 0) + value;
+    });
+  }
+  const total = sums.reduce((sum, value) => sum + value, 0);
+  shares = sums.map((value) => (total ? (value / total) * 100 : 0));
+}
 
-  $("queries").textContent = thousands(status.queries);
-  // Die Anzahl ist die Kennzahl, der Anteil ihr Kleingedrucktes.
-  const rate = document.createElement("span");
-  rate.className = "trail";
-  rate.textContent = percent(status.block_rate);
-  $("blocked").replaceChildren(
-    document.createTextNode(thousands(status.blocked)),
-    rate,
+function drawDay(view) {
+  const buckets = view.buckets ?? [];
+  const ready = buckets.length >= 2;
+  $("chart-traffic").hidden = !ready;
+  $("day-empty").hidden = ready;
+  if (!ready) {
+    setPath("day-queries", "");
+    setPath("day-blocked", "");
+    return;
+  }
+
+  const step = 240 / (buckets.length - 1);
+  const queries = buckets.map((item) => item.queries);
+  const blocked = buckets.map((item) => item.blocked);
+  const peak = Math.max(1, ...queries);
+
+  setPath("day-queries", linePath(queries, peak, step, 54, 46));
+  setPath("day-blocked", linePath(blocked, peak, step, 54, 46));
+}
+
+async function refreshHistory() {
+  const view = await api("/api/history");
+  history = view;
+  computeShares(view);
+  drawDay(view);
+  if (status) renderUpstreams(status);
+}
+
+async function refreshLists() {
+  listInfos = await api("/api/lists");
+  if (status) renderFooter(status);
+}
+
+function isError(event) {
+  return event.source === "failed" || ERROR_RCODES.has(String(event.rcode).toUpperCase());
+}
+
+function sameQuery(one, other) {
+  return Boolean(
+    one.name &&
+      other.name &&
+      one.name === other.name &&
+      one.type === other.type &&
+      (one.client ?? "") === (other.client ?? "") &&
+      one.blocked === other.blocked &&
+      one.rcode === other.rcode &&
+      (one.source ?? "") === (other.source ?? ""),
   );
-  $("hitrate").textContent = percent(status.cache_hit_rate);
-  $("entries").textContent = thousands(status.list_entries);
+}
 
-  renderUpstreams(status.upstreams);
-  renderMode(status);
-  renderReasons(status.block_reasons ?? []);
-
-  $("pc-ecs").textContent = thousands(status.privacy.ecs_stripped);
-  $("pc-pad").textContent = thousands(status.privacy.padded);
-  $("pc-case").textContent = thousands(status.privacy.case_randomized);
-  $("pc-cookie").textContent = thousands(status.privacy.cookies);
-  $("pc-secure").textContent = thousands(status.dnssec.secure);
-  const bogus = $("pc-bogus");
-  bogus.textContent = thousands(status.dnssec.bogus);
-  bogus.classList.toggle("is-bogus", status.dnssec.bogus > 0);
-
-  // Der aktive Log-Modus bestimmt, was das Protokoll überhaupt zeigen kann.
-  const quiet = status.logging_mode === "none" || status.logging_mode === "aggregate";
-  namesAvailable = !quiet;
-  const note = $("live-note");
-  // Nur der Modus "full" schreibt jede Zeile auf die Platte — das ist hier die
-  // einzige gelbe Warnung. Die übrigen Modi bleiben neutral und ohne Zusatz.
-  note.classList.toggle("is-persisting", status.persists_to_disk);
-  if (quiet) {
-    note.textContent = `ephemeral · mode '${status.logging_mode}': you can see that something happens — not what`;
-  } else if (status.persists_to_disk) {
-    note.textContent = "logging active";
-  } else {
-    note.textContent = "ephemeral";
+function matchesFilter(entry) {
+  const event = entry.event;
+  if (filter === "blocked" && !event.blocked) return false;
+  if (filter === "errors" && !isError(event)) return false;
+  if (searchTerm) {
+    const haystack = `${event.name ?? ""} ${event.client ?? ""}`.toLowerCase();
+    if (!haystack.includes(searchTerm)) return false;
   }
+  return true;
+}
 
-  // Dasselbe für die Begründung: ohne Namen gibt es keine anklickbare Zeile,
-  // und der Aufforderungssatz wäre eine Anleitung ins Leere.
-  $("why-empty-note").textContent = quiet
-    ? `mode '${status.logging_mode}': the server keeps no names, so nothing can appear here.`
-    : "Nothing has been blocked since this page was opened. Click a row in the log to ask for its decision chain.";
+function applyFilter(entry) {
+  entry.tr.hidden = !matchesFilter(entry);
+}
 
-  if (status.logging_mode === "none") {
-    $("top-note").textContent = "In mode 'none', no names are counted.";
-  } else if (quiet) {
-    $("top-note").textContent = "Names only appear above the k-threshold.";
+function paintResult(cell, event) {
+  cell.replaceChildren();
+  const result = span("result");
+  if (event.blocked) {
+    result.classList.add("is-blocked");
+    result.textContent = "BLOCKED";
+    result.title = event.rcode;
+  } else if (isError(event)) {
+    result.classList.add("is-error");
+    result.textContent = String(event.rcode).toUpperCase();
   } else {
-    $("top-note").textContent = "No name seen often enough yet.";
+    result.classList.add("is-muted");
+    result.textContent = String(event.rcode).toUpperCase();
+  }
+  cell.append(result);
+}
+
+function paintMs(cell, event) {
+  cell.classList.remove("is-warn");
+  if (event.blocked) {
+    cell.textContent = "";
+    return;
+  }
+  if (event.source === "cache") {
+    cell.textContent = "cache";
+    return;
+  }
+  if (event.source === "local") {
+    cell.textContent = "local";
+    return;
+  }
+  if (event.source === "failed") {
+    cell.textContent = "–";
+    return;
+  }
+  cell.textContent = msText(event.ms);
+  if (event.ms >= MS_WARN) cell.classList.add("is-warn");
+}
+
+function paintName(entry) {
+  const event = entry.event;
+  const cell = entry.cells.name;
+
+  if (event.name) {
+    if (!entry.button) {
+      entry.button = document.createElement("button");
+      entry.button.type = "button";
+      entry.button.className = "name-button";
+      entry.button.title = "Why this answer";
+      cell.append(entry.button);
+      entry.times = span("times");
+      cell.append(entry.times);
+    }
+    entry.button.textContent = event.name;
+    entry.button.dataset.domain = event.name;
+    if (event.client) entry.button.dataset.client = event.client;
+    if (entry.times) {
+      entry.times.textContent = entry.count > 1 ? `×${entry.count}` : "";
+    }
+  } else {
+    cell.replaceChildren();
+    const empty = span("name-static");
+    empty.textContent = "–";
+    cell.append(empty);
   }
 }
 
-// ── Frage 3: Warum wurde das geblockt? ────────────────────────────────────
+function buildEntry(event) {
+  const tr = document.createElement("tr");
+  const cells = {
+    time: td("c-time"),
+    name: td("c-name"),
+    type: td("c-type"),
+    client: td("c-client"),
+    result: td("c-result"),
+    ms: td("c-ms"),
+  };
+  tr.append(...Object.values(cells));
 
-function showReason(event) {
-  const box = $("why-body");
-  box.replaceChildren();
-
-  const subject = document.createElement("span");
-  subject.className = "subject";
-  // Die Farbe des Namens wiederholt nur das Verdikt aus der Kontextzeile: rot
-  // für geblockt, grün für durchgelassen. Geblockt ist der Regelfall dieses
-  // Panels, also bleibt der Name ohne Klasse rot.
-  if (!event.blocked) subject.classList.add("is-allowed");
-  subject.textContent = event.name;
-  box.append(subject);
-
-  const context = document.createElement("p");
-  context.className = "context";
-  context.textContent =
-    `at ${clockTime(event.at)} · ${event.client ?? "unknown"} · ` +
-    (event.blocked ? "blocked" : "allowed");
-  box.append(context);
-
-  const chain = document.createElement("ol");
-  chain.className = "chain";
-  for (const step of event.why ?? []) {
-    const { label, detail } = describeStep(step);
-    const item = document.createElement("li");
-    const station = document.createElement("span");
-    station.className = "step-label";
-    station.textContent = label;
-    const outcome = document.createElement("span");
-    outcome.className = "step-detail";
-    outcome.textContent = detail;
-    item.append(station, outcome);
-    chain.append(item);
-  }
-  box.append(chain);
-
-  $("why-source").hidden = true;
-  $("why-empty").hidden = true;
-  box.hidden = false;
+  const entry = { event, tr, count: 1, cells, button: null, times: null };
+  fillEntry(entry);
+  tr.dataset.domain = event.name ?? "";
+  if (event.client) tr.dataset.client = event.client;
+  return entry;
 }
 
-/** Ein Trace-Schritt in zwei Spalten: links die Station, rechts das Ergebnis.
- *
- *  Der Server schickt die Kette als Sätze, weil dieselbe Darstellung auch
- *  `alpendns policy test` ausgibt. Im Panel zählt die Station, nicht die
- *  Grammatik: das Auge findet "Blocklist", ohne den Satz zu lesen. Was diese
- *  Liste nicht kennt, bleibt unverändert stehen — ein neuer Schritt soll nicht
- *  verschwinden, nur weil die Kurzform fehlt. */
+function fillEntry(entry) {
+  const event = entry.event;
+  entry.tr.classList.toggle("is-blocked", event.blocked);
+  entry.cells.time.textContent = clockTime(event.at);
+  entry.cells.type.textContent = event.type ?? "–";
+  entry.cells.client.textContent = event.client ?? "–";
+  paintName(entry);
+  paintResult(entry.cells.result, event);
+  paintMs(entry.cells.ms, event);
+}
+
+function pushEvent(event) {
+  const top = entries[0];
+  if (top && sameQuery(top.event, event)) {
+    top.event = event;
+    top.count += 1;
+    fillEntry(top);
+    applyFilter(top);
+    return;
+  }
+
+  if (
+    !event.name &&
+    top &&
+    !top.event.name &&
+    top.event.type === event.type &&
+    top.event.blocked === event.blocked &&
+    top.event.rcode === event.rcode &&
+    (top.event.source ?? "") === (event.source ?? "")
+  ) {
+    top.event = event;
+    top.count += 1;
+    fillEntry(top);
+    applyFilter(top);
+    return;
+  }
+
+  const entry = buildEntry(event);
+  applyFilter(entry);
+  entries.unshift(entry);
+  $("log").prepend(entry.tr);
+
+  while (entries.length > MAX_ROWS) {
+    const removed = entries.pop();
+    removed.tr.remove();
+  }
+}
+
+function flushRows() {
+  flushScheduled = false;
+  if (pending.length === 0) return;
+  for (const event of pending) pushEvent(event);
+  pending.length = 0;
+  syncEmptyStates();
+}
+
+function addRow(event) {
+  bucket.queries += 1 + (event.skipped ?? 0);
+  if (event.blocked) bucket.blocked += 1;
+  if (event.source === "cache") bucket.cache += 1;
+  bucket.ms += Number(event.ms ?? 0);
+
+  if (document.hidden) return;
+  pending.push(event);
+  if (pending.length > MAX_ROWS) pending.splice(0, pending.length - MAX_ROWS);
+  if (!flushScheduled) {
+    flushScheduled = true;
+    requestAnimationFrame(flushRows);
+  }
+}
+
+function syncEmptyStates() {
+  const total = entries.length;
+  const visible = entries.filter((entry) => !entry.tr.hidden).length;
+
+  $("log-table").hidden = total === 0;
+  $("log-empty").hidden = visible > 0;
+
+  if (total === 0) {
+    $("log-empty-note").textContent = quietMode
+      ? `Mode '${quietMode}': the server keeps no names, so nothing can appear here.`
+      : "No query answered yet. New ones appear on their own.";
+  } else {
+    $("log-empty-note").textContent = "No query matches this filter.";
+  }
+
+  $("log-foot").textContent = quietMode
+    ? `Mode '${quietMode}': names are not retained. Set privacy.logging.mode to 'ring' or 'full' to see domains.`
+    : "Select a domain to see why it was answered that way.";
+
+  $("flagged-empty").hidden = $("flagged").childElementCount > 0;
+}
+
+function setFilter(next) {
+  filter = next;
+  for (const chip of document.querySelectorAll(".chip")) {
+    const active = chip.dataset.filter === next;
+    chip.classList.toggle("is-active", active);
+    chip.setAttribute("aria-pressed", String(active));
+  }
+  for (const entry of entries) applyFilter(entry);
+  syncEmptyStates();
+}
+
 const BLOCK_MODES = { Nxdomain: "NXDOMAIN", ZeroIp: "0.0.0.0", Sinkhole: "sinkhole" };
-const DETECT_VERBS = { blocks: "blocked", flags: "flagged", logs: "logged" };
 
 const STEP_FORMS = [
   [/^no client entry matches, '(.+)' applies$/, "Client",
@@ -568,301 +683,147 @@ const STEP_FORMS = [
   [/^Policy '(.+)'$/, "Policy", (m) => m[1]],
   [/^temporary (allow|deny), (.+) left$/, "Temporary",
     (m) => `${m[1]} · ${m[2]} left`],
-  [/^Allowlist '(.+)' line (\d+): '.+'$/, "Allowlist",
-    (m) => `${m[1]} · line ${m[2]}`],
-  [/^Blocklist '(.+)' line (\d+): '.+'$/, "Blocklist",
-    (m) => `${m[1]} · line ${m[2]}`],
+  [/^Allowlist '(.+)' line (\d+): '(.+)'$/, "Allowlist",
+    (m) => `${m[1]} · line ${m[2]} · ${m[3]}`],
+  [/^Blocklist '(.+)' line (\d+): '(.+)'$/, "Blocklist",
+    (m) => `${m[1]} · line ${m[2]} · ${m[3]}`, true],
   [/^Regex rule from policy '(.+)': \/(.+)\/$/, "Regex",
     (m) => `${m[1]} · /${m[2]}/`],
   [/^Schedule '(.+)' active: .+$/, "Schedule",
     (m) => `${m[1]} · allowlist only`],
-  [/^from cache \((valid|expired), (\d+) s left\)$/, "Cache",
-    (m) => `${m[1]} · ${m[2]} s left`],
-  [/^Upstream '(.+)' answered in (.+)$/, "Upstream",
+  [/^from cache \((valid|expired), (\d+) s left\)$/, "Answer",
+    (m) => `cache · ${m[1]} · ${m[2]} s left`],
+  [/^Upstream '(.+)' answered in (.+)$/, "Answer",
     (m) => `${m[1]} · ${m[2]}`],
   [/^DNSSEC verified locally: (.+)$/, "DNSSEC", (m) => m[1]],
-  [/^(.+) (blocks|flags|logs) \(score (.+)\): .+$/, "Detection",
-    (m) => `${m[1]} · ${DETECT_VERBS[m[2]]} · ${m[3]}`],
+  [/^(.+) (blocks|flags|logs) \(score (.+)\): .*$/, "Detection",
+    (m) => `${m[1]} · ${m[2]} · ${m[3]}`],
   [/^Answer synthesized locally, mode (.+)$/, "Answer",
-    (m) => `blocked · ${BLOCK_MODES[m[1]] ?? m[1]}`],
-  [/^from local zone '(.+)', (\d+) record\(s\)$/, "Local zone",
-    (m) => `${m[1]} · ${m[2]} record(s)`],
-  [/^the same question failed moments ago; .+$/, "Upstream",
+    (m) => `synthesized · ${BLOCK_MODES[m[1]] ?? m[1]}`, true],
+  [/^from local zone '(.+)', (\d+) record\(s\)$/, "Answer",
+    (m) => `local zone ${m[1]} · ${m[2]} record(s)`],
+  [/^the same question failed moments ago; .+$/, "Answer",
     () => "not asked · failed moments ago"],
 ];
 
 function describeStep(step) {
-  for (const [pattern, label, detail] of STEP_FORMS) {
+  for (const [pattern, label, detail, key] of STEP_FORMS) {
     const match = pattern.exec(step);
-    if (match) return { label, detail: detail(match) };
+    if (match) return { label, detail: detail(match), key: Boolean(key) };
   }
-  return { label: "Step", detail: step };
+  return { label: "Step", detail: step, key: false };
 }
 
-/** Die Entscheidungskette auf Anfrage — dieselbe Auswertung wie
- *  `alpendns policy test`, nur über /api/explain.
- *
- *  Der Unterschied zur Kette aus dem Protokoll: die dort ist ein Protokoll
- *  dessen, was passiert ist; diese hier ist die Antwort auf "und was würde
- *  jetzt passieren?". Deshalb steht dabei, woher sie kommt.
- *
- *  Die angeklickte Zeile ist zugleich die Anweisung, das Panel in Ruhe zu
- *  lassen: solange sie gesetzt ist, führt der Strom die Begründung nicht mehr
- *  nach. Eine Auswahl, die die nächste geblockte Anfrage überschreibt, ist
- *  keine — man liest die Kette ja nicht in der Sekunde, in der man klickt. */
-let askedRow = null;
+function renderInspector(answer, record) {
+  const subject = $("inspect-name");
+  subject.textContent = answer.domain;
+  subject.classList.toggle("is-allowed", !answer.blocked);
 
-async function explainRow(name, client, row) {
-  if (askedRow) askedRow.classList.remove("is-asked");
-  askedRow = row;
-  row.classList.add("is-asked");
-
-  const query = new URLSearchParams({ domain: name });
-  // "default" ist kein Client, sondern der Name für "keine Regel passt". Den
-  // kann der Server nicht in eine Adresse übersetzen — also wird er nicht
-  // mitgeschickt, und /api/explain wertet mit der Loopback-Adresse aus, was
-  // dieselbe Default-Policy trifft.
-  if (
-    client &&
-    client !== "–" &&
-    client !== "unknown" &&
-    client !== "default"
-  ) {
-    query.set("client", client);
-  }
-
-  const source = $("why-source");
-  try {
-    const answer = await api(`/api/explain?${query}`);
-    showReason({
-      name: answer.domain,
-      at: new Date().toTimeString().slice(0, 8),
-      client: answer.client,
-      blocked: answer.blocked,
-      why: answer.steps,
-    });
-  } catch {
-    source.textContent = "Evaluation was not possible.";
-    source.hidden = false;
-  }
-}
-
-// ── Frage 2: Was gerade passiert ──────────────────────────────────────────
-
-/** Die Antwort als Badge. Geblockt sagt der Text, die Farbe wiederholt es nur —
- *  wer sie nicht sieht, verliert nichts. Der echte RCODE bleibt im Titel. */
-function rcodeCell(event) {
-  const td = document.createElement("td");
-  td.className = "c-rcode";
-  const badge = document.createElement("span");
-  badge.className = "badge";
-  if (event.blocked) {
-    badge.classList.add("is-blocked");
-    badge.textContent = "BLOCKED";
-    badge.title = event.rcode;
+  const meta = [];
+  if (record) {
+    meta.push(record.type ?? "–", clockTime(record.at), `client ${record.client ?? "unknown"}`);
   } else {
-    badge.textContent = event.rcode;
-    if (event.rcode === "NXDOMAIN") badge.classList.add("is-muted");
+    meta.push("evaluated just now", `client ${answer.client}`);
   }
-  td.append(badge);
-  return td;
-}
+  $("inspect-meta").textContent = meta.join(" · ");
 
-function row(event) {
-  const tr = document.createElement("tr");
-  if (event.blocked) tr.className = "is-blocked";
-  tr.append(cell(clockTime(event.at), "c-time"));
+  const badge = $("inspect-verdict");
+  badge.hidden = false;
+  badge.textContent = answer.blocked ? "Blocked" : "Allowed";
+  badge.classList.toggle("is-allowed", !answer.blocked);
 
-  const name = cell(event.name ?? "no name", "c-name");
-  if (!event.name) name.classList.add("unnamed");
-  tr.append(name);
-
-  tr.append(cell(event.client ?? "–", "c-client"));
-  tr.append(rcodeCell(event));
-
-  const ms = cell(decimal(event.ms, 1), "c-ms");
-  const slot = latencyClass(event.ms);
-  if (slot) ms.classList.add(slot);
-  tr.append(ms);
-
-  // Anklickbar nur mit Namen: ohne ihn gibt es nichts zu erklären, und eine
-  // Zeile, die auf einen Klick nicht reagiert, ist schlimmer als eine, die
-  // gar nicht danach aussieht.
-  //
-  // Die Zeile bekommt keine eigenen Zuhörer: bei 300 Zeilen wären das 600, und
-  // jede neue Zeile müsste zwei anlegen. Stattdessen hört die Tabelle einmal zu
-  // und findet die Zeile über closest() — der Name hängt am Element.
-  if (event.name) {
-    tr.classList.add("askable");
-    tr.tabIndex = 0;
-    tr.title = "Ask for decision chain";
-    tr.dataset.domain = event.name;
-    if (event.client) tr.dataset.client = event.client;
-  }
-  return tr;
-}
-
-/** Ein Klick oder Enter irgendwo in der Tabelle. */
-function onRowActivate(trigger) {
-  if (trigger.type === "keydown") {
-    if (trigger.key !== "Enter" && trigger.key !== " ") return;
-    trigger.preventDefault();
-  }
-  const tr = trigger.target.closest("tr.askable");
-  if (tr) explainRow(tr.dataset.domain, tr.dataset.client, tr);
-}
-
-// Was seit dem letzten Bild hereinkam. Mehr als MAX_ROWS zu behalten wäre
-// sinnlos: alles Ältere fiele beim Zeichnen sofort wieder aus der Tabelle.
-const pending = [];
-let flushScheduled = false;
-
-function addRow(event) {
-  // Die Sparkline zählt jede Anfrage — auch die, die der Server ausgelassen
-  // hat. Sonst zeigte die Linie unter Last einen ruhigen Server.
-  spark[spark.length - 1] += 1 + (event.skipped ?? 0);
-
-  // Im Hintergrund gibt es nichts zu zeichnen. Der Puls bleibt trotzdem
-  // gezählt, damit die Linie beim Zurückkommen stimmt.
-  if (document.hidden) return;
-
-  pending.push(event);
-  if (pending.length > MAX_ROWS) pending.splice(0, pending.length - MAX_ROWS);
-  if (!flushScheduled) {
-    flushScheduled = true;
-    requestAnimationFrame(flushRows);
-  }
-}
-
-/** Zeichnet alle gesammelten Ereignisse in einem Durchgang.
- *
- *  Der teure Teil am alten Weg war nicht das Erzeugen der Zeilen, sondern das
- *  Wechselspiel: anhängen, Höhe lesen, scrollen — pro Anfrage einmal, und jedes
- *  Lesen zwingt den Browser, das Layout sofort neu zu rechnen. Hier wird alles
- *  in einem Fragment gebaut, einmal eingehängt und einmal gemessen. */
-function flushRows() {
-  flushScheduled = false;
-  if (pending.length === 0) return;
-
-  const body = $("log");
-  const scroller = $("log-scroll");
-  const wasAtTop = scroller.scrollTop < 4;
-  const heightBefore = scroller.scrollHeight;
-
-  // Das Protokoll wächst nach oben, also rückwärts durch den Puffer: die
-  // jüngste Zeile steht am Ende und muss zuoberst landen.
-  const fragment = document.createDocumentFragment();
-  let newestBlocked = null;
-  for (let index = pending.length - 1; index >= 0; index -= 1) {
-    const event = pending[index];
-    fragment.append(row(event));
-    if (!newestBlocked && event.blocked && event.name) newestBlocked = event;
-  }
-  body.prepend(fragment);
-
-  while (body.childElementCount > MAX_ROWS) body.lastElementChild.remove();
-
-  // Wer im Protokoll nach unten gescrollt hat, soll nicht mitgeschoben werden.
-  if (!wasAtTop) {
-    scroller.scrollTop += scroller.scrollHeight - heightBefore;
-  }
-
-  pending.length = 0;
-  syncEmptyStates();
-  // Nur die jüngste Begründung: unter Last wäre alles andere ein Flackern, das
-  // niemand lesen kann. Und gar keine, sobald jemand selbst eine Zeile gewählt
-  // hat — dann gehört das Panel dieser Zeile, bis die Seite neu geladen wird.
-  if (newestBlocked && !askedRow) showReason(newestBlocked);
-}
-
-async function refreshTop() {
-  const report = await api("/api/top?limit=12");
-  const list = $("top");
+  const list = $("inspect-steps");
   list.replaceChildren();
-  for (const entry of report.domains ?? []) {
+  for (const step of answer.steps ?? []) {
+    const { label, detail, key } = describeStep(step);
     const item = document.createElement("li");
-    if (entry.blocked) item.className = "is-blocked";
-    const name = document.createElement("span");
-    name.className = "n";
-    name.textContent = entry.name;
-    const count = document.createElement("span");
-    count.className = "c";
-    count.textContent = thousands(entry.count);
-    item.append(name, count);
+    if (key) item.classList.add("is-key");
+    const station = span("step-label");
+    station.textContent = label;
+    const outcome = span("step-detail");
+    outcome.textContent = detail;
+    item.append(station, outcome);
+    list.append(item);
+  }
+  if (list.childElementCount === 0) {
+    const item = document.createElement("li");
+    const outcome = span("step-detail");
+    outcome.textContent = "No step was recorded.";
+    item.append(outcome);
     list.append(item);
   }
 
-  syncEmptyStates();
+  lastTrace = (answer.steps ?? []).join("\n");
+  lastSubject = answer.domain;
+  $("inspect-note").textContent =
+    "Evaluated now against the current lists, not replayed from the log.";
+  $("inspect-allow").hidden = !answer.blocked;
+  $("inspect-allow").textContent = "Allow this domain";
+  $("inspect-allow").disabled = false;
 }
 
-/** Eine Zeile je Liste: Name, Einträge, Alter.
- *
- *  Das Alter ist die eigentliche Aussage dieses Panels. Eine Blockliste, die
- *  seit Monaten nicht mehr geholt wurde, filtert noch — nur nach einem Stand,
- *  den niemand mehr pflegt. Das sieht in jeder anderen Kachel gesund aus, weil
- *  die Upstreams antworten und die Anfragen laufen. */
-async function refreshLists() {
-  const infos = await api("/api/lists");
-  const box = $("lists");
-  box.replaceChildren();
-  for (const info of infos) {
-    const item = document.createElement("li");
+async function openInspector({ name, client, entry, record }) {
+  if (!name) return;
+  if (selectedEntry && selectedEntry !== entry) {
+    selectedEntry.tr.classList.remove("is-selected");
+  }
+  selectedEntry = entry ?? null;
+  if (entry) entry.tr.classList.add("is-selected");
 
-    const name = document.createElement("span");
-    name.className = "list-name";
-    name.textContent = info.name;
+  const sequence = ++inspectSeq;
+  $("inspect-name").textContent = name;
+  $("inspect-name").classList.remove("is-allowed");
+  $("inspect-meta").textContent = record
+    ? [record.type ?? "–", clockTime(record.at), `client ${record.client ?? "unknown"}`].join(" · ")
+    : "evaluated just now";
+  $("inspect-verdict").hidden = true;
+  $("inspect-steps").replaceChildren();
+  $("inspect-note").textContent = "Evaluating against the current lists…";
+  $("inspect-allow").hidden = true;
+  $("inspect-copy").textContent = "Copy trace";
+  lastTrace = "";
+  lastSubject = name;
 
-    const entries = document.createElement("span");
-    entries.className = "list-entries";
-    entries.textContent = thousands(info.entries);
+  const dialog = $("inspector");
+  if (!dialog.open) dialog.showModal();
 
-    const age = document.createElement("span");
-    age.className = "list-age";
-    // "never" heißt: es gibt keine Datei, aus der diese Liste käme — ein
-    // Download, der nicht zwischengespeichert werden konnte, oder eine
-    // Konfigurationsdatei, die inzwischen weg ist. Beim Start wäre beides ein
-    // Fehler und der Server startete nicht; hier steht es trotzdem, weil ein
-    // `null` sonst als leere Zelle erschiene und wie ein Darstellungsfehler
-    // aussähe.
-    age.textContent = (info.fetched_at && relativeTime(info.fetched_at)) || "never";
-    if (info.published_at) {
-      // Der zweite Zeitpunkt, den der Server kennt, gehört nicht in die Zeile:
-      // er beantwortet die Gegenfrage ("gibt die Quelle noch etwas her?") und
-      // die stellt man sich selten. Als Titel steht er trotzdem da.
-      const published = relativeTime(info.published_at);
-      if (published) age.title = `Publisher's last change: ${published}`;
-    }
+  const query = new URLSearchParams({ domain: name });
+  if (client && client !== "–" && client !== "unknown" && client !== "default") {
+    query.set("client", client);
+  }
 
-    item.append(name, entries, age);
-    box.append(item);
+  try {
+    const answer = await api(`/api/explain?${query}`);
+    if (sequence !== inspectSeq) return;
+    renderInspector(answer, record);
+  } catch {
+    if (sequence !== inspectSeq) return;
+    $("inspect-note").textContent = "Evaluation was not possible.";
+  }
+}
+
+function loadRecent(recent) {
+  for (let index = recent.length - 1; index >= 0; index -= 1) {
+    pushEvent(recent[index]);
   }
   syncEmptyStates();
 }
 
-/**
- * Die auffälligen Anfragen.
- *
- * Kommen aus demselben Ringpuffer wie das Protokoll — in den leisen Log-Modi
- * gibt der nichts heraus, und dann bleibt dieses Panel leer. Das ist kein
- * Fehler, sondern die Einstellung, und der Leertext sagt es auch.
- */
 async function refreshFlagged() {
-  const entries = await api("/api/flagged?limit=25");
+  const found = await api("/api/flagged?limit=25");
   const list = $("flagged");
   list.replaceChildren();
 
-  for (const entry of entries) {
+  for (const entry of found) {
     for (const finding of entry.findings ?? []) {
       list.append(flaggedRow(entry, finding));
     }
   }
-  $("flagged-note").textContent = entries.length
-    ? `${thousands(entries.length)} in the last few minutes`
+
+  $("flagged-note").textContent = found.length
+    ? `${thousands(found.length)} in the last few minutes`
     : "";
-  $("flagged-note").hidden = entries.length === 0;
-  // Leer heißt nicht immer "nichts gefunden": in den leisen Log-Modi behält der
-  // Server keine Namen, und dann kann hier nichts stehen. Das gehört gesagt,
-  // sonst sieht ein zurückhaltend eingestellter Server aus wie ein untätiger.
+  $("flagged-note").hidden = found.length === 0;
   $("flagged-note-empty").textContent = quietMode
     ? `mode '${quietMode}': the server keeps no names, so nothing can appear here.`
     : "No heuristic has flagged anything.";
@@ -872,24 +833,19 @@ async function refreshFlagged() {
 function flaggedRow(entry, finding) {
   const item = document.createElement("li");
 
-  const subject = document.createElement("span");
-  subject.className = "subject";
+  const subject = span("subject");
   subject.textContent = entry.name;
 
   const meta = document.createElement("p");
   meta.className = "meta";
-  const label = document.createElement("span");
+  const label = span("");
   label.textContent = finding.label;
-  const score = document.createElement("span");
-  score.className = "score";
+  const score = span("score");
   score.textContent = finding.score;
-  const action = document.createElement("span");
+  const action = span("");
   action.textContent = finding.action === "block" ? "blocked" : "flagged";
   meta.append(label, score, action);
 
-  // Die Merkmale, die zum Score geführt haben. Ohne sie ist ein Fehlalarm
-  // nicht nachvollziehbar, und dann wird die Heuristik abgeschaltet statt
-  // verbessert.
   const why = document.createElement("p");
   why.className = "why";
   why.textContent = finding.reason;
@@ -897,15 +853,14 @@ function flaggedRow(entry, finding) {
   const actions = document.createElement("div");
   actions.className = "actions";
   actions.append(
-    decideButton("Allow", `/api/allow`, entry.name),
-    decideButton("Deny", `/api/deny`, entry.name),
+    decideButton("Allow", "/api/allow", entry.name),
+    decideButton("Deny", "/api/deny", entry.name),
   );
 
   item.append(subject, meta, why, actions);
   return item;
 }
 
-/** Ein Knopf, der eine befristete Freigabe oder Sperre setzt. */
 function decideButton(caption, path, domain) {
   const button = document.createElement("button");
   button.type = "button";
@@ -923,30 +878,17 @@ function decideButton(caption, path, domain) {
   return button;
 }
 
-async function post(path, body) {
-  const response = await fetch(path, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify(body),
-  });
-  if (!response.ok) throw new Error(String(response.status));
-  return response.json();
-}
-
-/** Der Live-Strom als fetch statt EventSource.
- *
- * `EventSource` kann keine Header setzen und zwang den Token in die URL, wo er
- * in Proxy- und Zugriffslogs landet. `fetch` schickt den Authorization-Kopf wie
- * jeder andere Aufruf; das SSE-Format wird hier von Hand gelesen.
- */
 function connectStream() {
   if (stream) stream.abort();
   const controller = new AbortController();
   stream = controller;
   void pump(controller.signal);
+}
+
+function setStreamState(live) {
+  $("stream-state").textContent = live ? "updates live" : "reconnecting";
+  $("stream-flag").classList.toggle("is-off", !live);
+  $("stream-flag-text").textContent = live ? "streaming" : "reconnecting";
 }
 
 async function pump(signal) {
@@ -957,11 +899,12 @@ async function pump(signal) {
         signal,
       });
       if (!response.ok) throw new Error(String(response.status));
+      setStreamState(true);
       await readEvents(response.body, signal);
     } catch {
       if (signal.aborted) return;
     }
-    // Wie EventSource: kurz warten und neu verbinden, statt heiß zu drehen.
+    setStreamState(false);
     await new Promise((resolve) => setTimeout(resolve, 3000));
   }
 }
@@ -990,24 +933,27 @@ async function readEvents(body, signal) {
       if (!data) continue;
       try {
         addRow(JSON.parse(data));
-      } catch {
-        /* eine kaputte Zeile ist kein Grund, den Strom abzubrechen */
-      }
+      } catch {}
     }
   }
 }
 
-/** Füllt das Protokoll beim Laden, damit die Seite nicht leer beginnt. */
-async function loadRecent() {
-  const recent = await api("/api/recent?limit=80");
-  // Ein Fragment, ein Einhängen: 80-mal einzeln voranzustellen heißt 80-mal
-  // Layout.
-  const fragment = document.createDocumentFragment();
-  for (const event of recent) fragment.append(row(event));
-  $("log").prepend(fragment);
-  const newestBlocked = recent.find((event) => event.blocked && event.name);
-  if (newestBlocked && !askedRow) showReason(newestBlocked);
-  syncEmptyStates();
+function openCommand() {
+  const dialog = $("command");
+  if (dialog.open) return;
+  $("command-input").value = "";
+  dialog.showModal();
+  $("command-input").focus();
+}
+
+function isTyping(target) {
+  return (
+    target instanceof HTMLElement &&
+    (target.isContentEditable ||
+      target.tagName === "INPUT" ||
+      target.tagName === "TEXTAREA" ||
+      target.tagName === "SELECT")
+  );
 }
 
 function showApp() {
@@ -1015,68 +961,48 @@ function showApp() {
   $("app").hidden = false;
 }
 
-let started = false;
-
 async function start() {
   await refreshStatus();
   showApp();
+
   await Promise.allSettled([
-    loadRecent(),
-    refreshTop(),
+    api("/api/recent?limit=80").then(loadRecent),
     refreshHistory(),
     refreshFlagged(),
     refreshLists(),
   ]);
+
   if (started) return;
   started = true;
 
-  // Ein Zuhörer für die ganze Tabelle statt zwei je Zeile.
-  const log = $("log");
-  log.addEventListener("click", onRowActivate);
-  log.addEventListener("keydown", onRowActivate);
-
   connectStream();
-  setInterval(tickSpark, 1000);
-  setInterval(async () => {
+  setInterval(tickSparks, 1000);
+  setInterval(() => {
     if (document.hidden) return;
-    try {
-      await refreshHistory();
-    } catch {
-      /* die Kurve bleibt eben stehen; der Status meldet den Ausfall */
-    }
+    refreshHistory().catch(() => {});
+  }, HISTORY_MS);
+  setInterval(() => {
+    if (document.hidden) return;
+    refreshLists().catch(() => {});
   }, HISTORY_MS);
   setInterval(async () => {
-    // Im Hintergrund fragt die Seite nichts ab: sie soll nebenher offen sein
-    // dürfen, ohne dafür Rechenzeit zu verlangen.
     if (document.hidden) return;
     try {
       await refreshStatus();
-      await refreshTop();
-      // Mit jedem Takt neu geholt, obwohl sich das Datum selten ändert: die
-      // Zeile ist relativ formuliert, und "2 days ago" muss zu "3 days ago"
-      // werden, ohne dass jemand die Seite neu lädt. Teuer ist das nicht — es
-      // ist ein `stat` je Liste auf der anderen Seite der Loopback-Verbindung.
-      await refreshLists();
+      await refreshFlagged();
     } catch {
       setReachable(false);
     }
   }, POLL_MS);
 
-  // Beim Zurückkommen einmal nachziehen, statt bis zum nächsten Takt einen
-  // veralteten Stand zu zeigen.
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) return;
-    drawSpark();
+    bucket = { queries: 0, blocked: 0, cache: 0, ms: 0 };
     refreshStatus().catch(() => setReachable(false));
+    refreshHistory().catch(() => {});
   });
 }
 
-// Der Modus steht schon am Wurzelelement — das Skript im Kopf der Seite hat ihn
-// vor dem ersten Zeichnen gesetzt. Hier wird nur noch umgeschaltet.
-//
-// Die Beschriftung nennt die Handlung und nicht den Zustand: "Switch to dark"
-// heißt, dass ein Klick dorthin führt. Wer die Sonne sieht, weiß so auch ohne
-// die Farben, in welchem Modus er ist.
 function setTheme(mode) {
   document.documentElement.dataset.theme = mode;
   $("theme-toggle").setAttribute(
@@ -1087,31 +1013,113 @@ function setTheme(mode) {
 
 $("theme-toggle").addEventListener("click", () => {
   const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
-  // Ohne Speicher (privates Fenster) gilt die Wahl nur für diese Seite.
   try {
     localStorage.setItem(THEME_KEY, next);
-  } catch {
-    /* dann eben nicht */
-  }
+  } catch {}
   setTheme(next);
 });
 
-// Im Markup steht die helle Beschriftung, weil das Markup den Modus nicht
-// kennt. Hier wird sie einmal an den tatsächlichen angeglichen.
 setTheme(document.documentElement.dataset.theme || "light");
 
 $("login").addEventListener("submit", async (submitEvent) => {
   submitEvent.preventDefault();
   token = $("token").value.trim();
   try {
-    // start() prüft den Token, indem es den Status holt; erst danach wird
-    // gespeichert und umgeschaltet.
     await start();
     localStorage.setItem(TOKEN_KEY, token);
   } catch {
     const error = $("login-error");
     error.textContent = "The token was not accepted.";
     error.hidden = false;
+  }
+});
+
+$("log").addEventListener("click", (event) => {
+  const button = event.target.closest(".name-button");
+  if (!button || !button.dataset.domain) return;
+  const entry = entries.find((item) => item.button === button) ?? null;
+  void openInspector({
+    name: button.dataset.domain,
+    client: button.dataset.client ?? null,
+    entry,
+    record: entry?.event ?? null,
+  });
+});
+
+for (const chip of document.querySelectorAll(".chip")) {
+  chip.addEventListener("click", () => setFilter(chip.dataset.filter));
+}
+
+$("log-search").addEventListener("input", (event) => {
+  searchTerm = event.target.value.trim().toLowerCase();
+  for (const entry of entries) applyFilter(entry);
+  syncEmptyStates();
+});
+
+$("bogus-review").addEventListener("click", () => {
+  setFilter("errors");
+  $("log-scroll").scrollIntoView({ block: "nearest" });
+});
+
+$("command-open").addEventListener("click", openCommand);
+
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "/" || isTyping(event.target) || $("inspector").open) return;
+  event.preventDefault();
+  openCommand();
+});
+
+$("command-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const name = $("command-input").value.trim();
+  if (!name) return;
+  $("command").close();
+  const known = entries.find(
+    (entry) => entry.event.name?.toLowerCase() === name.toLowerCase(),
+  );
+  void openInspector({
+    name,
+    client: known?.event.client ?? null,
+    entry: known ?? null,
+    record: known?.event ?? null,
+  });
+});
+
+$("inspect-close").addEventListener("click", () => $("inspector").close());
+
+$("inspector").addEventListener("close", () => {
+  if (selectedEntry) selectedEntry.tr.classList.remove("is-selected");
+  selectedEntry = null;
+});
+
+$("inspect-copy").addEventListener("click", async () => {
+  const button = $("inspect-copy");
+  try {
+    await navigator.clipboard.writeText(lastTrace);
+    button.textContent = "Copied";
+  } catch {
+    button.textContent = "Copy failed";
+  }
+  setTimeout(() => {
+    button.textContent = "Copy trace";
+  }, 1500);
+});
+
+$("inspect-allow").addEventListener("click", async () => {
+  const button = $("inspect-allow");
+  if (!lastSubject) return;
+  button.disabled = true;
+  try {
+    await post("/api/allow", { domain: lastSubject, seconds: 300 });
+    button.textContent = "Allowed for 5 minutes";
+    const query = new URLSearchParams({ domain: lastSubject });
+    const answer = await api(`/api/explain?${query}`);
+    renderInspector(answer, selectedEntry?.event ?? null);
+    $("inspect-allow").textContent = "Allowed for 5 minutes";
+    $("inspect-allow").disabled = true;
+  } catch {
+    button.textContent = "Failed";
+    button.disabled = false;
   }
 });
 

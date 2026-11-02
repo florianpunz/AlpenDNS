@@ -1,6 +1,6 @@
 # ADR-0022: Glass as a surface
 
-**Status:** accepted · **Date:** 2026-09-13 · **Affects:**
+**Status:** superseded by [ADR-0034](0034-stein-statt-himmel.md) · **Date:** 2026-09-13 · **Affects:**
 [ROADMAP.md](../ROADMAP.md) Phase 6, `web/` (index.html, app.css, app.js),
 `crates/alpendns/src/api/ui.rs`, the web UI rules in CLAUDE.md B.6
 

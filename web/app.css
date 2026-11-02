@@ -1,128 +1,53 @@
-/* AlpenDNS — Web-UI.
- *
- * Bindend: CLAUDE.md B.6. Keine externen Ressourcen, keine Emoji-Icons, keine
- * animierten Zähler, kein CDN, kein Build. Drei statische Dateien.
- *
- * Die Leitidee: Inhalt liegt als Glas auf einem Hintergrund, der etwas zu
- * brechen hat. Der Hintergrund sind vier Farbfelder — Himmel, Alpenglühen,
- * Wiese, Schatten —, der Inhalt transluzente Scheiben mit Lichtkante. Die Seite
- * füllt genau einen Bildschirm und scrollt nicht; es scrollt das Protokoll.
- * Die drei Fragen aus B.6 stehen dadurch gleichzeitig da.
- *
- * Sechs Entscheidungen, jede mit Grund:
- *
- * 1. FARBE IM INHALT IST AUSSCHLIESSLICH SEMANTISCH. Es gibt genau vier
- *    Bedeutungen — --danger (geblockt, ausgefallen), --success (aus dem Cache,
- *    gesunder Upstream, erreichbarer Server), --warn (hohe Latenz), --muted
- *    (neutral, ohne Aussage). Dazu --brand, das keinen Zustand meint, sondern
- *    den Absender, und deshalb an genau einer Stelle steht: in der ersten Hälfte
- *    des Schriftzugs. Alles andere im Inhalt ist Graustufe.
- *
- * 2. DER HINTERGRUND TRÄGT FARBE OHNE BEDEUTUNG — und ist die einzige Stelle,
- *    an der das erlaubt ist. Die vier Felder sind Material, keine Aussage: sie
- *    liegen unter der Textschwelle, sie wiederholen nie einen Zustand, und die
- *    Seite bleibt lesbar, wenn man sie nicht bemerkt. Ohne sie wäre Glas ein
- *    graues Rechteck; mit zu viel davon wäre es Dekoration. Ihre Deckkraft ist
- *    deshalb der empfindlichste Wert der ganzen Datei.
- *
- * 3. SPACING-SCALE AUF 8er-BASIS, als Variablen; der Name ist der Pixelwert,
- *    damit niemand raten muss. Nur --s-4 ist eine halbe Stufe, für Abstände
- *    innerhalb einer Textzeile. Ad-hoc-Pixelwerte im Regelwerk sind der Weg, auf
- *    dem eine Oberfläche über Monate unruhig wird: jede einzelne Abweichung ist
- *    begründbar, die Summe ist Willkür.
- *
- * 4. EINE SORTE CONTAINER, als Glaskante: transluzente Fläche, backdrop-filter,
- *    Lichtkante an der Oberkante, weicher Schatten. Karten und Panels tragen
- *    dieselbe Behandlung; verschachtelt wird sie nicht. Der Radius ist mit 18px
- *    größer als bei einer bedruckten Fläche, weil Glas weicher bricht.
- *
- * 5. TYPOGRAFISCHE SKALA mit echten Sprüngen (11 · 13 · 15 · 17 · 32 · bis 34 px)
- *    statt "alles 14px". Der Sprung zwischen --t-figure und --t-lead ist der
- *    eigentliche Inhalt der Hierarchie: die Begründung einer Blockade ist
- *    wichtiger als jede Summe. Zahlen tabular, damit Spalten beim Nachladen
- *    nicht zucken und Größenordnungen untereinander vergleichbar bleiben.
- *
- * 6. DOMAINNAMEN IN MONOSPACE aus dem System-Stack. Ein Name ist Material,
- *    kein Fließtext; die Unterscheidung nimmt dem Auge die Arbeit ab, im
- *    Protokoll zwischen Prosa und Daten zu sortieren. Und Namen gleicher Länge
- *    stehen untereinander.
- *
- * Der Kontrast ist nachgerechnet, nicht geschätzt: der Test
- * `the_text_stays_readable_on_every_field` in ui.rs rechnet für jede Textfarbe
- * gegen jedes Feld in voller Deckkraft nach und schlägt fehl, sobald eine unter
- * 4,5:1 fällt. Glas verliert Kontrast an genau der Stelle, an der es schön
- * aussieht — deshalb steht die Grenze als Test da und nicht als Vorsatz.
- */
-
 :root {
-  /* Der Modus steht als data-theme am Wurzelelement, gesetzt vom Skript:
-     "dark", wenn das System dunkel ist oder der Knopf gedrückt wurde, sonst
-     hell. Ein Attribut statt einer Media-Query, damit der Knopf den
-     Systemwunsch überstimmen kann — und damit jeder Wert genau einmal hell und
-     einmal dunkel dasteht statt dreimal. */
   color-scheme: light;
 
-  /* ── Das Material. Der empfindlichste Teil der Datei. ──────────────────── */
-
-  /* Der Himmel: vier Felder, tief entsättigt. Sie sollen durch das Glas
-     scheinen, nicht mit dem Inhalt konkurrieren. */
-  --base: #d7dfee;
-  --field-1: rgba(76, 132, 255, 0.60);   /* Himmel */
-  --field-2: rgba(255, 142, 88, 0.46);   /* Alpenglühen */
-  --field-3: rgba(62, 190, 152, 0.38);   /* Wiese */
-  --field-4: rgba(142, 112, 255, 0.36);  /* Schatten */
-
-  /* Das Glas selbst. Die Deckkraft ist der Kompromiss der ganzen
-     Designsprache: höher, und es ist kein Glas mehr; niedriger, und der Text
-     verliert seinen Grund. --glass-strong ist die Fassung für die eine Fläche,
-     unter der sich etwas bewegt (der Tabellenkopf) — dort darf weniger
-     durchscheinen, weil darunter Zeilen durchlaufen. */
-  --glass: rgba(255, 255, 255, 0.55);
-  --glass-strong: rgba(255, 255, 255, 0.78);
-  --hairline: rgba(255, 255, 255, 0.60);
-  --edge: rgba(255, 255, 255, 0.95);
+  --ground: #f1f0eb;
+  --surface: #ffffff;
+  --surface-2: #f8f7f2;
+  --surface-3: #ecebe5;
+  --glass: rgba(247, 246, 241, 0.86);
+  --glass-strong: rgba(251, 250, 246, 0.92);
+  --edge: rgba(255, 255, 255, 0.9);
+  --hairline: rgba(25, 24, 20, 0.10);
+  --hairline-strong: rgba(25, 24, 20, 0.20);
+  --hairline-soft: rgba(25, 24, 20, 0.055);
   --shadow:
-    0 12px 40px rgba(18, 24, 44, 0.13),
-    0 2px 10px rgba(18, 24, 44, 0.06);
-  --blur: blur(26px) saturate(170%);
+    0 18px 48px rgba(48, 42, 32, 0.08),
+    0 2px 8px rgba(48, 42, 32, 0.04);
+  --shadow-sheet:
+    0 32px 80px rgba(48, 42, 32, 0.18),
+    0 4px 16px rgba(48, 42, 32, 0.08);
+  --blur: blur(20px) saturate(140%);
 
-  --text: #101420;
-  --faint: #4c5466;
-  --row-alt: rgba(255, 255, 255, 0.30);
-  --row-hover: rgba(255, 255, 255, 0.62);
+  --text: #191814;
+  --muted: #55534d;
+  --faint: #6d6b63;
+  --accent: #2548c8;
+  --accent-soft: rgba(37, 72, 200, 0.09);
+  --on-accent: #ffffff;
+  --danger: #ae251d;
+  --warn: #7a4a00;
+  --success: #1d6b43;
+  --selection: #ebedfa;
+  --row-alt: rgba(25, 24, 20, 0.018);
+  --row-hover: rgba(37, 72, 200, 0.05);
+  --contour: rgba(25, 24, 20, 0.05);
 
-  /* Die vier Bedeutungen. Nur hierfür gibt es Farbe im Inhalt. Auf Glas sind
-     sie dunkler als auf Weiß, weil die Fläche jede Farbe anhebt. */
-  --danger: #a81f28;
-  --success: #0d6240;
-  --warn: #7d4a00;
-  --muted: #4a5163;
-  /* Dazu die Marke: kein Zustand, sondern die Absenderkennung. Sie steht
-     ausschließlich in der ersten Hälfte des Schriftzugs. */
-  --brand: #1a55b8;
+  --band-1: #6d6a61;
+  --band-2: #8a877d;
+  --band-3: #aaa79c;
+  --band-4: #cbc8bd;
 
-  /* Vier Graustufen für gestapelte Flächen. Sie bedeuten nichts — sie trennen
-     nur benachbarte Bänder voneinander, damit die Legende zuordenbar bleibt.
-     Vier Upstreams mit vier Farben wären vier Bedeutungen, die es nicht gibt.
-     Auf Glas brauchen sie mehr Zeichnung als auf Weiß, sonst verschwinden sie
-     im Blur. */
-  --band-1: #6d7a93;
-  --band-2: #8b97ae;
-  --band-3: #adb7c8;
-  --band-4: #ccd3e0;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
 
-  /* 4 — Typografie */
   --t-micro: 0.6875rem;
   --t-small: 0.8125rem;
   --t-body: 0.9375rem;
   --t-mark: 1.0625rem;
-  --t-figure: 2rem;
-  --t-lead: clamp(1.35rem, 2.6vw, 2.125rem);
+  --t-figure: 1.875rem;
+  --t-lead: 1.375rem;
 
-  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
-          "Liberation Mono", monospace;
-
-  /* 2 — Abstände, 8er-Basis; der Name ist der Pixelwert. */
   --s-4: 0.25rem;
   --s-8: 0.5rem;
   --s-16: 1rem;
@@ -130,860 +55,1528 @@
   --s-32: 2rem;
   --s-48: 3rem;
 
-  /* 3 — Die eine Sorte Container. Größerer Radius als bei einer bedruckten
-     Fläche: Glas bricht weicher. */
-  --radius: 18px;
   --page: 1400px;
+  --radius: 14px;
+  --radius-large: 18px;
 }
 
 :root[data-theme="dark"] {
   color-scheme: dark;
 
-  --base: #0d1017;
-  --field-1: rgba(48, 96, 200, 0.50);
-  --field-2: rgba(190, 96, 60, 0.34);
-  --field-3: rgba(40, 140, 116, 0.30);
-  --field-4: rgba(112, 84, 200, 0.34);
-
-  --glass: rgba(30, 34, 44, 0.52);
-  --glass-strong: rgba(30, 34, 44, 0.82);
-  --hairline: rgba(255, 255, 255, 0.11);
-  --edge: rgba(255, 255, 255, 0.14);
+  --ground: #1b1a18;
+  --surface: #232220;
+  --surface-2: #262523;
+  --surface-3: #2d2b28;
+  --glass: rgba(35, 34, 32, 0.86);
+  --glass-strong: rgba(36, 35, 33, 0.93);
+  --edge: rgba(255, 255, 255, 0.08);
+  --hairline: rgba(255, 255, 255, 0.10);
+  --hairline-strong: rgba(255, 255, 255, 0.22);
+  --hairline-soft: rgba(255, 255, 255, 0.055);
   --shadow:
-    0 16px 48px rgba(0, 0, 0, 0.45),
-    0 2px 10px rgba(0, 0, 0, 0.30);
+    0 18px 48px rgba(0, 0, 0, 0.35),
+    0 2px 8px rgba(0, 0, 0, 0.20);
+  --shadow-sheet:
+    0 32px 80px rgba(0, 0, 0, 0.55),
+    0 4px 16px rgba(0, 0, 0, 0.30);
 
-  --text: #eef1f6;
-  --faint: #99a0af;
-  --row-alt: rgba(255, 255, 255, 0.035);
-  --row-hover: rgba(255, 255, 255, 0.085);
+  --text: #f2efe9;
+  --muted: #bcb7ad;
+  --faint: #a5a097;
+  --accent: #9db4ff;
+  --accent-soft: rgba(157, 180, 255, 0.14);
+  --on-accent: #14161f;
+  --danger: #ff9a90;
+  --warn: #e6b062;
+  --success: #7fd3a6;
+  --selection: rgba(157, 180, 255, 0.16);
+  --row-alt: rgba(255, 255, 255, 0.022);
+  --row-hover: rgba(157, 180, 255, 0.08);
+  --contour: rgba(255, 255, 255, 0.055);
 
-  --danger: #ff8f7a;
-  --success: #5fd39c;
-  --warn: #e8b166;
-  --muted: #a8adb9;
-  --brand: #6aa2ff;
-
-  --band-1: #5c6577;
-  --band-2: #474f5e;
-  --band-3: #363d4a;
-  --band-4: #2a303a;
+  --band-1: #b9b4aa;
+  --band-2: #928e85;
+  --band-3: #6e6b64;
+  --band-4: #4b4944;
 }
 
-* { box-sizing: border-box; }
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
 
-/* Das hidden-Attribut muss auch dann greifen, wenn ein Element weiter unten ein
-   display bekommt — sonst bleibt etwa das Anmeldefenster nach dem Login stehen. */
-[hidden] { display: none !important; }
+[hidden] {
+  display: none !important;
+}
 
-html, body { height: 100%; }
+html,
+body {
+  height: 100%;
+}
 
 body {
   margin: 0;
-  background: var(--base);
+  background: var(--ground);
   color: var(--text);
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family: var(--sans);
   font-size: var(--t-body);
-  line-height: 1.5;
-  font-variant-numeric: tabular-nums;
+  line-height: 1.45;
   -webkit-font-smoothing: antialiased;
+  overflow: hidden;
 }
 
-/* ── Der Himmel ────────────────────────────────────────────────────────── */
+h1,
+h2,
+p,
+figure,
+ol,
+ul,
+dl,
+dd {
+  margin: 0;
+}
 
-/* Fest positioniert, damit die Panels beim Scrollen des Protokolls etwas zu
-   brechen haben. Wanderte er mit, wäre er nur Tapete. */
-.sky {
+ul,
+ol {
+  padding: 0;
+  list-style: none;
+}
+
+button,
+input {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+a {
+  color: var(--accent);
+}
+
+code,
+kbd {
+  font-family: var(--mono);
+  font-size: 0.85em;
+}
+
+kbd {
+  border: 1px solid var(--hairline);
+  border-radius: 5px;
+  padding: 1px 5px;
+  color: var(--faint);
+  background: var(--surface-2);
+}
+
+svg {
+  display: block;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.wrap {
+  width: min(calc(100% - 96px), var(--page));
+  margin-inline: auto;
+}
+
+.ground {
   position: fixed;
   inset: 0;
   z-index: -1;
-  background:
-    radial-gradient(58vw 58vw at 4% -14%, var(--field-1), transparent 68%),
-    radial-gradient(46vw 52vw at 96% 4%, var(--field-2), transparent 68%),
-    radial-gradient(72vw 52vw at 74% 112%, var(--field-3), transparent 70%),
-    radial-gradient(44vw 44vw at 26% 62%, var(--field-4), transparent 72%),
-    var(--base);
+  background: var(--ground);
+  overflow: hidden;
 }
 
-/* Die Seite füllt einen Bildschirm und scrollt nicht; das Protokoll scrollt. */
-.shell {
-  height: 100dvh;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-}
-
-/* Der zentrierte Container. Trennlinien laufen darüber hinaus bis an den Rand,
-   der Inhalt tut es nicht. */
-.wrap {
+.contours {
+  position: absolute;
+  inset: 0;
   width: 100%;
-  max-width: var(--page);
-  margin-inline: auto;
-  padding-inline: var(--s-32);
+  height: 100%;
+  color: var(--contour);
 }
 
-.board {
+.shell {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  gap: var(--s-24);
-  padding-block: var(--s-24);
-  min-height: 0;
+  height: 100dvh;
+  overflow: hidden;
 }
 
-h1, h2 { margin: 0; }
-
-/* Abschnittsüberschriften sind Beschriftungen, keine Schlagzeilen. */
-h2 {
-  font-size: var(--t-micro);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.09em;
-  color: var(--faint);
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--glass);
+  backdrop-filter: var(--blur);
+  border-bottom: 1px solid var(--hairline);
 }
 
-/* ── Marke ─────────────────────────────────────────────────────────────── */
+.topbar-inner {
+  display: flex;
+  align-items: center;
+  gap: var(--s-16);
+  height: 64px;
+}
 
 .mark {
   display: flex;
   align-items: center;
   gap: var(--s-8);
   font-size: var(--t-mark);
-  font-weight: 400;
-  letter-spacing: 0.01em;
+  letter-spacing: -0.01em;
 }
-/* Die zwei Hälften des Namens trennt Gewicht und Markenfarbe: "Alpen" trägt
-   den Absender, "DNS" bleibt Text. */
-.wordmark b { font-weight: 650; color: var(--brand); }
-.wordmark { color: var(--text); }
 
-.logo { width: 30px; height: 18px; flex: none; display: block; }
-/* Der hintere Grat ist zurückgenommen statt hell: auf Glas liest sich ein
-   zweiter voller Ton als zweites Logo. */
-.logo .ridge-back { fill: var(--faint); opacity: 0.55; }
-.logo .ridge-front { fill: var(--muted); }
-.logo .snow { fill: var(--base); }
-
-/* ── Kopfzeile ─────────────────────────────────────────────────────────── */
-
-/* Eine verworfene Antwort ist ein Ausfall: der Name hat nicht aufgelöst. */
-.counters dd.is-bogus { color: var(--danger); }
-
-/* Die Kopfzeile ist selbst eine Scheibe. Sie klebt nicht — die Seite scrollt
-   ohnehin nicht — aber sie liegt als Band über dem Himmel, damit der Übergang
-   zum Inhalt eine Materialkante ist und keine Linie. */
-.masthead {
-  background: var(--glass);
-  backdrop-filter: var(--blur);
-  -webkit-backdrop-filter: var(--blur);
-  border-bottom: 1px solid var(--hairline);
-  box-shadow: inset 0 1px 0 var(--edge);
+.logo {
+  width: 30px;
+  height: 18px;
 }
-.masthead-inner {
+
+.logo path {
+  stroke: none;
+}
+
+.logo .ridge-back {
+  fill: var(--accent);
+  opacity: 0.5;
+}
+
+.logo .ridge-front {
+  fill: var(--accent);
+}
+
+.logo .snow {
+  fill: var(--on-accent);
+}
+
+.wordmark {
+  font-weight: 500;
+}
+
+.wordmark b {
+  color: var(--accent);
+  font-weight: 650;
+}
+
+.command-trigger {
   display: flex;
   align-items: center;
-  gap: var(--s-24);
-  flex-wrap: wrap;
-  padding-block: var(--s-16);
-}
-
-/* Die Fakten schieben sich selbst nach rechts; der Umschalter steht dahinter. */
-.facts { display: flex; gap: var(--s-32); margin: 0 0 0 auto; }
-.fact { display: flex; flex-direction: column; gap: 1px; }
-.facts dt {
-  font-size: var(--t-micro);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+  gap: var(--s-8);
+  margin-left: auto;
+  width: 300px;
+  height: 44px;
+  padding: 0 var(--s-8) 0 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  background: var(--surface);
   color: var(--faint);
+  text-align: left;
+  transition: border-color 120ms ease, color 120ms ease;
 }
-.facts dd { margin: 0; font-size: var(--t-small); color: var(--muted); }
 
-/* Der Punkt sagt genau eines: der Status ist gerade abrufbar. Grün wie beim
-   gesunden Upstream; veraltet er, wird er hohl und neutral. */
-.reach { display: inline-flex; align-items: center; gap: var(--s-8); }
-.dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
+.command-trigger:hover {
+  border-color: var(--hairline-strong);
+  color: var(--muted);
+}
+
+.command-trigger svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
   flex: none;
-  background: var(--success);
-  box-shadow: inset 0 0 0 1px var(--success);
 }
-.reach.is-stale .dot { background: transparent; box-shadow: inset 0 0 0 1px var(--faint); }
 
-/* Der Umschalter zwischen hell und dunkel. Ein Zeichen statt eines Wortes:
-   Sonne heißt "es ist hell", der Mond zeigt, wohin der Klick führt. Beide
-   Zeichen stehen im Markup, sichtbar ist immer genau eines — ein Skript muss
-   deshalb nichts austauschen, nur das Attribut setzen. */
+.command-trigger span {
+  flex: 1;
+  font-size: var(--t-small);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .theme-toggle {
   display: grid;
   place-items: center;
-  width: 34px;
-  height: 34px;
-  padding: 0;
-  flex: none;
-  border-radius: 50%;
-  color: var(--muted);
-  background: var(--glass);
+  width: 44px;
+  height: 44px;
   border: 1px solid var(--hairline);
-  box-shadow: inset 0 1px 0 var(--edge);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--muted);
+  transition: color 120ms ease, border-color 120ms ease;
 }
-.theme-toggle:hover { background: var(--glass-strong); color: var(--text); }
+
+.theme-toggle:hover {
+  color: var(--text);
+}
+
 .theme-toggle svg {
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   fill: none;
   stroke: currentColor;
   stroke-width: 1.6;
   stroke-linecap: round;
-  stroke-linejoin: round;
 }
-.theme-toggle .icon-moon { display: none; }
-:root[data-theme="dark"] .theme-toggle .icon-sun { display: none; }
-:root[data-theme="dark"] .theme-toggle .icon-moon { display: block; }
 
-/* ── Die eine Sorte Container ──────────────────────────────────────────── */
+.icon-moon {
+  display: none;
+}
 
-/* Eine Scheibe statt eines Blattes: transluzent, geblurrt, mit Lichtkante an
-   der Oberkante. Weiterhin genau eine Sorte, weiterhin nicht verschachtelt. */
-.panel, .card {
-  background: var(--glass);
-  backdrop-filter: var(--blur);
-  -webkit-backdrop-filter: var(--blur);
+:root[data-theme="dark"] .icon-sun {
+  display: none;
+}
+
+:root[data-theme="dark"] .icon-moon {
+  display: block;
+}
+
+.main {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  gap: var(--s-16);
+  min-height: 0;
+  padding-block: var(--s-24) var(--s-16);
+  overflow: hidden;
+}
+
+.statusline {
+  display: grid;
+  gap: var(--s-4);
+}
+
+.verdict-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-16);
+}
+
+.verdict {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--t-lead);
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+.status-detail {
+  color: var(--muted);
+  font-size: var(--t-small);
+}
+
+.live-note {
+  color: var(--faint);
+  font-size: var(--t-small);
+  font-variant-numeric: tabular-nums;
+}
+
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--muted);
+  flex: none;
+}
+
+.dot.is-live {
+  background: var(--success);
+}
+
+.dot.is-stale {
+  background: transparent;
+  border: 1.5px solid var(--muted);
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  background: var(--surface);
   border: 1px solid var(--hairline);
   border-radius: var(--radius);
-  box-shadow: var(--shadow), inset 0 1px 0 var(--edge);
+  box-shadow: var(--shadow);
+}
+
+.metric {
+  display: grid;
+  grid-template-rows: auto auto auto 38px;
+  row-gap: 2px;
+  min-width: 0;
+  padding: var(--s-16) var(--s-24);
+}
+
+.metric + .metric {
+  border-left: 1px solid var(--hairline);
+}
+
+.metric-label {
+  color: var(--muted);
+  font-size: var(--t-small);
+}
+
+.metric-value {
+  font-size: var(--t-figure);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.metric-sub {
+  min-height: 1.15em;
+  color: var(--faint);
+  font-size: var(--t-micro);
+  font-variant-numeric: tabular-nums;
+}
+
+.spark {
+  width: 100%;
+  height: 38px;
+  margin-top: var(--s-4);
+  padding-top: var(--s-4);
+  border-top: 1px solid var(--hairline-soft);
+  overflow: visible;
+}
+
+.spark path {
+  fill: none;
+  stroke: var(--faint);
+  stroke-width: 1.5;
+}
+
+.spark .line-blocked {
+  stroke: var(--danger);
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 1fr);
+  gap: var(--s-16);
+  min-height: 0;
+}
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.queries {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-height: 0;
+  border-radius: var(--radius-large);
 }
 
 .panel-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: var(--s-16);
-  padding: var(--s-16) var(--s-16) var(--s-8);
+  min-height: 60px;
+  padding: var(--s-8) var(--s-16);
+  border-bottom: 1px solid var(--hairline);
 }
 
-/* ── Kennzahlen ────────────────────────────────────────────────────────── */
-
-.figures {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--s-16);
+.panel-head h2 {
+  font-size: 0.9375rem;
+  font-weight: 600;
 }
 
-.card {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-4);
+.panel-body {
   padding: var(--s-16);
+}
+
+.head-title {
+  display: flex;
+  align-items: center;
+  gap: var(--s-16);
   min-width: 0;
 }
-.value {
-  font-size: var(--t-figure);
-  font-weight: 450;
-  line-height: 1.15;
-  letter-spacing: -0.02em;
-}
-.value .trail {
-  font-size: var(--t-small);
-  font-weight: 400;
-  letter-spacing: 0;
-  color: var(--muted);
-  margin-left: var(--s-8);
-}
-.label {
-  font-size: var(--t-micro);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--faint);
-}
 
-/* Die Sparkline: eine Linie, keine Achse, keine Legende. Sie sitzt am Fuß der
-   Karte, damit die vier Karten trotzdem eine Zeile bleiben. */
-.spark {
-  margin-top: auto;
-  padding-top: var(--s-16);
-  width: 100%;
-  height: 40px;
-  display: block;
-  overflow: visible;
-}
-.spark-line {
-  fill: none;
-  stroke: var(--muted);
-  stroke-width: 1;
-  stroke-linejoin: round;
-  stroke-linecap: round;
-}
-
-/* ── Kurven aus Zählern ────────────────────────────────────────────────── */
-
-/* Ein Diagramm ist hier ein <path>, dessen d das Skript setzt — keine
-   Bibliothek, kein createElementNS (B.6). Die Höhe steht fest, damit die
-   Nebenspalte auf einen Bildschirm passt. */
-.chart { margin: 0; padding: 0 var(--s-16) var(--s-8); }
-.chart figcaption {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: var(--s-8);
-  font-size: var(--t-micro);
-  color: var(--faint);
-  padding-bottom: var(--s-4);
-}
-.key { display: inline-flex; align-items: center; gap: var(--s-4); }
-.swatch {
-  width: 8px;
-  height: 2px;
-  display: inline-block;
-  margin-left: var(--s-4);
-}
-.sw-total { background: var(--muted); }
-.sw-blocked { background: var(--danger); }
-.sw-cache { background: var(--success); }
-
-.graph {
-  width: 100%;
-  height: 52px;
-  display: block;
-  overflow: visible;
-}
-.graph-area { height: 44px; }
-
-.line-total, .line-blocked, .line-cache {
-  fill: none;
-  stroke-width: 1;
-  stroke-linejoin: round;
-  stroke-linecap: round;
-}
-.line-total { stroke: var(--muted); }
-.line-blocked { stroke: var(--danger); }
-.line-cache { stroke: var(--success); }
-
-/* Die Zeitachse hat zwei Beschriftungen. Mehr sagt bei fünf Minuten je Punkt
-   nichts, was die Kurve nicht schon zeigt. */
-.axis {
-  display: flex;
-  justify-content: space-between;
-  margin: 0;
-  padding: 0 var(--s-16) var(--s-16);
-  font-size: var(--t-micro);
-  color: var(--faint);
-}
-
-/* Gestapelte Flächen: die Reihenfolge der Bänder ist die der Legende. */
-.band { stroke: none; }
-.band-1 { fill: var(--band-1); }
-.band-2 { fill: var(--band-2); }
-.band-3 { fill: var(--band-3); }
-.band-4 { fill: var(--band-4); }
-
-/* ── Block-Gründe ──────────────────────────────────────────────────────── */
-
-/* Ein Balken statt vier Zahlen: gefragt ist der Anteil, nicht der Absolutwert.
-   Die Segmente sind Graustufen — dass es um Geblocktes geht, sagt die
-   Überschrift, und Farbe wiederholt hier nichts. */
-.bar {
-  display: flex;
-  height: 10px;
-  margin: 0 var(--s-16);
-  border-radius: 999px;
-  overflow: hidden;
-  background: var(--row-alt);
-}
-.bar span { display: block; height: 100%; }
-.bar .band-1 { background: var(--band-1); }
-.bar .band-2 { background: var(--band-2); }
-.bar .band-3 { background: var(--band-3); }
-.bar .band-4 { background: var(--band-4); }
-
-.legend {
-  margin: var(--s-8) 0 0;
-  padding: 0 var(--s-16) var(--s-16);
-  list-style: none;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0 var(--s-16);
-}
-.legend li {
-  display: flex;
-  align-items: baseline;
-  gap: var(--s-8);
-  font-size: var(--t-small);
-  line-height: 1.8;
-}
-.legend .swatch { width: 8px; height: 8px; border-radius: 2px; margin-left: 0; flex: none; }
-.legend .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.legend .c { margin-left: auto; color: var(--faint); }
-
-/* ── Privacy-Zähler ────────────────────────────────────────────────────── */
-
-/* Was die Privacy-Schicht tatsächlich getan hat, nicht was eingestellt ist.
-   Vier kleine Werte in einer Reihe, unter den Upstreams: sie gehören zu dem,
-   was auf dem Weg nach draußen mit einer Anfrage passiert. */
-.counters {
-  margin: 0;
-  padding: var(--s-8) var(--s-16) var(--s-16);
-  display: grid;
-  /* Drei Spalten für sechs Zähler: zwei volle Reihen statt einer Reihe mit
-     Rest. */
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--s-8);
-  border-top: 1px solid var(--hairline);
-}
-.counters dt {
-  font-size: var(--t-micro);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--faint);
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.counters dd { margin: 0; font-size: var(--t-small); }
-
-/* ── Auffällige Anfragen ───────────────────────────────────────────────── */
-
-.flagged { margin: 0; padding: 0 var(--s-16) var(--s-16); list-style: none; }
-.flagged li { padding: var(--s-8) 0; border-top: 1px solid var(--hairline); }
-.flagged li:first-child { border-top: 0; }
-
-.flagged .subject {
-  display: block;
-  font-family: var(--mono);
-  font-size: var(--t-small);
-  overflow-wrap: anywhere;
-}
-.flagged .meta {
-  display: flex;
-  align-items: baseline;
-  gap: var(--s-8);
-  margin-top: var(--s-4);
-  font-size: var(--t-micro);
-  color: var(--faint);
-}
-.flagged .score { font-variant-numeric: tabular-nums; }
-.flagged .why {
-  margin: var(--s-4) 0 0;
-  font-size: var(--t-micro);
-  color: var(--faint);
-}
-.flagged .actions { display: flex; gap: var(--s-8); margin-top: var(--s-8); }
-/* Dieselbe Scheibe in klein — rund statt eckig, weil ein Knopf dieser Größe
-   sonst wie ein abgeschnittenes Panel aussieht. */
-.flagged button {
-  font: inherit;
-  font-size: var(--t-micro);
-  color: var(--text);
-  background: var(--glass);
-  border: 1px solid var(--hairline);
-  border-radius: 999px;
-  padding: var(--s-4) var(--s-8);
-  cursor: pointer;
-  box-shadow: inset 0 1px 0 var(--edge);
-}
-.flagged button:hover { background: var(--glass-strong); }
-.flagged button[disabled] { color: var(--faint); cursor: default; }
-
-/* ── Begründung: das Größte auf der Seite ──────────────────────────────── */
-
-.why { padding-bottom: var(--s-16); }
-.why #why-body { padding: 0 var(--s-16); }
-
-.why .subject {
-  display: block;
-  font-family: var(--mono);
-  font-size: var(--t-lead);
-  font-weight: 500;
-  line-height: 1.15;
-  letter-spacing: -0.02em;
-  color: var(--danger);
-  overflow-wrap: anywhere;
-}
-/* Durchgelassen ist grün: die Farbe wiederholt das Verdikt aus der Kontextzeile,
-   ersetzt es nicht. Geblockt bleibt der Default — dieses Panel handelt davon. */
-.why .subject.is-allowed { color: var(--success); }
-.why .context {
-  margin: var(--s-8) 0 0;
-  font-size: var(--t-small);
-  color: var(--muted);
-}
-
-/* Die Kette ist eine Aufzählung in zwei Spalten: links die Station, rechts das
-   Ergebnis. Die Reihenfolge bleibt die Aussage; die Nummer trug nichts bei. */
-.chain { margin: var(--s-16) 0 0; padding: 0; list-style: none; }
-.chain li {
-  display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
-  gap: var(--s-16);
-  padding: var(--s-4) 0;
-  border-top: 1px solid var(--hairline);
-  font-size: var(--t-small);
-  line-height: 1.5;
-}
-.chain li:first-child { border-top: 0; }
-.chain .step-label { color: var(--faint); }
-.chain .step-detail { color: var(--muted); overflow-wrap: anywhere; }
-/* Der letzte Schritt trägt die Entscheidung und darf sie zeigen. */
-.chain li:last-child .step-detail { color: var(--text); }
-
-/* ── Leere Flächen sagen, warum sie leer sind ──────────────────────────── */
-
-.empty {
-  display: flex;
-  flex-direction: column;
+.stream-flag {
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
+  gap: 6px;
+  color: var(--faint);
+  font-size: var(--t-micro);
+}
+
+.stream-flag .dot {
+  width: 7px;
+  height: 7px;
+  background: var(--success);
+}
+
+.stream-flag.is-off .dot {
+  background: var(--muted);
+}
+
+.filters {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+  padding: 0 2px;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.chip {
+  height: 44px;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--t-small);
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.chip:hover {
+  color: var(--text);
+}
+
+.chip.is-active {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 1px 3px rgba(48, 42, 32, 0.12);
+}
+
+.search {
+  display: flex;
+  align-items: center;
   gap: var(--s-8);
-  padding: var(--s-32) var(--s-16);
-  text-align: center;
+  width: 220px;
+  height: 44px;
+  padding: 0 10px;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  background: var(--surface);
   color: var(--faint);
 }
-.empty p { margin: 0; font-size: var(--t-small); max-width: 28ch; }
-/* Der Satz gehört in die Fläche, die er erklärt — also füllt er sie. */
-.log .empty { min-height: 100%; }
-/* Beide in dieselbe Zelle, nicht nur in dieselbe Zeile: sonst legt die
-   automatische Platzierung eine zweite Spalte an und quetscht das Panel. */
-.top-panel .empty, .top { grid-area: 2 / 1; }
-.empty-icon {
-  width: 28px;
-  height: 28px;
+
+.search svg {
+  width: 15px;
+  height: 15px;
   fill: none;
   stroke: currentColor;
-  stroke-width: 1.5;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  opacity: 0.7;
+  stroke-width: 1.6;
+  flex: none;
 }
 
-/* ── Protokoll: der Inhalt ─────────────────────────────────────────────── */
-
-.stream { display: grid; min-height: 0; }
-
-/* Dieselben vier Spuren wie .figures, nicht zwei ungleiche: beide Raster liegen
-   in .board und sind gleich breit, also steht die Begründungsspalte damit genau
-   über den ersten drei Kacheln und die Nebenspalte genau über der vierten. Die
-   Kanten stehen nur übereinander, solange Spurzahl und Abstand in beiden Regeln
-   dieselben sind — deshalb steht das als Test in api/ui.rs und nicht nur als
-   Absicht. */
-.panes {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--s-16);
-  min-height: 0;
+.search input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  font-size: var(--t-small);
+  outline: none;
 }
 
-/* Links: die Begründung oben, das Protokoll darunter — es bekommt den Rest.
-   Drei der vier Spuren, siehe .panes. */
-.column {
-  display: grid;
-  grid-column: span 3;
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: var(--s-16);
-  min-height: 0;
+.search input::placeholder {
+  color: var(--faint);
 }
-
-.log-panel { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; }
 
 .log {
+  position: relative;
   min-height: 0;
-  /* Immer eine Bahn für den Rollbalken freihalten: sonst springt das Layout,
-     sobald die erste Zeile über den Rand hinausläuft. */
   overflow-y: scroll;
   scrollbar-gutter: stable;
-  padding: 0 var(--s-8) var(--s-16) var(--s-16);
 }
 
-.log-table { width: 100%; border-collapse: collapse; }
-/* Der Kopf ist die Stelle, an der das Material am besten zu sehen ist: die
-   Zeilen laufen beim Scrollen unter ihm durch und werden dabei geblurrt.
-   Deshalb hier --glass-strong: über einer Fläche, unter der sich etwas bewegt,
-   muss mehr decken, sonst liest man zwei Texte übereinander. */
+.log-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
 .log-table th {
   position: sticky;
   top: 0;
-  z-index: 1;
-  background: var(--glass-strong);
-  backdrop-filter: var(--blur);
-  -webkit-backdrop-filter: var(--blur);
-  text-align: left;
-  font-size: var(--t-micro);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--faint);
-  padding: 0 var(--s-8) var(--s-8) 0;
+  z-index: 2;
+  height: 36px;
+  padding: 0 var(--s-16);
   border-bottom: 1px solid var(--hairline);
-}
-.log-table td {
-  padding: var(--s-4) var(--s-8);
-  font-size: var(--t-small);
-  /* Feste Zeilenhöhe: neue Zeilen schieben, aber nichts rechnet sich neu. */
-  line-height: 1.7;
-  white-space: nowrap;
-}
-.log-table td:first-child { padding-left: var(--s-4); border-radius: 4px 0 0 4px; }
-.log-table td:last-child { padding-right: var(--s-4); border-radius: 0 4px 4px 0; }
-
-/* Zebra, minimal: nur so viel, dass das Auge die Zeile hält. Der Grund sitzt auf
-   der Zelle, nicht auf der Zeile — sonst greifen die Radien oben nicht. */
-.log-table tbody td { transition: background-color 80ms ease; }
-.log-table tbody tr:nth-child(even) td { background: var(--row-alt); }
-.log-table tbody tr:hover td { background: var(--row-hover); }
-
-.c-time, .c-ms, .c-rcode { width: 1%; }
-.c-ms, td.c-ms { text-align: right; }
-.c-client { color: var(--muted); }
-.c-name { width: 99%; }
-td.c-name {
-  font-family: var(--mono);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 0;
-}
-td.c-time { color: var(--muted); }
-.unnamed { color: var(--faint); font-family: system-ui, sans-serif; }
-
-/* Der Name einer geblockten Anfrage trägt dieselbe Bedeutung wie ihr Badge. */
-.is-blocked td.c-name { color: var(--danger); }
-
-/* Anklickbar ist eine Zeile nur, wenn es einen Namen zu erklären gibt — in den
-   leisen Modi gibt es keinen, und dann sieht die Zeile auch nicht klickbar aus. */
-.log-table tr.askable { cursor: pointer; }
-.log-table tr.askable:focus-visible { outline: 2px solid var(--text); outline-offset: -2px; }
-.log-table tr.is-asked td { background: var(--row-hover); }
-
-/* Antwort als Badge. Die Farbe wiederholt nur, was der Text schon sagt —
-   wer sie nicht sieht, verliert nichts. */
-.badge {
-  display: inline-block;
-  padding: 0 var(--s-8);
-  border: 1px solid var(--faint);
-  border-radius: 999px;
-  font-size: var(--t-micro);
-  font-weight: 550;
-  letter-spacing: 0.04em;
-  line-height: 1.6;
-}
-.badge.is-muted { color: var(--muted); }
-/* Der Grund hinter dem Badge ist dieselbe Aussage in schwach — die Farbe
-   wiederholt weiterhin nur das Wort, sie ersetzt es nicht. */
-.badge.is-blocked {
-  color: var(--danger);
-  border-color: var(--danger);
-  background: color-mix(in srgb, var(--danger) 10%, transparent);
-}
-
-/* Latenz nach Schwelle: schnell, unauffällig, langsam. */
-.ms-fast { color: var(--success); }
-.ms-slow { color: var(--warn); }
-
-/* ── Upstreams ─────────────────────────────────────────────────────────── */
-
-.upstreams { margin: 0; padding: 0 var(--s-16) var(--s-16); list-style: none; }
-.upstreams li {
-  display: flex;
-  align-items: baseline;
-  gap: var(--s-8);
-  font-size: var(--t-small);
-  line-height: 2;
-}
-.up-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* Ohne eigene Farbe: sonst überschreibt diese Regel die Latenzklassen weiter
-   oben (gleiche Spezifität, später im Regelwerk) und die Schwellen wären tot. */
-.up-rtt { margin-left: auto; }
-.up-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  flex: none;
-  align-self: center;
-}
-.up-dot.is-up { background: var(--success); }
-.up-dot.is-down { background: var(--danger); }
-
-/* ── Listen ────────────────────────────────────────────────────────────── */
-
-.lists { margin: 0; padding: 0 var(--s-16) var(--s-16); list-style: none; }
-.lists li {
-  display: flex;
-  align-items: baseline;
-  gap: var(--s-8);
-  font-size: var(--t-small);
-  line-height: 1.9;
-}
-/* Der Listenname ist ein Bezeichner aus der Konfiguration, keine Prosa —
-   dieselbe Monospace wie die Domänennamen, aus demselben Grund. */
-.list-name {
-  font-family: var(--mono);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-/* Die Einträge sind eine Menge, keine Aussage: zurückhaltend und in voller
-   Breite nach rechts geschoben, damit das Alter außen steht. */
-.list-entries {
-  margin-left: auto;
+  background: var(--surface);
   color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-align: left;
+}
+
+.log-table td {
+  height: 44px;
+  padding: 0 var(--s-16);
+  border-bottom: 1px solid var(--hairline-soft);
+  font-size: 0.84375rem;
+  vertical-align: middle;
+}
+
+.log-table tbody tr {
+  transition: background-color 120ms ease;
+}
+
+.log-table tbody tr:nth-child(even) {
+  background: var(--row-alt);
+}
+
+.log-table tbody tr:hover {
+  background: var(--row-hover);
+}
+
+.log-table tbody tr.is-selected {
+  background: var(--selection);
+}
+
+.c-time {
+  width: 86px;
+  color: var(--faint);
   font-variant-numeric: tabular-nums;
 }
-/* Das Alter trägt die Aussage der Zeile, steht also in Textfarbe — aber in
-   keiner anderen. "34 days ago" sagt alles, was Rot auch sagen würde, und
-   --warn gehört der Latenz (B.6). Kein Umbruch: die Zeile ist schmal. */
-.list-age { flex: none; white-space: nowrap; }
 
-/* ── Häufigste Namen ───────────────────────────────────────────────────── */
+.c-type {
+  width: 66px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.75rem;
+}
 
-/* Rechts sechs Panels. Auf einem üblichen Bildschirm passen sie; sonst bekommt
-   die Spalte einen eigenen Rollbalken, statt das Layout zu sprengen. Die Seite
-   selbst scrollt weiterhin nicht. Es rollt also die Spalte als Ganzes — auch
-   die Häufigsten Namen, deren Liste damit vollständig lesbar ist: sie ist
-   ohnehin auf ein Dutzend Einträge begrenzt (api/top?limit=12). Ihr Panel ist
-   deshalb die einzige Zeile mit einer Untergrenze: max-content, damit die Liste
-   nie in einen eigenen Rollbalken gezwungen wird, und 1fr als Obergrenze,
-   damit sie bei kurzer Liste den Rest der Spalte füllt. */
-.side {
+.c-client {
+  width: 132px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.c-result {
+  width: 112px;
+}
+
+.c-ms {
+  width: 76px;
+  text-align: right;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.log-table th.c-ms {
+  text-align: right;
+}
+
+.c-name {
+  display: flex;
+  align-items: center;
+  gap: var(--s-8);
+  min-width: 0;
+}
+
+.name-button {
+  display: block;
+  max-width: 100%;
+  height: 44px;
+  margin-left: -6px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 0.8125rem;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.name-button:hover {
+  color: var(--accent);
+}
+
+.name-static {
+  display: inline-block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.8125rem;
+}
+
+.is-blocked .name-button,
+.is-blocked .name-static {
+  color: var(--danger);
+}
+
+.times {
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+}
+
+.result {
+  font-size: var(--t-micro);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+.result.is-blocked {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.result.is-error {
+  color: var(--warn);
+}
+
+.result.is-muted {
+  color: var(--muted);
+}
+
+.log-foot {
+  padding: 10px var(--s-16);
+  border-top: 1px solid var(--hairline);
+  color: var(--faint);
+  font-size: 0.75rem;
+}
+
+.empty {
   display: grid;
-  grid-column: span 1;
-  grid-template-rows: auto auto auto auto auto minmax(max-content, 1fr);
+  justify-items: center;
+  align-content: center;
+  gap: var(--s-8);
+  padding: var(--s-32);
+  color: var(--muted);
+  text-align: center;
+  font-size: var(--t-small);
+}
+
+.log > .log-table[hidden] + .empty {
+  height: 100%;
+}
+
+.log-table td.is-warn {
+  color: var(--warn);
+}
+
+.empty p {
+  max-width: 340px;
+}
+
+.empty-icon {
+  width: 26px;
+  height: 26px;
+  fill: none;
+  stroke: var(--faint);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.side {
+  display: flex;
+  flex-direction: column;
   gap: var(--s-16);
   min-height: 0;
   overflow-y: auto;
 }
-/* Hier bewusst keine reservierte Rollbalken-Spur, anders als bei .log: die
-   Panels sind die sichtbare Fläche dieser Spur, die Spur selbst ist das
-   Grid-Element. Eine reservierte Bahn zöge jedes Panel um ihre Breite ein —
-   gemessen 15 px — und damit die rechte Kante weg von der, auf der die
-   Kacheln darüber stehen (siehe the_panes_sit_on_the_same_four_tracks, und
-   der Kommentar an .panes). Bei .log ist das folgenlos: dort liegt die Bahn
-   im Panel, nicht an seiner Kante. */
-.top-panel { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; }
 
-/* Die Spalte ist eine Spur breit, also eine Kachel (siehe .panes); keines ihrer
-   Kinder darf sie aufziehen. Als Grid-Element geben sie sonst ihr min-content
-   an die Spur weiter — für die häufigsten Namen gemessen 346px, für einen
-   langen Upstream-Namen 405px. Die Spur wird dann breiter als ihr Behälter,
-   und weil .side rollt, wird der Überstand nicht sichtbar abgeschnitten,
-   sondern still: an jedem Panel der Spalte, nicht nur am schuldigen. Die
-   Ellipse auf .n und .up-name kommt erst zum Zug, wenn geschrumpft werden darf.
-   Die zweite Zeile, weil das ol in einem eigenen Grid liegt (.top-panel) und
-   dort selbst Grid-Element ist. */
-.side > * { min-width: 0; }
-.side .top { min-width: 0; }
-
-.top {
-  margin: 0;
-  padding: 0 var(--s-16) var(--s-16);
-  list-style: none;
+.side-panel .panel-head {
+  min-height: 48px;
 }
-.top li {
+
+.side-panel .panel-head .note {
+  margin-left: auto;
+  color: var(--faint);
+  font-size: var(--t-micro);
+}
+
+.side-panel .empty {
+  padding: var(--s-16) 0;
+}
+
+.chart figcaption {
   display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: var(--s-8);
-  font-size: var(--t-small);
-  line-height: 1.9;
+  color: var(--muted);
+  font-size: 0.75rem;
 }
-.top .n {
-  font-family: var(--mono);
+
+.key {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--faint);
+  font-size: var(--t-micro);
+}
+
+.swatch {
+  width: 8px;
+  height: 2px;
+  border-radius: 1px;
+}
+
+.sw-total {
+  background: var(--faint);
+}
+
+.sw-blocked {
+  background: var(--danger);
+}
+
+.graph {
+  width: 100%;
+  height: 56px;
+  margin-top: var(--s-8);
+}
+
+.graph path {
+  fill: none;
+  stroke-width: 1.5;
+}
+
+.line-total {
+  stroke: var(--faint);
+}
+
+.line-blocked {
+  stroke: var(--danger);
+}
+
+.upstreams {
+  display: grid;
+  gap: var(--s-16);
+}
+
+.upstream {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto;
+  grid-template-areas:
+    "dot name latency"
+    ". bar bar";
+  align-items: center;
+  gap: 5px var(--s-8);
+}
+
+.up-dot {
+  grid-area: dot;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--success);
+}
+
+.up-dot.is-down {
+  border: 1.5px solid var(--muted);
+  background: transparent;
+}
+
+.up-name {
+  grid-area: name;
+  font-size: var(--t-small);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.top li.is-blocked .n { color: var(--danger); }
-.top .c { color: var(--faint); }
 
-/* ── Hinweise, Anmeldung ───────────────────────────────────────────────── */
-
-.note { margin: 0; font-size: var(--t-small); color: var(--muted); }
-/* Einzige gelbe Warnung neben dem Protokoll: der Modus "full" schreibt jede
-   Zeile auf die Platte. Die übrigen Modi bleiben neutral. */
-.note.is-persisting { color: var(--warn); }
-.error { color: var(--danger); font-size: var(--t-small); }
-
-/* Die Anmeldeseite ist die einzige Fläche außerhalb des Rasters — und trotzdem
-   eine Scheibe. Text direkt auf dem Himmel wäre die eine Stelle, an der der
-   Kontrast nicht nachgerechnet ist: --faint käme dort auf 3,2:1. */
-.login {
-  max-width: 24rem;
-  margin: 18vh auto;
-  padding: var(--s-32) var(--s-24) var(--s-24);
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-8);
-}
-
-/* Dasselbe für den Hinweis an Browser ohne Skript. Er steht außerhalb von
-   #app, weil er auch dann erscheinen muss, wenn das Skript nie läuft. */
-.notice {
-  max-width: 34rem;
-  margin: var(--s-24) auto;
-  padding: var(--s-16);
-  font-size: var(--t-small);
-  color: var(--muted);
-}
-.login .mark { margin-bottom: var(--s-8); }
-.login .note { margin-bottom: var(--s-16); }
-.login label {
+.up-transport {
+  margin-left: 5px;
+  color: var(--faint);
   font-size: var(--t-micro);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+}
+
+.up-latency {
+  grid-area: latency;
+  color: var(--muted);
+  font-size: var(--t-micro);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.up-latency .is-warn {
+  color: var(--warn);
+}
+
+.up-bar {
+  grid-area: bar;
+  display: block;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.up-bar span {
+  display: block;
+  height: 100%;
+  background: var(--band-1);
+}
+
+.privacy {
+  display: grid;
+}
+
+.privacy-row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--s-8);
+  min-height: 44px;
+  padding: 0;
+  border-bottom: 1px solid var(--hairline-soft);
+  font-size: var(--t-small);
+}
+
+.privacy-row:last-child {
+  border-bottom: 0;
+}
+
+.privacy-row .state svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.privacy-row .state .is-off {
+  display: none;
+}
+
+.privacy-row.is-off .state .is-on {
+  display: none;
+}
+
+.privacy-row.is-off .state .is-off {
+  display: block;
+}
+
+.privacy-row.is-off .privacy-label,
+.privacy-row.is-off .privacy-value {
   color: var(--faint);
 }
 
-input, button {
-  font: inherit;
-  padding: var(--s-8) var(--s-16);
+.privacy-value {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.link {
+  padding: 0 0 0 6px;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-size: var(--t-micro);
+  min-height: 44px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.bar {
+  display: flex;
+  height: 8px;
+  margin-bottom: var(--s-16);
+  border-radius: 4px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.bar span {
+  display: block;
+  height: 100%;
+}
+
+.band-1 {
+  background: var(--band-1);
+}
+
+.band-2 {
+  background: var(--band-2);
+}
+
+.band-3 {
+  background: var(--band-3);
+}
+
+.band-4 {
+  background: var(--band-4);
+}
+
+.legend {
+  display: grid;
+  gap: 6px;
+}
+
+.legend li {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--s-8);
+  color: var(--muted);
+  font-size: var(--t-micro);
+}
+
+.legend .swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.legend .count {
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.flagged {
+  display: grid;
+  gap: var(--s-16);
+}
+
+.flagged li {
+  display: grid;
+  gap: 3px;
+  padding-bottom: var(--s-16);
+  border-bottom: 1px solid var(--hairline-soft);
+}
+
+.flagged li:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.flagged .subject {
+  font-family: var(--mono);
+  font-size: var(--t-small);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.flagged .meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-8);
+  color: var(--faint);
+  font-size: var(--t-micro);
+}
+
+.flagged .why {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.flagged .actions {
+  display: flex;
+  gap: var(--s-8);
+  margin-top: 5px;
+}
+
+.flagged .actions button {
+  height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: var(--t-micro);
+}
+
+.flagged .actions button:hover {
+  color: var(--text);
+  border-color: var(--hairline-strong);
+}
+
+.pagefoot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-16);
+  color: var(--faint);
+  font-size: 0.75rem;
+}
+
+.pagefoot p {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sheet {
+  position: fixed;
+  top: 88px;
+  right: max(var(--s-24), calc((100vw - var(--page)) / 2));
+  left: auto;
+  width: min(430px, calc(100vw - 32px));
+  max-height: calc(100dvh - 120px);
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-large);
+  background: var(--glass-strong);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--shadow-sheet);
+  color: var(--text);
+  overflow-y: auto;
+}
+
+.sheet::backdrop {
+  background: rgba(25, 22, 16, 0.12);
+}
+
+.sheet-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s-16);
+  padding: var(--s-16) var(--s-24) var(--s-8);
+}
+
+.sheet-kicker {
+  color: var(--faint);
+  font-size: var(--t-micro);
+}
+
+.sheet .subject {
+  margin-top: 2px;
+  color: var(--danger);
+  font-family: var(--mono);
+  font-size: 1.125rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.sheet .subject.is-allowed {
+  color: var(--text);
+}
+
+.context {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: var(--t-micro);
+  font-variant-numeric: tabular-nums;
+}
+
+.icon-button {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 44px;
+  height: 44px;
   border: 1px solid var(--hairline);
   border-radius: 10px;
-  background: var(--glass);
+  background: var(--surface);
+  color: var(--muted);
+}
+
+.icon-button svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+}
+
+.verdict-badge {
+  padding: 0 var(--s-24) var(--s-8);
+  color: var(--danger);
+  font-size: var(--t-micro);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.verdict-badge.is-allowed {
+  color: var(--muted);
+}
+
+.pipeline {
+  padding: var(--s-8) var(--s-24) var(--s-8);
+  counter-reset: step;
+}
+
+.pipeline li {
+  position: relative;
+  display: grid;
+  gap: 1px;
+  padding: 0 0 var(--s-24) 38px;
+  counter-increment: step;
+}
+
+.pipeline li:last-child {
+  padding-bottom: var(--s-16);
+}
+
+.pipeline li::before {
+  content: counter(step);
+  position: absolute;
+  top: -1px;
+  left: 0;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--hairline);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: var(--t-micro);
+  font-variant-numeric: tabular-nums;
+}
+
+.pipeline li:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  top: 24px;
+  bottom: 2px;
+  left: 11px;
+  width: 1px;
+  background: var(--hairline);
+}
+
+.pipeline li.is-key::before {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.step-label {
+  font-size: var(--t-micro);
+  font-weight: 600;
+}
+
+.step-detail {
+  color: var(--muted);
+  font-size: var(--t-small);
+  overflow-wrap: anywhere;
+}
+
+.sheet .note {
+  padding: 0 var(--s-24);
+  color: var(--faint);
+  font-size: var(--t-micro);
+}
+
+.sheet-actions {
+  display: flex;
+  gap: var(--s-8);
+  padding: var(--s-16) var(--s-24) var(--s-24);
+}
+
+.primary {
+  height: 44px;
+  padding: 0 var(--s-16);
+  border: 0;
+  border-radius: 10px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+
+.primary:hover {
+  filter: brightness(1.06);
+}
+
+.secondary {
+  height: 44px;
+  padding: 0 var(--s-16);
+  border: 1px solid var(--hairline-strong);
+  border-radius: 10px;
+  background: transparent;
   color: var(--text);
-  box-shadow: inset 0 1px 0 var(--edge);
-}
-button { cursor: pointer; font-weight: 500; }
-/* Die zweite und letzte Übergangsregel der Seite. Bewegung gibt es nur dort,
-   wo ein Zeiger etwas anfasst: am Protokoll und an Bedienelementen. */
-input, button { transition: background-color 100ms ease, border-color 100ms ease; }
-input:hover, button:hover { background: var(--glass-strong); border-color: var(--faint); }
-input:focus-visible, button:focus-visible {
-  outline: 2px solid var(--text);
-  outline-offset: 1px;
 }
 
-code { font-family: var(--mono); font-size: 0.9em; color: var(--muted); }
+.secondary:hover {
+  background: var(--surface-2);
+}
 
-.sr-only {
-  position: absolute; width: 1px; height: 1px;
-  padding: 0; margin: -1px; overflow: hidden;
-  clip-path: inset(50%); white-space: nowrap;
+.commandbar {
+  position: fixed;
+  top: 84px;
+  left: 50%;
+  width: min(560px, calc(100vw - 32px));
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--edge);
+  border-radius: var(--radius);
+  background: var(--glass-strong);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--shadow-sheet);
+  color: var(--text);
+  transform: translateX(-50%);
+}
+
+.commandbar::backdrop {
+  background: rgba(25, 22, 16, 0.10);
+}
+
+.commandbar form {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 var(--s-16);
+}
+
+.commandbar svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1.6;
+  flex: none;
+}
+
+.commandbar input {
+  flex: 1;
+  min-width: 0;
+  height: 56px;
+  border: 0;
+  background: transparent;
+  font-size: 1rem;
+  outline: none;
+}
+
+.commandbar input::placeholder {
+  color: var(--faint);
+}
+
+.login {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  gap: var(--s-16);
+  width: min(420px, calc(100vw - 32px));
+  padding: var(--s-32);
+  transform: translate(-50%, -50%);
+}
+
+.login .mark {
+  margin-bottom: var(--s-8);
+}
+
+.login label {
+  color: var(--muted);
+  font-size: var(--t-small);
+}
+
+.login input {
+  height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.login .primary {
+  margin-top: var(--s-8);
+}
+
+.note {
+  color: var(--muted);
+  font-size: var(--t-small);
+}
+
+.error {
+  color: var(--text);
+  font-weight: 600;
+  font-size: var(--t-small);
+}
+
+.notice {
+  margin-top: var(--s-32);
+  padding: var(--s-24);
+}
+
+@keyframes row-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+.log-table tbody tr {
+  animation: row-in 140ms ease-out both;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  * { transition: none !important; animation: none !important; }
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
 }
 
-/* Der Blur ist der teuerste Teil der Seite. Wer ihn abbestellt, bekommt eine
-   deckende Fläche: lesbar bleibt es, nur ohne Material. */
 @media (prefers-reduced-transparency: reduce) {
-  .panel, .card, .masthead, .log-table th, .theme-toggle, input, button {
+  .topbar,
+  .sheet,
+  .commandbar {
+    background: var(--surface);
     backdrop-filter: none;
-    -webkit-backdrop-filter: none;
-  }
-  .panel, .card, .masthead, .log-table th, .theme-toggle, input, button {
-    background: var(--glass-strong);
   }
 }
 
-/* Schmale Fenster: die Karten brechen um, die Nebenspalte rutscht unter das
-   Protokoll — und dann darf die Seite auch scrollen. */
-@media (max-width: 60rem) {
-  .wrap { padding-inline: var(--s-16); }
-  .shell { height: auto; min-height: 100dvh; }
-  .board { grid-template-rows: none; }
-  .figures { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .panes { grid-template-columns: minmax(0, 1fr); }
-  /* Die Spannen gehören zurückgesetzt: in einem Raster mit einer einzigen Spalte
-     legte "span 3" zwei zusätzliche Spuren an, und das Raster wäre wieder
-     zweispaltig — nur ohne Spurbreite dafür. */
-  .column { grid-template-rows: none; grid-column: auto; }
-  .log { max-height: 60vh; }
-  .side { grid-template-rows: none; overflow-y: visible; grid-column: auto; }
-  .counters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .facts { gap: var(--s-24); }
-  .c-client { display: none; }
+@media (max-width: 1100px) {
+  .search {
+    width: 170px;
+  }
+
+  .metric {
+    padding-inline: var(--s-16);
+  }
+}
+
+@media (max-width: 1000px) {
+  body {
+    overflow: auto;
+  }
+
+  .wrap {
+    width: min(calc(100% - 32px), var(--page));
+  }
+
+  .shell {
+    height: auto;
+    min-height: 100dvh;
+    overflow: visible;
+  }
+
+  .main {
+    display: flex;
+    flex-direction: column;
+    height: auto;
+    padding-block: var(--s-16);
+    overflow: visible;
+  }
+
+  .layout {
+    grid-template-columns: 1fr;
+  }
+
+  .queries {
+    height: 72vh;
+  }
+
+  .side {
+    overflow: visible;
+  }
+
+  .metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .metric + .metric {
+    border-left: 0;
+  }
+
+  .metric:nth-child(even) {
+    border-left: 1px solid var(--hairline);
+  }
+
+  .metric:nth-child(n + 3) {
+    border-top: 1px solid var(--hairline);
+  }
+
+  .panel-head {
+    flex-wrap: wrap;
+    gap: var(--s-8);
+  }
+
+  .filters {
+    margin-left: 0;
+  }
+
+  .search {
+    width: 100%;
+  }
+
+  .sheet {
+    top: auto;
+    right: 8px;
+    bottom: 8px;
+    left: 8px;
+    width: auto;
+    max-height: 84dvh;
+  }
+
+  .pagefoot {
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 720px) {
+  .c-client,
+  .c-type {
+    display: none;
+  }
+
+  .log-table th,
+  .log-table td {
+    padding-inline: 8px;
+  }
+
+  .c-time {
+    width: 72px;
+  }
+
+  .c-result {
+    width: 96px;
+  }
+
+  .c-ms {
+    width: 56px;
+  }
+
+  .command-trigger {
+    width: 44px;
+    justify-content: center;
+    padding: 0;
+  }
+
+  .command-trigger span,
+  .command-trigger kbd {
+    display: none;
+  }
+
+  .verdict-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--s-4);
+  }
+
+  .pagefoot {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
+
+  .pagefoot p {
+    white-space: normal;
+  }
 }

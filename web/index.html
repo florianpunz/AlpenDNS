@@ -5,16 +5,23 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>AlpenDNS</title>
 <link rel="stylesheet" href="/app.css">
-<!-- Eigene Datei statt eines Inline-Blocks: eine strenge CSP ohne
-     'unsafe-inline' oder Hash-Pflege. Blockierend im Kopf, also weiterhin
-     vor dem ersten Zeichnen. -->
 <script src="/theme.js"></script>
 </head>
 <body>
 
-<!-- Der Hintergrund, den das Glas bricht. Fest positioniert und ohne Inhalt:
-     er trägt keine Aussage, nur Material (siehe app.css, Entscheidung 2). -->
-<div class="sky" aria-hidden="true"></div>
+<div class="ground" aria-hidden="true">
+  <svg class="contours" viewBox="0 0 1440 900" preserveAspectRatio="xMidYMid slice">
+    <g fill="none" stroke="currentColor" stroke-width="1">
+      <path d="M1516 40C1514 63 1500 86 1488 106C1477 125 1464 144 1448 158C1431 171 1410 178 1390 185C1370 192 1352 197 1330 202C1308 206 1280 217 1259 212C1237 206 1214 187 1202 168C1190 150 1191 121 1186 100C1181 78 1173 61 1170 40C1167 19 1162 -6 1168 -27C1174 -48 1189 -69 1205 -85C1220 -102 1240 -120 1261 -128C1281 -135 1309 -138 1330 -133C1351 -127 1368 -107 1386 -96C1405 -86 1420 -80 1440 -70C1459 -59 1489 -49 1502 -31C1515 -13 1518 17 1516 40Z"/>
+      <path d="M1652 40C1646 78 1611 116 1589 147C1566 178 1540 197 1517 227C1494 257 1480 304 1449 328C1418 351 1369 368 1330 366C1291 364 1251 335 1216 314C1182 294 1150 273 1125 245C1099 218 1078 185 1064 150C1049 116 1046 79 1040 40C1035 1 1019 -46 1028 -85C1037 -124 1062 -173 1095 -195C1127 -217 1184 -213 1223 -217C1263 -222 1293 -220 1330 -222C1367 -225 1407 -241 1443 -234C1480 -227 1520 -206 1551 -181C1581 -156 1610 -120 1627 -83C1644 -46 1659 2 1652 40Z"/>
+      <path d="M1724 40C1721 97 1742 151 1732 207C1722 263 1703 333 1666 376C1628 419 1563 446 1507 466C1451 487 1387 503 1330 499C1273 495 1211 472 1163 443C1115 415 1085 366 1042 328C999 290 941 265 903 217C866 169 816 99 817 40C817 -19 869 -87 906 -136C944 -184 997 -213 1041 -249C1085 -285 1120 -325 1169 -349C1217 -374 1273 -386 1330 -394C1387 -401 1450 -406 1510 -394C1570 -382 1650 -363 1690 -320C1730 -277 1745 -194 1750 -134C1756 -74 1727 -17 1724 40Z"/>
+      <path d="M1964 40C1974 117 1948 208 1918 284C1888 359 1843 439 1785 495C1727 551 1646 603 1570 620C1495 638 1408 605 1330 599C1252 593 1187 595 1105 583C1023 572 906 577 840 530C774 482 725 380 707 298C690 216 723 120 737 40C752 -40 764 -114 795 -182C826 -250 872 -311 923 -367C973 -424 1030 -473 1098 -520C1166 -568 1248 -644 1330 -655C1412 -665 1522 -634 1589 -585C1656 -536 1687 -429 1732 -362C1776 -294 1819 -246 1858 -179C1896 -112 1954 -37 1964 40Z"/>
+      <path d="M310 900C308 925 306 951 297 973C288 996 271 1015 254 1034C238 1054 222 1077 199 1091C177 1105 146 1122 120 1120C94 1118 67 1094 46 1078C25 1063 13 1042 -5 1025C-24 1009 -52 998 -67 978C-82 957 -95 926 -96 900C-97 874 -85 844 -73 820C-61 796 -45 770 -25 755C-4 740 25 734 49 729C73 724 95 729 120 726C145 723 172 707 199 709C226 711 263 720 281 739C300 758 305 795 310 821C315 848 313 875 310 900Z"/>
+      <path d="M457 900C459 943 452 988 441 1033C429 1078 419 1135 389 1169C359 1203 303 1227 258 1234C214 1241 164 1215 120 1210C76 1206 38 1214 -7 1206C-52 1199 -112 1195 -148 1168C-184 1141 -209 1087 -224 1043C-240 998 -243 946 -238 900C-234 854 -218 806 -195 770C-171 734 -128 713 -97 683C-65 654 -43 623 -7 594C29 564 75 513 120 506C165 498 226 522 266 548C305 575 329 626 357 663C384 701 411 733 428 772C445 812 455 857 457 900Z"/>
+      <path d="M657 900C659 969 656 1051 624 1109C593 1167 520 1209 465 1245C411 1282 355 1295 298 1329C240 1362 187 1430 120 1449C53 1467 -42 1469 -104 1440C-166 1410 -213 1330 -252 1272C-291 1213 -319 1151 -337 1089C-356 1027 -365 962 -362 900C-360 838 -339 781 -324 716C-308 651 -307 570 -271 509C-235 449 -172 373 -106 353C-41 333 52 369 120 388C188 407 239 442 300 466C360 491 431 499 483 537C534 576 580 637 609 697C638 758 654 831 657 900Z"/>
+    </g>
+  </svg>
+</div>
 
 <noscript>
   <div class="wrap">
@@ -36,17 +43,14 @@
   <code>api.token_file</code> in the configuration.</p>
   <label for="token">Token</label>
   <input id="token" type="password" autocomplete="off" spellcheck="false">
-  <button type="submit">Sign in</button>
+  <button type="submit" class="primary">Sign in</button>
   <p id="login-error" class="error" hidden></p>
 </form>
 
 <div id="app" class="shell" hidden>
 
-  <!-- Der Rahmen: wer hier läuft, seit wann, und in welchem Log-Modus. Der
-       Modus steht als Kennzahl neben Version und Laufzeit und nicht in einem
-       Dialog: er ist eine Daueraussage, keine Einstellung (ADR-0004). -->
-  <header class="masthead">
-    <div class="wrap masthead-inner">
+  <header class="topbar">
+    <div class="wrap topbar-inner">
       <h1 class="mark">
         <svg class="logo" viewBox="0 0 44 26" role="img" aria-label="Alpen">
           <path class="ridge-back" d="M0 26 L12 6 L19 16 L23 10 L44 26 Z"/>
@@ -56,18 +60,15 @@
         <span class="wordmark"><b>Alpen</b>DNS</span>
       </h1>
 
-      <dl class="facts">
-        <div class="fact"><dt>Mode</dt><dd id="mode">–</dd></div>
-        <div class="fact"><dt>Version</dt><dd id="version">–</dd></div>
-        <div class="fact"><dt>Uptime</dt>
-          <dd class="reach" id="reach"><span class="dot" aria-hidden="true"></span><span id="uptime">–</span></dd>
-        </div>
-      </dl>
+      <button type="button" class="command-trigger" id="command-open">
+        <svg viewBox="0 0 20 20" aria-hidden="true">
+          <circle cx="8.5" cy="8.5" r="5.5"/>
+          <path d="M12.6 12.6 17 17"/>
+        </svg>
+        <span>Inspect a domain…</span>
+        <kbd>/</kbd>
+      </button>
 
-      <!-- Umschalter zwischen hell und dunkel. Beide Zeichen stehen im Markup,
-           sichtbar ist immer genau eines — das Skript setzt nur data-theme am
-           Wurzelelement. Der Text am Knopf nennt die Handlung, nicht den
-           Zustand: "Switch to dark" heißt, dass ein Klick dorthin führt. -->
       <button type="button" class="theme-toggle" id="theme-toggle"
               aria-label="Switch to dark mode">
         <svg class="icon-sun" viewBox="0 0 24 24" aria-hidden="true">
@@ -81,99 +82,128 @@
     </div>
   </header>
 
-  <main class="wrap board">
+  <main class="wrap main">
 
-    <!-- Frage 1, als vier Karten. Die Sparkline gehört zur Anfragenzahl:
-         die Summe sagt wie viel, die Linie sagt wann. -->
-    <section class="figures" aria-labelledby="h-status">
-      <h2 id="h-status" class="sr-only">Is it running?</h2>
+    <section class="statusline" aria-labelledby="verdict">
+      <div class="verdict-row">
+        <h2 class="verdict" id="verdict">
+          <span class="dot is-live" id="health-dot" aria-hidden="true"></span>
+          <span id="health">Resolving normally</span>
+        </h2>
+        <p class="live-note"><span id="counts-note">Counts since start</span> ·
+          <span id="stream-state">updates live</span></p>
+      </div>
+      <p class="status-detail" id="status-detail">–</p>
+    </section>
 
-      <div class="card">
-        <span class="value" id="queries">–</span>
-        <span class="label">Queries</span>
-        <svg class="spark" viewBox="0 0 240 40" preserveAspectRatio="none"
-             role="img" aria-label="Queries in the last 60 seconds">
-          <path id="spark" class="spark-line" vector-effect="non-scaling-stroke" d=""/>
+    <section class="metrics" aria-labelledby="h-metrics">
+      <h2 id="h-metrics" class="sr-only">Key figures</h2>
+
+      <div class="metric">
+        <span class="metric-label">Queries</span>
+        <span class="metric-value" id="m-queries">–</span>
+        <span class="metric-sub" id="m-queries-sub"></span>
+        <svg class="spark" viewBox="0 0 240 36" preserveAspectRatio="none"
+             role="img" aria-label="Queries per second in the last minute">
+          <path id="s-queries" vector-effect="non-scaling-stroke" d=""/>
         </svg>
       </div>
 
-      <div class="card">
-        <span class="value" id="blocked">–</span>
-        <span class="label">Blocked</span>
+      <div class="metric">
+        <span class="metric-label">Blocked</span>
+        <span class="metric-value" id="m-blocked">–</span>
+        <span class="metric-sub" id="m-blocked-sub"></span>
+        <svg class="spark" viewBox="0 0 240 36" preserveAspectRatio="none"
+             role="img" aria-label="Blocked share per second in the last minute">
+          <path id="s-blocked" class="line-blocked" vector-effect="non-scaling-stroke" d=""/>
+        </svg>
       </div>
 
-      <div class="card">
-        <span class="value" id="hitrate">–</span>
-        <span class="label">Cache</span>
+      <div class="metric">
+        <span class="metric-label">Cache hits</span>
+        <span class="metric-value" id="m-cache">–</span>
+        <span class="metric-sub" id="m-cache-sub">answered without upstream</span>
+        <svg class="spark" viewBox="0 0 240 36" preserveAspectRatio="none"
+             role="img" aria-label="Cache hit share per second in the last minute">
+          <path id="s-cache" vector-effect="non-scaling-stroke" d=""/>
+        </svg>
       </div>
 
-      <div class="card">
-        <span class="value" id="entries">–</span>
-        <span class="label">List entries</span>
+      <div class="metric">
+        <span class="metric-label">Response time</span>
+        <span class="metric-value" id="m-latency">–</span>
+        <span class="metric-sub" id="m-latency-sub"></span>
+        <svg class="spark" viewBox="0 0 240 36" preserveAspectRatio="none"
+             role="img" aria-label="Mean response time per second in the last minute">
+          <path id="s-latency" vector-effect="non-scaling-stroke" d=""/>
+        </svg>
       </div>
     </section>
 
-    <section class="stream" aria-labelledby="h-live">
-      <div class="panes">
+    <div class="layout">
 
-        <div class="column">
-
-          <!-- Frage 3, und der wertvollste Teil der Seite: die größte Schrift. -->
-          <section class="why panel" aria-labelledby="h-why" aria-live="polite">
-            <div class="panel-head">
-              <h2 id="h-why">Why was this blocked?</h2>
-              <p class="note" id="why-source" hidden></p>
-            </div>
-            <div id="why-body" hidden></div>
-            <div class="empty" id="why-empty">
-              <svg class="empty-icon" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M12 3l7 3v5c0 4.4-2.9 8.4-7 9.7C7.9 19.4 5 15.4 5 11V6l7-3z"/>
-              </svg>
-              <p id="why-empty-note">Nothing has been blocked since this page was
-              opened. Click a row in the log to ask for its decision chain.</p>
-            </div>
-          </section>
-
-          <!-- Frage 2, und der Inhalt: der Strom. Er scrollt, die Seite nicht. -->
-          <div class="panel log-panel">
-            <div class="panel-head">
-              <h2 id="h-live">What's happening</h2>
-              <p class="note" id="live-note">ephemeral</p>
-            </div>
-            <div class="log" id="log-scroll" tabindex="0">
-              <table class="log-table" id="log-table">
-                <caption class="sr-only">The most recent queries</caption>
-                <thead>
-                  <tr>
-                    <th class="c-time">Time</th>
-                    <th class="c-name">Name</th>
-                    <th class="c-client">Client</th>
-                    <th class="c-rcode">Answer</th>
-                    <th class="c-ms">ms</th>
-                  </tr>
-                </thead>
-                <tbody id="log"></tbody>
-              </table>
-              <div class="empty" id="log-empty">
-                <svg class="empty-icon" viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M3 12h4l3-7 4 14 3-7h4"/>
-                </svg>
-                <p>No query answered yet. New ones appear here on their own.</p>
-              </div>
-            </div>
+      <section class="panel queries" aria-labelledby="h-live">
+        <div class="panel-head">
+          <div class="head-title">
+            <h2 id="h-live">Live queries</h2>
+            <span class="stream-flag" id="stream-flag">
+              <span class="dot" aria-hidden="true"></span>
+              <span id="stream-flag-text">streaming</span>
+            </span>
           </div>
 
+          <div class="filters" role="group" aria-label="Filter queries">
+            <button type="button" class="chip is-active" data-filter="all"
+                    aria-pressed="true">All</button>
+            <button type="button" class="chip" data-filter="blocked"
+                    aria-pressed="false">Blocked</button>
+            <button type="button" class="chip" data-filter="errors"
+                    aria-pressed="false">Errors</button>
+          </div>
+
+          <label class="search" for="log-search">
+            <svg viewBox="0 0 20 20" aria-hidden="true">
+              <circle cx="8.5" cy="8.5" r="5.5"/>
+              <path d="M12.6 12.6 17 17"/>
+            </svg>
+            <input id="log-search" type="search" placeholder="Domain or client"
+                   autocomplete="off" spellcheck="false">
+          </label>
         </div>
 
-        <aside class="side">
+        <div class="log" id="log-scroll" tabindex="0">
+          <table class="log-table" id="log-table">
+            <caption class="sr-only">The most recent queries</caption>
+            <thead>
+              <tr>
+                <th class="c-time" scope="col">Time</th>
+                <th class="c-name" scope="col">Domain</th>
+                <th class="c-type" scope="col">Type</th>
+                <th class="c-client" scope="col">Client</th>
+                <th class="c-result" scope="col">Result</th>
+                <th class="c-ms" scope="col">ms</th>
+              </tr>
+            </thead>
+            <tbody id="log"></tbody>
+          </table>
+          <div class="empty" id="log-empty">
+            <svg class="empty-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M3 12h4l3-7 4 14 3-7h4"/>
+            </svg>
+            <p id="log-empty-note">No query answered yet. New ones appear here on their own.</p>
+          </div>
+        </div>
 
-          <!-- Zwei Kurven aus Zählern. Was sie zeigen können, ist "wie viel";
-               "was" steht in keiner Zeitreihe (ADR-0004). -->
-          <section class="panel" aria-labelledby="h-day">
-            <div class="panel-head">
-              <h2 id="h-day">Last 24 hours</h2>
-            </div>
+        <p class="log-foot" id="log-foot">Select a domain to see why it was answered that way.</p>
+      </section>
 
+      <aside class="side">
+
+        <section class="panel side-panel" aria-labelledby="h-day">
+          <div class="panel-head">
+            <h2 id="h-day">Last 24 hours</h2>
+          </div>
+          <div class="panel-body">
             <figure class="chart" id="chart-traffic">
               <figcaption>
                 <span>Queries</span>
@@ -182,26 +212,12 @@
                   <span class="swatch sw-blocked" aria-hidden="true"></span>blocked
                 </span>
               </figcaption>
-              <svg class="graph" viewBox="0 0 240 52" preserveAspectRatio="none"
+              <svg class="graph" viewBox="0 0 240 56" preserveAspectRatio="none"
                    role="img" aria-label="Queries and blocked queries in the last 24 hours">
                 <path id="day-queries" class="line-total" vector-effect="non-scaling-stroke" d=""/>
                 <path id="day-blocked" class="line-blocked" vector-effect="non-scaling-stroke" d=""/>
               </svg>
             </figure>
-
-            <figure class="chart" id="chart-cache">
-              <figcaption>
-                <span>Cache hit rate</span>
-                <span class="key"><span class="swatch sw-cache" aria-hidden="true"></span>hits</span>
-              </figcaption>
-              <svg class="graph" viewBox="0 0 240 52" preserveAspectRatio="none"
-                   role="img" aria-label="Cache hit rate in the last 24 hours">
-                <path id="day-cache" class="line-cache" vector-effect="non-scaling-stroke" d=""/>
-              </svg>
-            </figure>
-
-            <p class="axis"><span>24 h ago</span><span>now</span></p>
-
             <div class="empty" id="day-empty">
               <svg class="empty-icon" viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M4 19h16M4 19V5M8 15l4-5 3 3 4-6"/>
@@ -209,44 +225,83 @@
               <p>The time series starts on startup and lives only in memory.
               The first point appears after five minutes.</p>
             </div>
-          </section>
+          </div>
+        </section>
 
-          <!-- Wer hat welchen Teil der Namen gesehen — die eigentliche Frage
-               beim Aufteilen auf mehrere Resolver. -->
-          <section class="panel" aria-labelledby="h-up">
-            <div class="panel-head">
-              <h2 id="h-up">Upstreams</h2>
-              <p class="note" id="up-note"></p>
-            </div>
-
-            <figure class="chart" id="chart-split">
-              <figcaption><span>Split over 24 h</span></figcaption>
-              <svg class="graph graph-area" viewBox="0 0 240 44" preserveAspectRatio="none"
-                   role="img" aria-label="Share of upstreams over the last 24 hours">
-                <path id="split-1" class="band band-1" d=""/>
-                <path id="split-2" class="band band-2" d=""/>
-                <path id="split-3" class="band band-3" d=""/>
-                <path id="split-4" class="band band-4" d=""/>
-              </svg>
-            </figure>
-
+        <section class="panel side-panel" aria-labelledby="h-up">
+          <div class="panel-head">
+            <h2 id="h-up">Upstreams</h2>
+            <p class="note" id="up-note"></p>
+          </div>
+          <div class="panel-body">
             <ul class="upstreams" id="upstreams" aria-labelledby="h-up"></ul>
+          </div>
+        </section>
 
-            <dl class="counters" aria-label="Privacy counters">
-              <div><dt>ECS stripped</dt><dd id="pc-ecs">–</dd></div>
-              <div><dt>Padding</dt><dd id="pc-pad">–</dd></div>
-              <div><dt>0x20</dt><dd id="pc-case">–</dd></div>
-              <div><dt>Cookies</dt><dd id="pc-cookie">–</dd></div>
-              <div><dt>DNSSEC valid</dt><dd id="pc-secure">–</dd></div>
-              <!-- Die einzige Zahl in dieser Reihe, die eine Frage aufwirft:
-                   verworfene Antworten. Deshalb steht sie hier und nicht in
-                   einem Untermenü. -->
-              <div><dt>DNSSEC dropped</dt><dd id="pc-bogus">–</dd></div>
-            </dl>
-          </section>
+        <section class="panel side-panel" aria-labelledby="h-privacy">
+          <div class="panel-head">
+            <h2 id="h-privacy">Privacy &amp; integrity</h2>
+          </div>
+          <div class="panel-body">
+            <ul class="privacy" id="privacy">
+              <li class="privacy-row">
+                <span class="state" aria-hidden="true">
+                  <svg class="is-on" viewBox="0 0 16 16"><path d="M3 8.5 6.4 12 13 4.5"/></svg>
+                  <svg class="is-off" viewBox="0 0 16 16"><path d="M4 8h8"/></svg>
+                </span>
+                <span class="privacy-label">ECS stripped</span>
+                <span class="privacy-value" id="pc-ecs">–</span>
+              </li>
+              <li class="privacy-row">
+                <span class="state" aria-hidden="true">
+                  <svg class="is-on" viewBox="0 0 16 16"><path d="M3 8.5 6.4 12 13 4.5"/></svg>
+                  <svg class="is-off" viewBox="0 0 16 16"><path d="M4 8h8"/></svg>
+                </span>
+                <span class="privacy-label">EDNS padding</span>
+                <span class="privacy-value" id="pc-pad">–</span>
+              </li>
+              <li class="privacy-row">
+                <span class="state" aria-hidden="true">
+                  <svg class="is-on" viewBox="0 0 16 16"><path d="M3 8.5 6.4 12 13 4.5"/></svg>
+                  <svg class="is-off" viewBox="0 0 16 16"><path d="M4 8h8"/></svg>
+                </span>
+                <span class="privacy-label">DNSSEC validation</span>
+                <span class="privacy-value" id="pc-secure">–</span>
+              </li>
+              <li class="privacy-row">
+                <span class="state" aria-hidden="true">
+                  <svg class="is-on" viewBox="0 0 16 16"><path d="M3 8.5 6.4 12 13 4.5"/></svg>
+                  <svg class="is-off" viewBox="0 0 16 16"><path d="M4 8h8"/></svg>
+                </span>
+                <span class="privacy-label">Bogus answers dropped</span>
+                <span class="privacy-value"><span id="pc-bogus">–</span>
+                  <button type="button" class="link" id="bogus-review" hidden>Review</button></span>
+              </li>
+              <li class="privacy-row">
+                <span class="state" aria-hidden="true">
+                  <svg class="is-on" viewBox="0 0 16 16"><path d="M3 8.5 6.4 12 13 4.5"/></svg>
+                  <svg class="is-off" viewBox="0 0 16 16"><path d="M4 8h8"/></svg>
+                </span>
+                <span class="privacy-label">0x20 randomization</span>
+                <span class="privacy-value" id="pc-case">–</span>
+              </li>
+              <li class="privacy-row">
+                <span class="state" aria-hidden="true">
+                  <svg class="is-on" viewBox="0 0 16 16"><path d="M3 8.5 6.4 12 13 4.5"/></svg>
+                  <svg class="is-off" viewBox="0 0 16 16"><path d="M4 8h8"/></svg>
+                </span>
+                <span class="privacy-label">DNS cookies</span>
+                <span class="privacy-value" id="pc-cookie">–</span>
+              </li>
+            </ul>
+          </div>
+        </section>
 
-          <section class="panel" aria-labelledby="h-reasons">
-            <div class="panel-head"><h2 id="h-reasons">Block reasons</h2></div>
+        <section class="panel side-panel" aria-labelledby="h-reasons">
+          <div class="panel-head">
+            <h2 id="h-reasons">Block reasons</h2>
+          </div>
+          <div class="panel-body">
             <div class="bar" id="reason-bar" hidden></div>
             <ul class="legend" id="reason-legend"></ul>
             <div class="empty" id="reason-empty">
@@ -255,39 +310,15 @@
               </svg>
               <p>Nothing blocked yet. As soon as a rule matches, it will be listed here.</p>
             </div>
-          </section>
+          </div>
+        </section>
 
-          <!-- Wie alt die Fassung jeder Liste ist. Ein nie aktualisierter
-               Filter ist das stille Scheitern des Kernversprechens: die
-               Upstreams sind gesund, die Anfragen laufen, und gefiltert wird
-               nach einem Stand von letztem Jahr. Genau deshalb steht die Zahl
-               auf der Startseite und nicht eine Ebene tiefer — sie beantwortet
-               "tut es noch, was es soll" und nicht "wie ist es eingestellt".
-
-               Keine Farbe für eine alte Liste: "34 days ago" sagt alles, was
-               Rot auch sagen würde, und --warn ist für hohe Latenz reserviert
-               (B.6, geprüft in api/ui.rs). Wer eine Zahl betonen will, nimmt
-               ihr Gewicht, nicht ihren Ton. -->
-          <section class="panel" aria-labelledby="h-lists">
-            <div class="panel-head"><h2 id="h-lists">Lists</h2></div>
-            <ul class="lists" id="lists" aria-labelledby="h-lists"></ul>
-            <div class="empty" id="lists-empty">
-              <svg class="empty-icon" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M4 7h16M4 12h16M4 17h10"/>
-              </svg>
-              <p>No list is loaded. Without one, nothing is filtered.</p>
-            </div>
-          </section>
-
-          <!-- Was die Heuristiken gefunden haben. Steht neben den
-               Block-Gründen und nicht in einer eigenen Ansicht: im
-               Auslieferungszustand blockt keiner von ihnen, und was nur meldet,
-               muss man sehen, ohne danach zu suchen. -->
-          <section class="panel" aria-labelledby="h-flagged">
-            <div class="panel-head">
-              <h2 id="h-flagged">Flagged</h2>
-              <p class="note" id="flagged-note"></p>
-            </div>
+        <section class="panel side-panel" aria-labelledby="h-flagged">
+          <div class="panel-head">
+            <h2 id="h-flagged">Flagged</h2>
+            <p class="note" id="flagged-note"></p>
+          </div>
+          <div class="panel-body">
             <ul class="flagged" id="flagged" aria-labelledby="h-flagged"></ul>
             <div class="empty" id="flagged-empty">
               <svg class="empty-icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -295,27 +326,59 @@
               </svg>
               <p id="flagged-note-empty">No heuristic has flagged anything.</p>
             </div>
-          </section>
+          </div>
+        </section>
 
-          <section class="panel top-panel" aria-labelledby="h-top">
-            <div class="panel-head">
-              <h2 id="h-top">Top names</h2>
-            </div>
-            <ol class="top" id="top" aria-labelledby="h-top"></ol>
-            <div class="empty" id="top-empty">
-              <svg class="empty-icon" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M8 6h11M8 12h11M8 18h11M4 6h.01M4 12h.01M4 18h.01"/>
-              </svg>
-              <p id="top-note">No name seen often enough yet.</p>
-            </div>
-          </section>
+      </aside>
+    </div>
 
-        </aside>
-      </div>
-    </section>
+    <footer class="pagefoot">
+      <p id="foot-lists">–</p>
+      <p id="foot-mode">–</p>
+      <p id="foot-version">–</p>
+    </footer>
 
   </main>
 </div>
+
+<dialog id="inspector" class="sheet" aria-labelledby="inspect-name">
+  <div class="sheet-head">
+    <div>
+      <p class="sheet-kicker">Why this answer</p>
+      <h2 id="inspect-name" class="subject">–</h2>
+      <p class="context" id="inspect-meta"></p>
+    </div>
+    <button type="button" class="icon-button" id="inspect-close" aria-label="Close">
+      <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 5l10 10M15 5 5 15"/></svg>
+    </button>
+  </div>
+
+  <p class="verdict-badge" id="inspect-verdict" hidden></p>
+
+  <ol class="pipeline" id="inspect-steps"></ol>
+
+  <p class="note" id="inspect-note">Evaluated now against the current lists, not
+  replayed from the log.</p>
+
+  <div class="sheet-actions">
+    <button type="button" class="primary" id="inspect-allow" hidden>Allow this domain</button>
+    <button type="button" class="secondary" id="inspect-copy">Copy trace</button>
+  </div>
+</dialog>
+
+<dialog id="command" class="commandbar" aria-labelledby="command-title">
+  <form id="command-form" novalidate>
+    <svg viewBox="0 0 20 20" aria-hidden="true">
+      <circle cx="8.5" cy="8.5" r="5.5"/>
+      <path d="M12.6 12.6 17 17"/>
+    </svg>
+    <h2 id="command-title" class="sr-only">Inspect a domain</h2>
+    <input id="command-input" type="text" placeholder="Inspect a domain…"
+           autocomplete="off" spellcheck="false" aria-labelledby="command-title">
+    <kbd>Esc</kbd>
+  </form>
+</dialog>
+
 <script src="/app.js"></script>
 </body>
 </html>

@@ -433,6 +433,7 @@
       type,
       client: client.name,
       blocked: verdict.blocked,
+      source: verdict.blocked ? "blocked" : cached ? "cache" : "upstream",
       rcode,
       ms,
       why: [],
@@ -795,6 +796,12 @@
         padded: Math.round(sum.misses * 0.997),
         case_randomized: Math.round(sum.misses * 0.999),
         cookies: Math.round(sum.misses * 0.998),
+        enabled: {
+          ecs: true,
+          padding: true,
+          case_randomization: true,
+          cookies: true,
+        },
       },
       dnssec: {
         enabled: true,
@@ -815,6 +822,10 @@
         { name: "typosquat", label: "Typosquatting", action: "off", found: 0 },
         { name: "nrd", label: "Newly registered", action: "off", found: 0 },
       ],
+      latency: {
+        p50_ms: 0.3 + 0.2 * Math.abs(Math.sin(nowSec() / 700)),
+        p95_ms: 24 + 9 * Math.abs(Math.sin(nowSec() / 1100)),
+      },
       queries: Math.round(sum.queries),
       blocked: Math.round(sum.blocked),
       block_rate: sum.queries === 0 ? 0 : sum.blocked / sum.queries,
@@ -827,6 +838,8 @@
         ok: Math.round(sum.upstreams[slot]),
         failed: slot === 1 ? 3 : 0,
         rtt_ms: upstream.rtt + 2.5 * Math.sin(nowSec() / 900 + slot),
+        p50_ms: upstream.rtt + 1.5 * Math.sin(nowSec() / 1300 + slot),
+        p95_ms: upstream.rtt + 16 + 6 * Math.abs(Math.sin(nowSec() / 800 + slot)),
         down: false,
       })),
     };
@@ -910,6 +923,7 @@
       type: event.type,
       client: event.client,
       blocked: event.blocked,
+      source: event.source,
       rcode: event.rcode,
       why: event.why,
       ms: event.ms,
@@ -921,6 +935,8 @@
     return {
       at: clockTime(event.sec),
       blocked: event.blocked,
+      type: event.type,
+      source: event.source,
       rcode: event.rcode,
       ms: event.ms,
       name: event.name,
@@ -1063,6 +1079,44 @@
       console.warn("demo: " + path + " konnte nicht beantwortet werden", error);
     }
 
+    if (method === "GET" && path === EVENTS_PATH) {
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream({
+        start(controller) {
+          let second = 0;
+          let sent = 0;
+          const timer = setInterval(() => {
+            const sec = nowSec();
+            if (sec !== second) {
+              second = sec;
+              sent = 0;
+            }
+            const queue = eventsInSecond(sec);
+            if (sent < queue.length) {
+              const data = JSON.stringify(streamEvent(queue[sent]));
+              controller.enqueue(encoder.encode(`data: ${data}\n\n`));
+              sent += 1;
+            }
+          }, 250);
+          const stop = () => {
+            clearInterval(timer);
+            try {
+              controller.close();
+            } catch {
+              /* already closed */
+            }
+          };
+          (init && init.signal)?.addEventListener("abort", stop);
+        },
+      });
+      return Promise.resolve(
+        new Response(stream, {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        }),
+      );
+    }
+
     if (data === null) {
       // Ein 200 mit {} wäre schlimmer als ein 404: die nächste Fassung von
       // app.js stürbe an `.map` von undefined statt an einer leeren Fläche.
@@ -1147,11 +1201,11 @@
     "your browser: there is no server behind it and no DNS query was made.";
 
   function addNotice() {
-    const mark = document.querySelector(".masthead-inner .mark");
+    const mark = document.querySelector(".topbar-inner .mark");
     if (!mark) return;
     const style = document.createElement("style");
     style.textContent =
-      ".demo-pill{font-size:var(--t-micro);text-transform:uppercase;" +
+      ".demo-pill{font-size:var(--t-micro);" +
       "letter-spacing:0.08em;color:var(--faint);border:1px solid var(--hairline);" +
       "border-radius:var(--radius);padding:var(--s-4) var(--s-8);" +
       "white-space:nowrap;cursor:help}";
