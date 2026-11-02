@@ -68,6 +68,14 @@ mod tests {
         body.to_owned()
     }
 
+    fn js_function(name: &str) -> String {
+        let needle = format!("function {name}(");
+        let start = SCRIPT.find(&needle).expect("Funktion fehlt");
+        let rest = &SCRIPT[start..];
+        let end = rest.find("\n}").expect("kein Ende");
+        rest[..end].to_owned()
+    }
+
     fn selectors_using(needle: &str) -> Vec<String> {
         let mut selectors = Vec::new();
         for (index, _) in STYLE.match_indices(needle) {
@@ -530,20 +538,24 @@ mod tests {
     }
 
     #[test]
-    fn upstream_rows_show_status_share_and_average() {
+    fn upstream_rows_show_percentiles_and_sample_count() {
         assert!(SCRIPT.contains("up-dot"), "kein Status");
         assert!(SCRIPT.contains("up-bar"), "kein Anteil");
         assert!(
             SCRIPT.contains("computeShares"),
             "der Anteil wird nicht gerechnet"
         );
+        assert!(SCRIPT.contains("upstream.p50_ms"), "kein Median");
+        assert!(SCRIPT.contains("upstream.p95_ms"), "kein p95");
+        assert!(SCRIPT.contains("upstream.samples"), "keine Messwertzahl");
+        assert!(SCRIPT.contains("no queries yet"), "kein Leerzustand");
         assert!(
-            SCRIPT.contains("upstream.rtt_ms"),
-            "keine Durchschnittslatenz"
+            INDEX.contains("p50 / p95 · last 256"),
+            "die Spalte ist nicht benannt"
         );
         assert!(
-            !SCRIPT.contains("upstream.p50_ms"),
-            "die Anzeige greift wieder auf Perzentile zurück"
+            !SCRIPT.contains("avg ${msText"),
+            "die Anzeige ist wieder ein Mittelwert"
         );
     }
 
@@ -620,10 +632,7 @@ mod tests {
 
     #[test]
     fn the_sparkline_has_a_baseline_and_a_fixed_window() {
-        assert!(
-            SCRIPT.contains("const SPARK_BUCKET = 10;"),
-            "kein 10-s-Eimer"
-        );
+        assert!(SCRIPT.contains("const SPARK_BUCKET = 2;"), "kein 2-s-Eimer");
         assert!(
             SCRIPT.contains("new Array(SPARK_SECONDS).fill(0)"),
             "ohne Daten steht keine Grundlinie"
@@ -635,6 +644,19 @@ mod tests {
         assert!(
             SCRIPT.contains("240 / (points.length - 1)"),
             "die Linie füllt die Zelle nicht"
+        );
+        assert!(
+            SCRIPT.contains("function polylinePath"),
+            "keine gerade Linie"
+        );
+        assert!(SCRIPT.contains("function sparkRange"), "keine Spanne");
+        assert!(
+            !SCRIPT.contains("drawSpark(\"blocked\", 100)"),
+            "die Prozentkurven skalieren wieder von 0"
+        );
+        assert!(
+            rule(".spark").contains("height: 36px"),
+            "die Sparkline ist nicht 36 px hoch"
         );
         assert!(
             !rule(".spark").contains("border-top"),
@@ -659,19 +681,43 @@ mod tests {
     }
 
     #[test]
-    fn the_side_column_shows_that_more_follows() {
+    fn the_side_column_scrolls_all_panels() {
         assert!(
-            INDEX.contains("id=\"side-more\""),
-            "kein Hinweis auf mehr Inhalt"
+            rule(".side").contains("overflow-y: auto"),
+            "die Seitenspalte rollt nicht"
         );
-        assert!(SCRIPT.contains("function updateSideHint"));
+        for id in [
+            "h-day",
+            "h-up",
+            "h-privacy",
+            "h-reasons",
+            "h-flagged",
+            "h-top",
+        ] {
+            assert!(
+                INDEX.contains(&format!("aria-labelledby=\"{id}\"")),
+                "{id} fehlt"
+            );
+        }
+        assert!(!INDEX.contains("side-more"), "der Chevron ist zurück");
         assert!(
-            SCRIPT.contains("scrollHeight - side.scrollTop - side.clientHeight"),
-            "der Hinweis hängt nicht am Überlauf"
+            !SCRIPT.contains("fitSide"),
+            "die Spalte wird wieder eingepasst"
         );
+    }
+
+    #[test]
+    fn blocked_rows_show_no_source_label() {
+        let body = js_function("paintMs");
+        let blocked = body
+            .find("if (event.blocked)")
+            .expect("die Blocked-Prüfung fehlt");
+        let local = body
+            .find("event.source === \"local\"")
+            .expect("der local-Zweig fehlt");
         assert!(
-            rule(".side-panel").contains("scroll-snap-align: start"),
-            "die Panels rasten nicht ein"
+            blocked < local,
+            "eine geblockte Zeile fällt in den local-Zweig"
         );
     }
 
@@ -721,10 +767,10 @@ mod tests {
     fn every_empty_area_explains_itself() {
         assert_eq!(
             INDEX.matches("class=\"empty\"").count(),
-            4,
+            5,
             "nicht jede leere Fläche erklärt sich"
         );
-        assert_eq!(INDEX.matches("class=\"empty-icon\"").count(), 4);
+        assert_eq!(INDEX.matches("class=\"empty-icon\"").count(), 5);
     }
 
     #[test]

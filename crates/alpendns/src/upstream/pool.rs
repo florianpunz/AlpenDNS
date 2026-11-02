@@ -10,6 +10,7 @@
 //! Signal — ein Resolver, der alle 30 Sekunden angepingt wird, weiß, dass hier
 //! jemand wohnt, auch wenn gerade niemand surft.
 
+use std::collections::VecDeque;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
@@ -19,7 +20,6 @@ use hickory_proto::rr::Name;
 
 use crate::clock::Clock;
 use crate::config::Strategy;
-use crate::latency::Histogram;
 use crate::resolve::{ResolveBackend, ResolveError};
 use crate::trace::{Ctx, Step};
 
@@ -38,13 +38,73 @@ const DOWN_DURATION: Duration = Duration::from_secs(30);
 /// Gewicht der neuesten Messung im gleitenden Mittel der Antwortzeit.
 const EWMA_ALPHA: f64 = 0.25;
 
+/// So viele Antwortzeiten werden je Upstream behalten.
+const LATENCY_SAMPLES: usize = 256;
+
+/// Ein Fenster der letzten Antwortzeiten.
+///
+/// Ein Ring statt eines Histogramms: die Anzeige nennt „last 256", und ein
+/// Histogramm über alles seit dem Start wäre eine andere Aussage. 256 Werte je
+/// Upstream sind wenige Kilobyte; gelesen und sortiert wird nur beim Abruf der
+/// Statistik, nicht im Anfragepfad.
+#[derive(Debug, Default)]
+struct Latency {
+    values: Mutex<VecDeque<u32>>,
+}
+
+impl Latency {
+    const fn new() -> Self {
+        Self {
+            values: Mutex::new(VecDeque::new()),
+        }
+    }
+
+    fn observe(&self, rtt: Duration) {
+        let micros = u32::try_from(rtt.as_micros()).unwrap_or(u32::MAX);
+        let mut values = self
+            .values
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if values.len() == LATENCY_SAMPLES {
+            values.pop_front();
+        }
+        values.push_back(micros);
+    }
+
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "höchstens 256 Werte, der Rang liegt dazwischen"
+    )]
+    fn percentiles(&self) -> (usize, Option<Duration>, Option<Duration>) {
+        let values = self
+            .values
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut sorted: Vec<u32> = values.iter().copied().collect();
+        let count = sorted.len();
+        if count == 0 {
+            return (0, None, None);
+        }
+        sorted.sort_unstable();
+        let pick = |share: f64| {
+            let count = f64::from(u32::try_from(count).unwrap_or(u32::MAX));
+            let rank = ((count - 1.0) * share).round() as usize;
+            sorted
+                .get(rank)
+                .map(|micros| Duration::from_micros(u64::from(*micros)))
+        };
+        (count, pick(0.5), pick(0.95))
+    }
+}
+
 /// Zustand eines Upstreams, wie ihn die bisherigen Anfragen zeigen.
 #[derive(Debug, Default)]
 struct Health {
     /// Gleitendes Mittel der Antwortzeit in Mikrosekunden. 0 = noch nie gemessen.
     ewma_micros: AtomicU64,
-    /// Alle Antwortzeiten dieses Upstreams, als Summen je Eimer.
-    latency: Histogram,
+    /// Die letzten Antwortzeiten dieses Upstreams.
+    latency: Latency,
     consecutive_failures: AtomicU32,
     /// Bis wann dieser Upstream übersprungen wird.
     down_until: Mutex<Option<Instant>>,
@@ -72,7 +132,7 @@ impl<B> Upstream<B> {
             backend,
             health: Health {
                 ewma_micros: AtomicU64::new(0),
-                latency: Histogram::new(),
+                latency: Latency::new(),
                 consecutive_failures: AtomicU32::new(0),
                 down_until: Mutex::new(None),
                 successes: AtomicU64::new(0),
@@ -92,9 +152,11 @@ pub struct UpstreamStats {
     pub failures: u64,
     /// Gleitendes Mittel der Antwortzeit, sofern schon einmal gemessen.
     pub rtt: Option<Duration>,
-    /// Median und 95-%-Wert der Antwortzeiten dieses Upstreams.
+    /// Median und 95-%-Wert der letzten [`LATENCY_SAMPLES`] Antwortzeiten.
     pub p50: Option<Duration>,
     pub p95: Option<Duration>,
+    /// Wie viele Messwerte dafür vorliegen.
+    pub samples: usize,
     /// Ob dieser Upstream gerade übersprungen wird.
     pub down: bool,
 }
@@ -190,15 +252,16 @@ impl<B: ResolveBackend, C: Clock> Pool<B, C> {
             .iter()
             .map(|upstream| {
                 let micros = upstream.health.ewma_micros.load(Ordering::Relaxed);
-                let percentiles = upstream.health.latency.percentiles();
+                let (samples, p50, p95) = upstream.health.latency.percentiles();
                 UpstreamStats {
                     name: upstream.name.clone(),
                     scheme: upstream.scheme,
                     successes: upstream.health.successes.load(Ordering::Relaxed),
                     failures: upstream.health.failures.load(Ordering::Relaxed),
                     rtt: (micros > 0).then(|| Duration::from_micros(micros)),
-                    p50: percentiles.map(|value| value.p50),
-                    p95: percentiles.map(|value| value.p95),
+                    p50,
+                    p95,
+                    samples,
                     down: is_down(&upstream.health, now),
                 }
             })
@@ -853,11 +916,13 @@ mod tests {
         let alive = Fake::new(0);
         let clock = Arc::new(TestClock::new());
         let pool = pool_of(&[Arc::clone(&alive)], clock, 0x5eed);
+        let before = pool.stats();
         assert_eq!(
-            pool.stats().first().expect("Statistik").p50,
-            None,
+            before.first().expect("Statistik").samples,
+            0,
             "vor der ersten Antwort gibt es keinen Wert"
         );
+        assert_eq!(before.first().expect("Statistik").p50, None);
 
         for _ in 0..3 {
             pool.resolve(&question("example.com."), &mut ctx())
@@ -867,6 +932,7 @@ mod tests {
 
         let stats = pool.stats();
         let first = stats.first().expect("Statistik");
+        assert_eq!(first.samples, 3, "das Fenster zählt nicht mit");
         assert!(first.p50.is_some(), "kein Median: {stats:?}");
         assert!(first.p95.is_some(), "kein p95: {stats:?}");
         assert!(first.p50 <= first.p95, "p50 über p95: {stats:?}");

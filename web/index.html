@@ -197,8 +197,7 @@
         <p class="log-foot" id="log-foot">Select a domain to see why it was answered that way.</p>
       </section>
 
-      <aside class="rail">
-      <div class="side" id="side">
+      <aside class="side" id="side">
 
         <section class="panel side-panel" aria-labelledby="h-day">
           <div class="panel-head">
@@ -235,6 +234,7 @@
             <p class="note" id="up-note"></p>
           </div>
           <div class="panel-body">
+            <p class="up-columns"><span>Upstream</span><span>p50 / p95 · last 256</span></p>
             <ul class="upstreams" id="upstreams" aria-labelledby="h-up"></ul>
           </div>
         </section>
@@ -330,11 +330,21 @@
           </div>
         </section>
 
-      </div>
-      <button type="button" class="side-more" id="side-more"
-              aria-label="Show more panels" hidden>
-        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 7.5 10 13.5 16 7.5"/></svg>
-      </button>
+        <section class="panel side-panel" aria-labelledby="h-top">
+          <div class="panel-head">
+            <h2 id="h-top">Top names</h2>
+          </div>
+          <div class="panel-body">
+            <ol class="top" id="top" aria-labelledby="h-top"></ol>
+            <div class="empty" id="top-empty">
+              <svg class="empty-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M8 6h11M8 12h11M8 18h11M4 6h.01M4 12h.01M4 18h.01"/>
+              </svg>
+              <p id="top-note">No name seen often enough yet.</p>
+            </div>
+          </div>
+        </section>
+
       </aside>
     </div>
 

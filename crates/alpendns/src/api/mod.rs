@@ -356,6 +356,8 @@ struct UpstreamInfo {
     rtt_ms: Option<f64>,
     p50_ms: Option<f64>,
     p95_ms: Option<f64>,
+    /// Wie viele Messwerte dem p50/p95 zugrunde liegen (höchstens 256).
+    samples: usize,
     down: bool,
 }
 
@@ -447,6 +449,7 @@ async fn status(State(state): State<ApiState>) -> Json<Status> {
                 rtt_ms: upstream.rtt.map(|rtt| rtt.as_secs_f64() * 1000.0),
                 p50_ms: upstream.p50.map(|value| value.as_secs_f64() * 1000.0),
                 p95_ms: upstream.p95.map(|value| value.as_secs_f64() * 1000.0),
+                samples: upstream.samples,
                 down: upstream.down,
             })
             .collect(),

@@ -453,9 +453,15 @@
     if (temporary && temporary.until > sec) {
       const left = temporary.until - sec;
       if (temporary.kind === "deny") {
+        event.blocked = true;
+        event.source = "blocked";
+        event.rcode = "NXDOMAIN";
         steps.push(`temporary deny, ${left}s left`);
         steps.push("Answer synthesized locally, mode Nxdomain");
       } else {
+        event.blocked = false;
+        event.source = cached ? "cache" : "upstream";
+        event.rcode = "NoError";
         steps.push(`temporary allow, ${left}s left`);
         steps.push(...resolution(entry, cached, upstream, sec, k, ms));
       }
@@ -840,6 +846,7 @@
         rtt_ms: upstream.rtt + 2.5 * Math.sin(nowSec() / 900 + slot),
         p50_ms: upstream.rtt + 1.5 * Math.sin(nowSec() / 1300 + slot),
         p95_ms: upstream.rtt + 16 + 6 * Math.abs(Math.sin(nowSec() / 800 + slot)),
+        samples: Math.min(256, Math.round(sum.upstreams[slot])),
         down: false,
       })),
     };

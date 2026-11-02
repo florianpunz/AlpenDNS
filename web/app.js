@@ -6,8 +6,9 @@ const POLL_MS = 5000;
 const HISTORY_MS = 60000;
 const MAX_ROWS = 200;
 const SPARK_SECONDS = 60;
-const SPARK_BUCKET = 10;
+const SPARK_BUCKET = 2;
 const MS_WARN = 250;
+const MIN_SAMPLES = 20;
 const ERROR_RCODES = new Set(["SERVFAIL", "REFUSED", "FORMERR", "NOTIMP"]);
 
 let token = localStorage.getItem(TOKEN_KEY) || "";
@@ -184,19 +185,47 @@ function bucketSamples(values) {
   return points;
 }
 
-function drawSpark(name, ceiling) {
+function sparkRange(points) {
+  let low = Math.min(...points);
+  let high = Math.max(...points);
+  const mean = points.reduce((sum, value) => sum + value, 0) / points.length;
+  const floor = Math.abs(mean) * 0.2;
+  if (high - low < floor) {
+    const middle = (high + low) / 2;
+    low = middle - floor / 2;
+    high = middle + floor / 2;
+  }
+  return { low, high };
+}
+
+function polylinePath(values, low, high, step, base, span) {
+  const range = high - low;
+  return values
+    .map((value, index) => {
+      const x = (index * step).toFixed(1);
+      const y = (base - ((value - low) / range) * span).toFixed(1);
+      return `${index === 0 ? "M" : "L"}${x} ${y}`;
+    })
+    .join("");
+}
+
+function drawSpark(name) {
   const points = bucketSamples(series[name]);
-  const peak = ceiling ?? Math.max(1, ...points);
+  const { low, high } = sparkRange(points);
+  if (high === low) {
+    setPath(`s-${name}`, "M0 33L240 33");
+    return;
+  }
   setPath(
     `s-${name}`,
-    linePath(points, peak, 240 / (points.length - 1), 34, 28),
+    polylinePath(points, low, high, 240 / (points.length - 1), 33, 29),
   );
 }
 
 function drawAllSparks() {
   drawSpark("queries");
-  drawSpark("blocked", 100);
-  drawSpark("cache", 100);
+  drawSpark("blocked");
+  drawSpark("cache");
   drawSpark("latency");
 }
 
@@ -265,7 +294,6 @@ function renderStatus(next) {
   renderReasons(next.block_reasons ?? []);
   renderFooter(next);
   syncEmptyStates();
-  fitSide();
 }
 
 function renderUpstreams(next) {
@@ -287,11 +315,18 @@ function renderUpstreams(next) {
     name.append(transport);
 
     const latency = span("up-latency");
-    if (upstream.rtt_ms === null || upstream.rtt_ms === undefined) {
-      latency.textContent = "–";
+    if (upstream.samples === 0) {
+      latency.textContent = "no queries yet";
+    } else if (
+      upstream.samples < MIN_SAMPLES ||
+      upstream.p50_ms === null ||
+      upstream.p95_ms === null
+    ) {
+      latency.textContent = `${upstream.samples} samples`;
     } else {
-      latency.textContent = `avg ${msText(upstream.rtt_ms)} ms`;
-      if (upstream.rtt_ms >= MS_WARN) latency.classList.add("is-warn");
+      latency.textContent =
+        `${msText(upstream.p50_ms)} / ${msText(upstream.p95_ms)} ms`;
+      if (upstream.p95_ms >= MS_WARN) latency.classList.add("is-warn");
     }
 
     const bar = span("up-bar");
@@ -456,7 +491,6 @@ async function refreshHistory() {
   computeShares(view);
   drawDay(view);
   if (status) renderUpstreams(status);
-  fitSide();
 }
 
 async function refreshLists() {
@@ -651,50 +685,6 @@ function addRow(event) {
     flushScheduled = true;
     requestAnimationFrame(flushRows);
   }
-}
-
-function updateSideHint() {
-  const side = $("side");
-  const more = side.scrollHeight - side.scrollTop - side.clientHeight > 4;
-  $("side-more").hidden = !more;
-}
-
-function fitSide() {
-  const side = $("side");
-  if (matchMedia("(max-width: 1000px)").matches) {
-    side.style.height = "";
-    $("side-more").hidden = true;
-    return;
-  }
-  const available = side.parentElement.clientHeight;
-  let height = 0;
-  for (const panel of side.querySelectorAll(".side-panel")) {
-    const bottom = panel.offsetTop + panel.offsetHeight;
-    if (bottom <= available + 0.5) height = bottom;
-  }
-  side.style.height = height > 0 ? `${height + 1}px` : "";
-
-  const more = $("side-more");
-  if (height > 0 && available - height >= 52) {
-    more.style.top = `${height + 8}px`;
-    more.style.bottom = "auto";
-  } else {
-    more.style.top = "";
-    more.style.bottom = "";
-  }
-  updateSideHint();
-}
-
-function showMorePanels() {
-  const side = $("side");
-  const view = side.getBoundingClientRect();
-  const next = [...side.querySelectorAll(".side-panel")].find((panel) => {
-    const box = panel.getBoundingClientRect();
-    return box.top >= view.top - 1 && box.bottom > view.bottom + 1;
-  });
-  if (!next) return;
-  const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
-  next.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "start" });
 }
 
 function syncEmptyStates() {
@@ -910,6 +900,29 @@ function loadRecent(recent) {
   syncEmptyStates();
 }
 
+async function refreshTop() {
+  const report = await api("/api/top?limit=8");
+  const list = $("top");
+  list.replaceChildren();
+
+  for (const entry of report.domains ?? []) {
+    const item = document.createElement("li");
+    if (entry.blocked) item.classList.add("is-blocked");
+    const name = span("top-name");
+    name.textContent = entry.name;
+    const count = span("top-count");
+    count.textContent = thousands(entry.count);
+    item.append(name, count);
+    list.append(item);
+  }
+
+  $("top-empty").hidden = list.childElementCount > 0;
+  $("top-note").textContent =
+    quietMode === "none"
+      ? "Mode 'none': the server keeps no names."
+      : "No name seen often enough yet.";
+}
+
 async function refreshFlagged() {
   const found = await api("/api/flagged?limit=25");
   const list = $("flagged");
@@ -929,7 +942,6 @@ async function refreshFlagged() {
     ? `mode '${quietMode}': the server keeps no names, so nothing can appear here.`
     : "No heuristic has flagged anything.";
   syncEmptyStates();
-  fitSide();
 }
 
 function flaggedRow(entry, finding) {
@@ -1072,8 +1084,8 @@ async function start() {
     refreshHistory(),
     refreshFlagged(),
     refreshLists(),
+    refreshTop(),
   ]);
-  fitSide();
 
   if (started) return;
   started = true;
@@ -1093,6 +1105,7 @@ async function start() {
     try {
       await refreshStatus();
       await refreshFlagged();
+      await refreshTop();
     } catch {
       setReachable(false);
     }
@@ -1165,10 +1178,6 @@ $("bogus-review").addEventListener("click", () => {
 });
 
 $("command-open").addEventListener("click", openCommand);
-
-$("side").addEventListener("scroll", updateSideHint);
-$("side-more").addEventListener("click", showMorePanels);
-window.addEventListener("resize", fitSide);
 
 document.addEventListener("keydown", (event) => {
   if (event.key !== "/" || isTyping(event.target) || $("inspector").open) return;

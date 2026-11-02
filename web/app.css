@@ -452,7 +452,7 @@ svg {
 
 .spark {
   width: 100%;
-  height: 38px;
+  height: 36px;
   margin-top: var(--s-8);
   overflow: visible;
 }
@@ -795,56 +795,13 @@ svg {
   stroke-linejoin: round;
 }
 
-.rail {
-  position: relative;
-  min-height: 0;
-}
-
 .side {
-  position: relative;
   display: flex;
   flex-direction: column;
   gap: var(--s-16);
-  height: 100%;
   min-height: 0;
-  padding-bottom: var(--s-24);
+  padding-bottom: var(--s-16);
   overflow-y: auto;
-  scroll-snap-type: y proximity;
-}
-
-.side-panel {
-  scroll-snap-align: start;
-}
-
-.side-more {
-  position: absolute;
-  left: 50%;
-  bottom: var(--s-8);
-  z-index: 3;
-  display: grid;
-  place-items: center;
-  width: 44px;
-  height: 44px;
-  border: 1px solid var(--hairline);
-  border-radius: 50%;
-  background: var(--surface);
-  box-shadow: var(--shadow);
-  color: var(--muted);
-  transform: translateX(-50%);
-}
-
-.side-more:hover {
-  color: var(--text);
-}
-
-.side-more svg {
-  width: 16px;
-  height: 16px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.8;
-  stroke-linecap: round;
-  stroke-linejoin: round;
 }
 
 .side-panel .panel-head {
@@ -909,6 +866,15 @@ svg {
 
 .line-blocked {
   stroke: var(--danger);
+}
+
+.up-columns {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--s-8);
+  margin-bottom: var(--s-8);
+  color: var(--faint);
+  font-size: var(--t-micro);
 }
 
 .upstreams {
@@ -1095,6 +1061,37 @@ svg {
 
 .legend .count {
   color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.top {
+  display: grid;
+  gap: 7px;
+}
+
+.top li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: var(--s-8);
+  font-size: var(--t-small);
+}
+
+.top-name {
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.top li.is-blocked .top-name {
+  color: var(--danger);
+}
+
+.top-count {
+  color: var(--faint);
+  font-size: var(--t-micro);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1527,13 +1524,8 @@ svg {
   }
 
   .side {
-    height: auto;
     overflow: visible;
     padding-bottom: 0;
-  }
-
-  .side-more {
-    display: none !important;
   }
 
   .metrics {

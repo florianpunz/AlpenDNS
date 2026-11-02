@@ -318,6 +318,7 @@ impl StatusSource for Fake {
                 rtt: Some(Duration::from_millis(34)),
                 p50: Some(Duration::from_millis(31)),
                 p95: Some(Duration::from_millis(58)),
+                samples: 1,
                 down: false,
             }],
             uptime: Duration::from_secs(42),
@@ -615,6 +616,7 @@ async fn the_status_endpoint_reports_latency_and_privacy_switches() {
     let upstream = &body["upstreams"][0];
     assert_eq!(upstream["p50_ms"], 31.0);
     assert_eq!(upstream["p95_ms"], 58.0);
+    assert_eq!(upstream["samples"], 1);
 
     for switch in ["ecs", "padding", "case_randomization", "cookies"] {
         assert!(

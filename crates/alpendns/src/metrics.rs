@@ -586,6 +586,7 @@ mod tests {
                 rtt: Some(Duration::from_millis(34)),
                 p50: Some(Duration::from_millis(31)),
                 p95: Some(Duration::from_millis(58)),
+                samples: 6,
                 down: false,
             }],
             uptime: Duration::from_secs(3600),
@@ -795,6 +796,7 @@ mod tests {
             rtt: None,
             p50: None,
             p95: None,
+            samples: 0,
             down: false,
         }];
         let text = render(&snapshot);
