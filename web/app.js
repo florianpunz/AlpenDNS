@@ -193,6 +193,13 @@ function drawSpark(name, ceiling) {
   );
 }
 
+function drawAllSparks() {
+  drawSpark("queries");
+  drawSpark("blocked", 100);
+  drawSpark("cache", 100);
+  drawSpark("latency");
+}
+
 function tickSparks() {
   if (document.hidden) return;
   const queries = bucket.queries;
@@ -202,10 +209,7 @@ function tickSparks() {
   pushSample("latency", queries ? bucket.ms / queries : 0);
   bucket = { queries: 0, blocked: 0, cache: 0, ms: 0 };
 
-  drawSpark("queries");
-  drawSpark("blocked", 100);
-  drawSpark("cache", 100);
-  drawSpark("latency");
+  drawAllSparks();
 }
 
 function setReachable(reachable) {
@@ -1230,6 +1234,8 @@ $("inspect-allow").addEventListener("click", async () => {
     button.disabled = false;
   }
 });
+
+drawAllSparks();
 
 start().catch(() => {
   $("login").hidden = false;
