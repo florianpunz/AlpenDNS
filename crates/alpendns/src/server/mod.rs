@@ -19,7 +19,7 @@ use tokio_util::task::TaskTracker;
 
 use crate::config::ServerConfig;
 use crate::dns;
-use crate::logging::{BlockReason, QueryEvent, QueryLog};
+use crate::logging::{AnswerSource, BlockReason, QueryEvent, QueryLog};
 use crate::ratelimit::RateLimiter;
 use crate::resolve::ResolveBackend;
 use crate::trace::{Ctx, Step};
@@ -255,6 +255,7 @@ fn build_event(request: &Message, response: &Message, ctx: &Ctx) -> QueryEvent {
         blocked,
         // Der Grund kommt aus dem Trace, nicht aus einer zweiten Buchführung.
         reason: blocked.then(|| BlockReason::from_steps(steps)),
+        source: AnswerSource::from_steps(steps),
         rcode: response.metadata.response_code,
         why: steps.iter().map(ToString::to_string).collect(),
         elapsed: ctx.elapsed(),

@@ -268,12 +268,15 @@ struct Status {
     persists_to_disk: bool,
     /// Geblockte Anfragen je Grund.
     block_reasons: Vec<ReasonInfo>,
-    /// Wie oft die Privacy-Mechanismen gegriffen haben.
+    /// Wie oft die Privacy-Mechanismen gegriffen haben — und ob sie überhaupt
+    /// eingeschaltet sind. Ein Zähler von null allein sagt das nicht.
     privacy: PrivacyInfo,
     /// Was die eigene DNSSEC-Prüfung ergeben hat.
     dnssec: DnssecInfo,
     /// Die Heuristiken: was eingestellt ist und was sie gefunden haben.
     detectors: Vec<DetectorInfo>,
+    /// Median und 95-%-Wert der Antwortzeiten seit dem Start.
+    latency: LatencyInfo,
     queries: u64,
     blocked: u64,
     block_rate: f64,
@@ -295,6 +298,27 @@ struct PrivacyInfo {
     padded: u64,
     case_randomized: u64,
     cookies: u64,
+    enabled: PrivacySwitches,
+}
+
+/// Die Schalter aus `[privacy]`.
+///
+/// `case_randomization` heißt "konfiguriert ein", nicht "wirkt gerade": 0x20
+/// gilt je Pool und schaltet sich bei Fehlern selbst ab. Was tatsächlich
+/// geschieht, steht im Zähler daneben.
+#[derive(Debug, Serialize)]
+struct PrivacySwitches {
+    ecs: bool,
+    padding: bool,
+    case_randomization: bool,
+    cookies: bool,
+}
+
+/// Antwortzeiten als Millisekunden. `null`, solange nichts gemessen wurde.
+#[derive(Debug, Serialize)]
+struct LatencyInfo {
+    p50_ms: Option<f64>,
+    p95_ms: Option<f64>,
 }
 
 /// Die eigene Signaturprüfung, für den Privacy-Streifen im Kopf der UI.
@@ -330,6 +354,8 @@ struct UpstreamInfo {
     ok: u64,
     failed: u64,
     rtt_ms: Option<f64>,
+    p50_ms: Option<f64>,
+    p95_ms: Option<f64>,
     down: bool,
 }
 
@@ -362,6 +388,20 @@ async fn status(State(state): State<ApiState>) -> Json<Status> {
             padded: snapshot.privacy.padded,
             case_randomized: snapshot.privacy.randomized,
             cookies: snapshot.privacy.cookies,
+            enabled: PrivacySwitches {
+                ecs: snapshot.privacy_settings.strip_ecs,
+                padding: snapshot.privacy_settings.padding,
+                case_randomization: snapshot.privacy_settings.dns0x20,
+                cookies: snapshot.privacy_settings.cookies,
+            },
+        },
+        latency: LatencyInfo {
+            p50_ms: snapshot
+                .latency
+                .map(|value| value.p50.as_secs_f64() * 1000.0),
+            p95_ms: snapshot
+                .latency
+                .map(|value| value.p95.as_secs_f64() * 1000.0),
         },
         dnssec: DnssecInfo {
             enabled: snapshot.dnssec_enabled,
@@ -405,6 +445,8 @@ async fn status(State(state): State<ApiState>) -> Json<Status> {
                 ok: upstream.successes,
                 failed: upstream.failures,
                 rtt_ms: upstream.rtt.map(|rtt| rtt.as_secs_f64() * 1000.0),
+                p50_ms: upstream.p50.map(|value| value.as_secs_f64() * 1000.0),
+                p95_ms: upstream.p95.map(|value| value.as_secs_f64() * 1000.0),
                 down: upstream.down,
             })
             .collect(),

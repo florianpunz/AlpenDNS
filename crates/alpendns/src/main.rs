@@ -511,6 +511,7 @@ fn run() -> anyhow::Result<()> {
             blocking_mode: blocking_config.mode,
             seed_rotation,
             dnssec: privacy.dnssec,
+            privacy,
             started: std::time::Instant::now(),
             history: Arc::clone(&history),
             client_addrs: client_addrs.clone(),
@@ -792,6 +793,8 @@ struct Runtime {
     seed_rotation: Duration,
     /// Ob die Signaturkette selbst nachgerechnet wird.
     dnssec: bool,
+    /// Was in `[privacy]` eingestellt ist, für die Anzeige an/aus.
+    privacy: privacy::Settings,
     started: std::time::Instant,
     /// Die Zeitreihe der letzten 24 Stunden. Hinter einem Mutex, aber außerhalb
     /// des Anfragepfads: hier schreibt nur der Sampler alle 30 Sekunden.
@@ -809,6 +812,7 @@ impl StatusSource for Runtime {
     fn snapshot(&self) -> alpendns::metrics::Snapshot {
         alpendns::metrics::Snapshot {
             log: self.log.stats(),
+            latency: self.log.latency(),
             cache: self.cache.stats(),
             cache_entries: self.cache.len(),
             policy: self.engine.stats(),
@@ -824,6 +828,7 @@ impl StatusSource for Runtime {
                 })
                 .collect(),
             privacy: alpendns::privacy::counters(),
+            privacy_settings: self.privacy,
             aggregate_k: self.log.aggregate_k(),
             zone_seed_rotation: self.seed_rotation,
             zone_seed_rotations: self.pool.rotations(),

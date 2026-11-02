@@ -29,6 +29,7 @@ use serde::Deserialize;
 use counts::Counts;
 use ring::Ring;
 
+use crate::latency::{Histogram, Percentiles};
 use crate::trace::Step;
 
 /// Wie viel eine Anfrage hinterlässt.
@@ -188,6 +189,44 @@ impl BlockReason {
     }
 }
 
+/// Woher die Antwort kam, so weit der Trace es sagt.
+///
+/// Abgeleitet aus dem Trace wie [`BlockReason`], nicht getrennt mitgeführt.
+/// Die Anzeige braucht die Herkunft, um bei einem Cache-Treffer nicht "0.0 ms"
+/// zu schreiben — eine Null, die wie eine sehr gute Messung aussieht.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AnswerSource {
+    Cache,
+    Local,
+    Upstream,
+    Blocked,
+    /// Dieselbe Frage scheiterte kurz zuvor; der Upstream wurde nicht gefragt.
+    Failed,
+    /// Kein Schritt im Trace sagt, wie geantwortet wurde.
+    Unknown,
+}
+
+impl AnswerSource {
+    /// Der letzte einschlägige Schritt gewinnt: die Kette wird von außen nach
+    /// innen aufgebaut, und was zuletzt eingetragen wurde, hat die Antwort
+    /// tatsächlich herbeigeführt.
+    pub fn from_steps(steps: &[Step]) -> Self {
+        steps
+            .iter()
+            .rev()
+            .find_map(|step| match step {
+                Step::CacheHit { .. } => Some(Self::Cache),
+                Step::LocalAnswer { .. } => Some(Self::Local),
+                Step::UpstreamUsed { .. } => Some(Self::Upstream),
+                Step::Synthesized { .. } => Some(Self::Blocked),
+                Step::FailureCached => Some(Self::Failed),
+                _ => None,
+            })
+            .unwrap_or(Self::Unknown)
+    }
+}
+
 /// Was über eine beantwortete Anfrage bekannt ist.
 #[derive(Debug, Clone)]
 pub struct QueryEvent {
@@ -197,6 +236,8 @@ pub struct QueryEvent {
     pub blocked: bool,
     /// Nur gesetzt, wenn `blocked`.
     pub reason: Option<BlockReason>,
+    /// Woher die Antwort kam.
+    pub source: AnswerSource,
     pub rcode: ResponseCode,
     /// Die Begründungskette, schon als Text.
     pub why: Vec<String>,
@@ -273,6 +314,9 @@ const STREAM_MAX_PER_SECOND: u32 = 25;
 pub struct StreamEvent {
     pub at: String,
     pub blocked: bool,
+    #[serde(rename = "type")]
+    pub query_type: String,
+    pub source: AnswerSource,
     pub rcode: String,
     pub ms: f64,
     /// Anfragen, die seit der letzten Nachricht ausgelassen wurden.
@@ -306,6 +350,7 @@ pub struct LoggedQuery {
     pub query_type: String,
     pub client: String,
     pub blocked: bool,
+    pub source: AnswerSource,
     pub rcode: String,
     pub why: Vec<String>,
     pub ms: f64,
@@ -370,6 +415,8 @@ pub struct QueryLog {
     mode: Mode,
     aggregate_k: u32,
     counters: Counters,
+    /// Antwortzeiten seit dem Start, als Summen je Eimer.
+    latency: Histogram,
     counts: Mutex<Counts>,
     /// Namen, die die Schwelle überschritten haben. Vorher steht ein Name
     /// **nirgends** — das ist der ganze Punkt.
@@ -416,6 +463,7 @@ impl QueryLog {
             mode: config.mode,
             aggregate_k: config.aggregate_k,
             counters: Counters::default(),
+            latency: Histogram::new(),
             counts: Mutex::new(Counts::new()),
             reportable: Mutex::new(HashMap::new()),
             ring: Mutex::new(Ring::new(config.ring_seconds)),
@@ -449,9 +497,15 @@ impl QueryLog {
         self.file.is_some()
     }
 
+    /// Median und 95-%-Wert der Antwortzeiten, oder `None` ohne Messung.
+    pub fn latency(&self) -> Option<Percentiles> {
+        self.latency.percentiles()
+    }
+
     /// Nimmt eine beantwortete Anfrage auf.
     pub fn record(&self, event: &QueryEvent) {
         self.counters.queries.fetch_add(1, Ordering::Relaxed);
+        self.latency.observe(event.elapsed);
         if event.blocked {
             self.counters.blocked.fetch_add(1, Ordering::Relaxed);
             let reason = event.reason.unwrap_or(BlockReason::Other);
@@ -507,6 +561,7 @@ impl QueryLog {
             query_type: event.query_type.clone(),
             client: event.client.to_string(),
             blocked: event.blocked,
+            source: event.source,
             rcode: format!("{:?}", event.rcode),
             why: event.why.clone(),
             ms: event.elapsed.as_secs_f64() * 1000.0,
@@ -566,6 +621,8 @@ impl QueryLog {
         let _ = self.events.send(StreamEvent {
             at: jiff::Zoned::now().strftime("%H:%M:%S").to_string(),
             blocked: event.blocked,
+            query_type: event.query_type.clone(),
+            source: event.source,
             rcode: format!("{:?}", event.rcode),
             ms: event.elapsed.as_secs_f64() * 1000.0,
             skipped,
@@ -781,6 +838,7 @@ mod tests {
             client: Arc::from("192.0.2.1"),
             blocked: false,
             reason: None,
+            source: AnswerSource::Upstream,
             rcode: ResponseCode::NoError,
             why: Vec::new(),
             elapsed: Duration::from_millis(4),
@@ -981,6 +1039,95 @@ mod tests {
             },
         ];
         assert_eq!(BlockReason::from_steps(&steps), BlockReason::Blocklist);
+    }
+
+    #[test]
+    fn the_answer_source_comes_from_the_last_matching_step() {
+        let cache = [Step::CacheHit {
+            ttl_left: 30,
+            stale: false,
+        }];
+        assert_eq!(AnswerSource::from_steps(&cache), AnswerSource::Cache);
+
+        let local = [Step::LocalAnswer {
+            zone: Arc::from("lan"),
+            records: 1,
+        }];
+        assert_eq!(AnswerSource::from_steps(&local), AnswerSource::Local);
+
+        let upstream = [Step::UpstreamUsed {
+            resolver: Arc::from("quad9"),
+            rtt: Duration::from_millis(20),
+        }];
+        assert_eq!(AnswerSource::from_steps(&upstream), AnswerSource::Upstream);
+
+        // Der letzte Schritt gewinnt: erst kam die Antwort, dann wurde sie
+        // wegen eines Fundes verworfen.
+        let blocked = [
+            Step::UpstreamUsed {
+                resolver: Arc::from("quad9"),
+                rtt: Duration::from_millis(20),
+            },
+            Step::Synthesized {
+                mode: crate::filter::block::BlockMode::Nxdomain,
+            },
+        ];
+        assert_eq!(AnswerSource::from_steps(&blocked), AnswerSource::Blocked);
+
+        let failed = [Step::FailureCached];
+        assert_eq!(AnswerSource::from_steps(&failed), AnswerSource::Failed);
+
+        let policy = [Step::PolicyApplied {
+            policy: Arc::from("default"),
+        }];
+        assert_eq!(AnswerSource::from_steps(&policy), AnswerSource::Unknown);
+    }
+
+    #[test]
+    fn the_stream_carries_type_and_source_but_no_name_in_quiet_modes() {
+        // Typ und Herkunft sind Angaben über die Art der Anfrage, nicht über
+        // ihren Namen. Sie dürfen auch dann durchgehen, wenn der Modus keine
+        // Namen behält — sonst wäre die Anzeige im Standardmodus blind.
+        let log = log();
+        let mut receiver = log.subscribe();
+        let mut event = event("beispiel.example");
+        event.query_type = "AAAA".to_owned();
+        event.source = AnswerSource::Cache;
+        log.record(&event);
+
+        let sent = receiver.try_recv().expect("Ereignis");
+        assert_eq!(sent.query_type, "AAAA");
+        assert_eq!(sent.source, AnswerSource::Cache);
+        assert!(
+            sent.name.is_none(),
+            "der Modus aggregate darf keinen Namen weitergeben"
+        );
+
+        let json = serde_json::to_string(&sent).expect("JSON");
+        assert!(json.contains("\"type\":\"AAAA\""), "{json}");
+        assert!(json.contains("\"source\":\"cache\""), "{json}");
+        assert!(!json.contains("beispiel.example"), "{json}");
+    }
+
+    #[test]
+    fn the_log_reports_latency_percentiles_without_names() {
+        let log = log();
+        assert_eq!(log.latency(), None, "ohne Messung kein Wert");
+
+        let mut fast = event("a.example");
+        fast.elapsed = Duration::from_millis(2);
+        for _ in 0..90 {
+            log.record(&fast);
+        }
+        let mut slow = event("b.example");
+        slow.elapsed = Duration::from_millis(900);
+        for _ in 0..10 {
+            log.record(&slow);
+        }
+
+        let percentiles = log.latency().expect("Messung");
+        assert!(percentiles.p50 < Duration::from_millis(3));
+        assert!(percentiles.p95 >= Duration::from_millis(900));
     }
 
     #[test]

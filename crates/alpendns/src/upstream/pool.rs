@@ -19,6 +19,7 @@ use hickory_proto::rr::Name;
 
 use crate::clock::Clock;
 use crate::config::Strategy;
+use crate::latency::Histogram;
 use crate::resolve::{ResolveBackend, ResolveError};
 use crate::trace::{Ctx, Step};
 
@@ -42,6 +43,8 @@ const EWMA_ALPHA: f64 = 0.25;
 struct Health {
     /// Gleitendes Mittel der Antwortzeit in Mikrosekunden. 0 = noch nie gemessen.
     ewma_micros: AtomicU64,
+    /// Alle Antwortzeiten dieses Upstreams, als Summen je Eimer.
+    latency: Histogram,
     consecutive_failures: AtomicU32,
     /// Bis wann dieser Upstream übersprungen wird.
     down_until: Mutex<Option<Instant>>,
@@ -69,6 +72,7 @@ impl<B> Upstream<B> {
             backend,
             health: Health {
                 ewma_micros: AtomicU64::new(0),
+                latency: Histogram::new(),
                 consecutive_failures: AtomicU32::new(0),
                 down_until: Mutex::new(None),
                 successes: AtomicU64::new(0),
@@ -88,6 +92,9 @@ pub struct UpstreamStats {
     pub failures: u64,
     /// Gleitendes Mittel der Antwortzeit, sofern schon einmal gemessen.
     pub rtt: Option<Duration>,
+    /// Median und 95-%-Wert der Antwortzeiten dieses Upstreams.
+    pub p50: Option<Duration>,
+    pub p95: Option<Duration>,
     /// Ob dieser Upstream gerade übersprungen wird.
     pub down: bool,
 }
@@ -183,12 +190,15 @@ impl<B: ResolveBackend, C: Clock> Pool<B, C> {
             .iter()
             .map(|upstream| {
                 let micros = upstream.health.ewma_micros.load(Ordering::Relaxed);
+                let percentiles = upstream.health.latency.percentiles();
                 UpstreamStats {
                     name: upstream.name.clone(),
                     scheme: upstream.scheme,
                     successes: upstream.health.successes.load(Ordering::Relaxed),
                     failures: upstream.health.failures.load(Ordering::Relaxed),
                     rtt: (micros > 0).then(|| Duration::from_micros(micros)),
+                    p50: percentiles.map(|value| value.p50),
+                    p95: percentiles.map(|value| value.p95),
                     down: is_down(&upstream.health, now),
                 }
             })
@@ -225,6 +235,7 @@ impl<B: ResolveBackend, C: Clock> Pool<B, C> {
             return;
         };
         upstream.health.successes.fetch_add(1, Ordering::Relaxed);
+        upstream.health.latency.observe(rtt);
         let was_down = upstream
             .health
             .consecutive_failures
@@ -835,6 +846,30 @@ mod tests {
             "eine unprüfbare Antwort wurde als Ausfall gezählt"
         );
         assert!(!stats.first().expect("Statistik").down);
+    }
+
+    #[tokio::test]
+    async fn the_stats_report_percentiles_per_upstream() {
+        let alive = Fake::new(0);
+        let clock = Arc::new(TestClock::new());
+        let pool = pool_of(&[Arc::clone(&alive)], clock, 0x5eed);
+        assert_eq!(
+            pool.stats().first().expect("Statistik").p50,
+            None,
+            "vor der ersten Antwort gibt es keinen Wert"
+        );
+
+        for _ in 0..3 {
+            pool.resolve(&question("example.com."), &mut ctx())
+                .await
+                .expect("Antwort");
+        }
+
+        let stats = pool.stats();
+        let first = stats.first().expect("Statistik");
+        assert!(first.p50.is_some(), "kein Median: {stats:?}");
+        assert!(first.p95.is_some(), "kein p95: {stats:?}");
+        assert!(first.p50 <= first.p95, "p50 über p95: {stats:?}");
     }
 
     #[tokio::test]

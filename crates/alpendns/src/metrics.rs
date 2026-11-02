@@ -14,9 +14,10 @@ use crate::cache::Stats as CacheStats;
 use crate::detect::{Action as DetectorAction, Detector as DetectorKind};
 use crate::dnssec::{CounterSnapshot as DnssecCounters, Verdict};
 use crate::filter::block::BlockMode;
+use crate::latency::Percentiles;
 use crate::logging::{LogStats, Mode as LogMode};
 use crate::policy::PolicyStats;
-use crate::privacy::CounterSnapshot as PrivacyCounters;
+use crate::privacy::{CounterSnapshot as PrivacyCounters, Settings as PrivacySettings};
 use crate::server::TcpCounters;
 use crate::upstream::pool::UpstreamStats;
 
@@ -24,6 +25,8 @@ use crate::upstream::pool::UpstreamStats;
 #[derive(Debug)]
 pub struct Snapshot {
     pub log: LogStats,
+    /// Median und 95-%-Wert der Antwortzeiten seit dem Start.
+    pub latency: Option<Percentiles>,
     pub cache: CacheStats,
     pub cache_entries: usize,
     pub policy: PolicyStats,
@@ -44,6 +47,9 @@ pub struct Snapshot {
     pub list_ages: Vec<(String, u64)>,
     /// Wie oft die Privacy-Mechanismen tatsächlich gegriffen haben.
     pub privacy: PrivacyCounters,
+    /// Was in `[privacy]` eingestellt ist. Ein Zähler von null sagt sonst
+    /// nicht, ob der Mechanismus aus ist oder nur nie gebraucht wurde.
+    pub privacy_settings: PrivacySettings,
     /// Die k-Schwelle aus der Konfiguration.
     pub aggregate_k: u32,
     /// Anfragen auf Namen unterhalb der k-Schwelle.
@@ -554,6 +560,10 @@ mod tests {
                     .collect(),
                 ring_entries: 0,
             },
+            latency: Some(Percentiles {
+                p50: Duration::from_micros(120),
+                p95: Duration::from_millis(303),
+            }),
             cache: CacheStats {
                 hits: 60,
                 stale_hits: 2,
@@ -574,6 +584,8 @@ mod tests {
                 successes: 38,
                 failures: 1,
                 rtt: Some(Duration::from_millis(34)),
+                p50: Some(Duration::from_millis(31)),
+                p95: Some(Duration::from_millis(58)),
                 down: false,
             }],
             uptime: Duration::from_secs(3600),
@@ -586,6 +598,13 @@ mod tests {
                 padded: 38,
                 randomized: 38,
                 cookies: 0,
+            },
+            privacy_settings: PrivacySettings {
+                strip_ecs: true,
+                padding: true,
+                cookies: true,
+                dns0x20: true,
+                dnssec: true,
             },
             aggregate_k: 5,
             below_threshold_queries: 21,
@@ -774,6 +793,8 @@ mod tests {
             successes: 1,
             failures: 0,
             rtt: None,
+            p50: None,
+            p95: None,
             down: false,
         }];
         let text = render(&snapshot);

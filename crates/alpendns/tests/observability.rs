@@ -67,6 +67,11 @@ fn event(name: &str, blocked: bool) -> QueryEvent {
         client: Arc::from("kids-tablet"),
         blocked,
         reason: blocked.then_some(BlockReason::Blocklist),
+        source: if blocked {
+            alpendns::logging::AnswerSource::Blocked
+        } else {
+            alpendns::logging::AnswerSource::Upstream
+        },
         rcode: if blocked {
             ResponseCode::NXDomain
         } else {
@@ -290,6 +295,7 @@ impl StatusSource for Fake {
     fn snapshot(&self) -> Snapshot {
         Snapshot {
             log: self.log.stats(),
+            latency: self.log.latency(),
             cache: CacheStats {
                 hits: 6,
                 stale_hits: 0,
@@ -310,6 +316,8 @@ impl StatusSource for Fake {
                 successes: 4,
                 failures: 0,
                 rtt: Some(Duration::from_millis(34)),
+                p50: Some(Duration::from_millis(31)),
+                p95: Some(Duration::from_millis(58)),
                 down: false,
             }],
             uptime: Duration::from_secs(42),
@@ -318,6 +326,7 @@ impl StatusSource for Fake {
             list_formats: vec![("hosts".to_owned(), 1)],
             list_ages: vec![("stevenblack".to_owned(), 120)],
             privacy: alpendns::privacy::counters(),
+            privacy_settings: alpendns::privacy::Settings::default(),
             aggregate_k: self.log.aggregate_k(),
             below_threshold_queries: self.log.top(0).below_threshold_queries,
             zone_seed_rotation: Duration::from_secs(24 * 60 * 60),
@@ -589,6 +598,30 @@ async fn the_status_endpoint_reports_the_logging_mode() {
     assert_eq!(body["logging_mode"], "aggregate");
     assert_eq!(body["list_entries"], 79_747);
     assert_eq!(body["upstreams"][0]["name"], "quad9");
+}
+
+/// Die Anzeige braucht drei Angaben, die früher nur als Satz existierten:
+/// Antwortzeit-Perzentile, die Herkunft je Antwort und den An/Aus-Zustand der
+/// Privacy-Schalter. Ein Zähler von null sagt nicht, ob der Schalter aus ist.
+#[tokio::test]
+async fn the_status_endpoint_reports_latency_and_privacy_switches() {
+    let (api, _dir) = start_api(Mode::Aggregate).await;
+    let body: serde_json::Value = api.get("/api/status").await.json().await.expect("JSON");
+
+    assert!(body["latency"].is_object(), "{body}");
+    assert!(body["latency"]["p50_ms"].is_null(), "{body}");
+    assert!(body["latency"]["p95_ms"].is_null(), "{body}");
+
+    let upstream = &body["upstreams"][0];
+    assert_eq!(upstream["p50_ms"], 31.0);
+    assert_eq!(upstream["p95_ms"], 58.0);
+
+    for switch in ["ecs", "padding", "case_randomization", "cookies"] {
+        assert!(
+            body["privacy"]["enabled"][switch].is_boolean(),
+            "Schalter {switch} fehlt: {body}"
+        );
+    }
 }
 
 #[tokio::test]
