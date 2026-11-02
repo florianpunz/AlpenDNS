@@ -207,15 +207,44 @@ function tickSpark() {
   if (!document.hidden) drawSpark();
 }
 
-/** Eine Linie über gleich breite Punkte, von links nach rechts. */
+/** Eine geglättete Linie durch gleich breite Punkte, von links nach rechts.
+ *
+ *  Catmull-Rom als kubische Bézier: jeder Messwert bleibt auf der Kurve, die
+ *  Steigung kommt aus den beiden Nachbarn. Drei Segmente je Punkt, also lineare
+ *  Arbeit — bei 288 Eimern einmal je Minute, bei der Sparkline einmal je
+ *  Sekunde. Kein Nachlauf, keine Animation: der letzte Wert steht sofort an
+ *  seinem Platz. Die Kontrollpunkte werden auf das Diagramm begrenzt, sonst
+ *  schösse eine einzelne Spitze über die Nulllinie hinaus. */
 function linePath(values, peak, step, base, span) {
-  let d = "";
-  values.forEach((value, index) => {
-    const x = (index * step).toFixed(1);
-    const y = (base - (value / peak) * span).toFixed(1);
-    d += `${index === 0 ? "M" : " L"}${x} ${y}`;
-  });
-  return d;
+  if (values.length === 0) return "";
+  const top = base - span;
+  const clamp = (y) => Math.min(base, Math.max(top, y));
+  const points = values.map((value, index) => [
+    index * step,
+    base - (value / peak) * span,
+  ]);
+  if (points.length === 1) return `M${points[0][0].toFixed(1)} ${points[0][1].toFixed(1)}`;
+
+  const segments = [`M${points[0][0].toFixed(1)} ${points[0][1].toFixed(1)}`];
+  const last = points.length - 1;
+  for (let i = 0; i < last; i += 1) {
+    const before = points[i === 0 ? 0 : i - 1];
+    const from = points[i];
+    const to = points[i + 1];
+    const after = points[i + 2 > last ? last : i + 2];
+    // Ein Drittel der Sehne zwischen den Nachbarn: die klassische
+    // Catmull-Rom-Umrechnung.
+    const c1x = from[0] + (to[0] - before[0]) / 6;
+    const c1y = clamp(from[1] + (to[1] - before[1]) / 6);
+    const c2x = to[0] - (after[0] - from[0]) / 6;
+    const c2y = clamp(to[1] - (after[1] - from[1]) / 6);
+    segments.push(
+      `C${c1x.toFixed(1)} ${c1y.toFixed(1)} ` +
+        `${c2x.toFixed(1)} ${c2y.toFixed(1)} ` +
+        `${to[0].toFixed(1)} ${to[1].toFixed(1)}`,
+    );
+  }
+  return segments.join("");
 }
 
 // ── Die Zeitreihe: 24 Stunden aus Zählern ─────────────────────────────────
@@ -458,7 +487,7 @@ async function refreshStatus() {
   if (quiet) {
     note.textContent = `ephemeral · mode '${status.logging_mode}': you can see that something happens — not what`;
   } else if (status.persists_to_disk) {
-    note.textContent = "mode 'full' · every row is additionally written to a file";
+    note.textContent = "logging active";
   } else {
     note.textContent = "ephemeral";
   }
@@ -496,14 +525,22 @@ function showReason(event) {
   const context = document.createElement("p");
   context.className = "context";
   context.textContent =
-    `at ${clockTime(event.at)} · ${event.client ?? "unknown"} · answered with ${event.rcode}`;
+    `at ${clockTime(event.at)} · ${event.client ?? "unknown"} · ` +
+    (event.blocked ? "blocked" : "allowed");
   box.append(context);
 
   const chain = document.createElement("ol");
   chain.className = "chain";
   for (const step of event.why ?? []) {
+    const { label, detail } = describeStep(step);
     const item = document.createElement("li");
-    item.textContent = step;
+    const station = document.createElement("span");
+    station.className = "step-label";
+    station.textContent = label;
+    const outcome = document.createElement("span");
+    outcome.className = "step-detail";
+    outcome.textContent = detail;
+    item.append(station, outcome);
     chain.append(item);
   }
   box.append(chain);
@@ -511,6 +548,55 @@ function showReason(event) {
   $("why-source").hidden = true;
   $("why-empty").hidden = true;
   box.hidden = false;
+}
+
+/** Ein Trace-Schritt in zwei Spalten: links die Station, rechts das Ergebnis.
+ *
+ *  Der Server schickt die Kette als Sätze, weil dieselbe Darstellung auch
+ *  `alpendns policy test` ausgibt. Im Panel zählt die Station, nicht die
+ *  Grammatik: das Auge findet "Blocklist", ohne den Satz zu lesen. Was diese
+ *  Liste nicht kennt, bleibt unverändert stehen — ein neuer Schritt soll nicht
+ *  verschwinden, nur weil die Kurzform fehlt. */
+const BLOCK_MODES = { Nxdomain: "NXDOMAIN", ZeroIp: "0.0.0.0", Sinkhole: "sinkhole" };
+const DETECT_VERBS = { blocks: "blocked", flags: "flagged", logs: "logged" };
+
+const STEP_FORMS = [
+  [/^no client entry matches, '(.+)' applies$/, "Client",
+    (m) => `${m[1]} · no rule matched`],
+  [/^Client '(.+)' recognized by source address$/, "Client",
+    (m) => `${m[1]} · source address`],
+  [/^Policy '(.+)'$/, "Policy", (m) => m[1]],
+  [/^temporary (allow|deny), (.+) left$/, "Temporary",
+    (m) => `${m[1]} · ${m[2]} left`],
+  [/^Allowlist '(.+)' line (\d+): '.+'$/, "Allowlist",
+    (m) => `${m[1]} · line ${m[2]}`],
+  [/^Blocklist '(.+)' line (\d+): '.+'$/, "Blocklist",
+    (m) => `${m[1]} · line ${m[2]}`],
+  [/^Regex rule from policy '(.+)': \/(.+)\/$/, "Regex",
+    (m) => `${m[1]} · /${m[2]}/`],
+  [/^Schedule '(.+)' active: .+$/, "Schedule",
+    (m) => `${m[1]} · allowlist only`],
+  [/^from cache \((valid|expired), (\d+) s left\)$/, "Cache",
+    (m) => `${m[1]} · ${m[2]} s left`],
+  [/^Upstream '(.+)' answered in (.+)$/, "Upstream",
+    (m) => `${m[1]} · ${m[2]}`],
+  [/^DNSSEC verified locally: (.+)$/, "DNSSEC", (m) => m[1]],
+  [/^(.+) (blocks|flags|logs) \(score (.+)\): .+$/, "Detection",
+    (m) => `${m[1]} · ${DETECT_VERBS[m[2]]} · ${m[3]}`],
+  [/^Answer synthesized locally, mode (.+)$/, "Answer",
+    (m) => `blocked · ${BLOCK_MODES[m[1]] ?? m[1]}`],
+  [/^from local zone '(.+)', (\d+) record\(s\)$/, "Local zone",
+    (m) => `${m[1]} · ${m[2]} record(s)`],
+  [/^the same question failed moments ago; .+$/, "Upstream",
+    () => "not asked · failed moments ago"],
+];
+
+function describeStep(step) {
+  for (const [pattern, label, detail] of STEP_FORMS) {
+    const match = pattern.exec(step);
+    if (match) return { label, detail: detail(match) };
+  }
+  return { label: "Step", detail: step };
 }
 
 /** Die Entscheidungskette auf Anfrage — dieselbe Auswertung wie
@@ -553,11 +639,8 @@ async function explainRow(name, client, row) {
       at: new Date().toTimeString().slice(0, 8),
       client: answer.client,
       blocked: answer.blocked,
-      rcode: answer.blocked ? "blocked" : "allowed",
       why: answer.steps,
     });
-    source.textContent = "evaluated now, not from the log";
-    source.hidden = false;
   } catch {
     source.textContent = "Evaluation was not possible.";
     source.hidden = false;
@@ -709,17 +792,6 @@ async function refreshTop() {
     list.append(item);
   }
 
-  // Was die Liste verschweigt, steht als Summe daneben. Ohne diese Zeile sähe
-  // ein Server mit viel seltenem Verkehr aus wie einer ohne Verkehr.
-  const hidden = $("top-hidden");
-  if (report.below_threshold_queries > 0) {
-    hidden.textContent =
-      `${thousands(report.below_threshold_queries)} queries across ` +
-      `${thousands(report.below_threshold_names)} names below the k-threshold`;
-    hidden.hidden = false;
-  } else {
-    hidden.hidden = true;
-  }
   syncEmptyStates();
 }
 

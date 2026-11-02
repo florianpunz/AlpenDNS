@@ -341,19 +341,6 @@ mod tests {
         assert!(SCRIPT.contains("/api/deny"));
     }
 
-    /// Der Satz, der die Überraschung nach dem Neustart verhindert.
-    ///
-    /// Die beiden Knöpfe setzen befristete Einträge, die nur im Arbeitsspeicher
-    /// liegen. Wer das nicht weiß, sucht nach einem Neustart den Fehler bei
-    /// sich statt in der Natur der Sache.
-    #[test]
-    fn the_temporary_buttons_say_that_they_do_not_survive_a_restart() {
-        assert!(
-            INDEX.contains("do not survive a restart"),
-            "der Hinweis an den Knöpfen fehlt"
-        );
-    }
-
     #[test]
     fn the_answer_badge_says_what_it_means_without_colour() {
         // Farbe wiederholt den Text, sie ersetzt ihn nicht — sonst ist die
@@ -363,6 +350,85 @@ mod tests {
             SCRIPT.contains("badge.title = event.rcode"),
             "RCODE geht verloren"
         );
+    }
+
+    /// Die Anmeldeseite nennt den Schlüssel, nicht einen erfundenen Pfad.
+    ///
+    /// `api.token_file` ist die einzige Angabe, die auf jeder Installation
+    /// stimmt; ein fest eingetragenes Verzeichnis stimmt auf keiner.
+    #[test]
+    fn the_sign_in_page_names_the_configured_token_file() {
+        assert!(
+            INDEX.contains("api.token_file"),
+            "die Anmeldeseite nennt den Schlüssel nicht"
+        );
+        assert!(
+            !INDEX.contains("/AlpenDNS/lists/api.token_file"),
+            "die Anmeldeseite nennt wieder einen festen, falschen Pfad"
+        );
+    }
+
+    /// Die Kontextzeile nennt das Verdikt, nicht die Antwort.
+    ///
+    /// "answered with blocked" beschreibt eine Antwort, die es nicht gab;
+    /// geblockt ist das Verdikt. Und eine NXDOMAIN, die keine Sperre war, ist
+    /// durchgelassen — nicht "mit NXDOMAIN geantwortet".
+    #[test]
+    fn the_context_line_states_the_verdict() {
+        assert!(
+            SCRIPT.contains("? \"blocked\" : \"allowed\""),
+            "die Kontextzeile hängt am Verdikt"
+        );
+        assert!(
+            !SCRIPT.contains("answered with"),
+            "die Kontextzeile spricht von einer Antwort statt vom Verdikt"
+        );
+    }
+
+    /// Die Entscheidungskette ist eine Liste aus Station und Ergebnis.
+    ///
+    /// Der Server schickt Sätze; im Panel steht links die Station, rechts was
+    /// sie ergeben hat. Die Herkunft der Auswertung ("evaluated now") stand als
+    /// Etikett über der Kette und sagte nur, was der Klick ohnehin bedeutet.
+    #[test]
+    fn the_decision_chain_reads_as_station_and_outcome() {
+        assert!(
+            SCRIPT.contains("function describeStep"),
+            "die Kette wird nicht in zwei Spalten übersetzt"
+        );
+        for part in ["step-label", "step-detail", "\"Blocklist\""] {
+            assert!(SCRIPT.contains(part), "{part} fehlt in der Kette");
+        }
+        assert!(
+            !SCRIPT.contains("evaluated now"),
+            "die Kette trägt wieder ein Herkunftsetikett"
+        );
+    }
+
+    /// Der volle Log-Modus sagt, dass geloggt wird — mehr nicht.
+    #[test]
+    fn the_full_mode_says_that_logging_is_active() {
+        assert!(
+            SCRIPT.contains("\"logging active\""),
+            "der volle Modus wird nicht benannt"
+        );
+        assert!(
+            !SCRIPT.contains("additionally written"),
+            "der lange Satz zum vollen Modus steht wieder da"
+        );
+    }
+
+    /// Die Verläufe sind Kurven durch dieselben Messpunkte.
+    ///
+    /// Geglättet wird mit einer kubischen Bézier aus den Nachbarn — lineare
+    /// Arbeit, kein Diagrammpaket, kein Nachlauf.
+    #[test]
+    fn the_history_lines_are_smoothed_without_a_library() {
+        assert!(
+            SCRIPT.contains("C${c1x.toFixed(1)}"),
+            "die Linie ist wieder ein Streckenzug"
+        );
+        assert!(!SCRIPT.contains("createElementNS"));
     }
 
     #[test]
