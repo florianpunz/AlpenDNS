@@ -329,7 +329,7 @@ fn default_api_listen() -> SocketAddr {
 }
 
 fn default_token_file() -> std::path::PathBuf {
-    std::path::PathBuf::from("/etc/alpendns/api.token")
+    std::path::PathBuf::from("/var/lib/alpendns/api.token")
 }
 
 fn default_metrics_listen() -> SocketAddr {
@@ -2702,6 +2702,27 @@ sinkhole_ipv6 = "fd00::10"
                  legt es an: {created:?}"
             );
         }
+    }
+
+    #[test]
+    fn the_default_token_file_lives_in_a_state_directory() {
+        let mut created: Vec<String> = Vec::new();
+        for line in UNIT.lines().map(str::trim) {
+            if let Some(rest) = line.strip_prefix("StateDirectory=") {
+                created.extend(rest.split_whitespace().map(|d| format!("/var/lib/{d}")));
+            }
+        }
+
+        let parent = default_token_file()
+            .parent()
+            .expect("default_token_file() hat ein Verzeichnis")
+            .display()
+            .to_string();
+        assert!(
+            created.contains(&parent),
+            "default_token_file() liegt in {parent}, das keine StateDirectory=-Zeile der \
+             Unit anlegt: {created:?}"
+        );
     }
 
     #[test]

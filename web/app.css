@@ -1437,6 +1437,52 @@ svg {
   margin-top: var(--s-8);
 }
 
+.token-path {
+  white-space: nowrap;
+}
+
+.info-button {
+  display: inline-grid;
+  place-items: center;
+  width: var(--s-16);
+  height: var(--s-16);
+  margin-left: var(--s-4);
+  padding: 0;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  line-height: 1;
+  vertical-align: middle;
+}
+
+.info-button:hover {
+  border-color: var(--text);
+  color: var(--text);
+}
+
+.token-help {
+  width: min(420px, calc(100vw - 32px));
+  padding: var(--s-24);
+  font-size: var(--t-small);
+}
+
+.token-help h2 {
+  margin-bottom: var(--s-16);
+  font-size: var(--t-mark);
+  font-weight: 600;
+}
+
+.token-help p + p {
+  margin-top: var(--s-8);
+}
+
+.token-help code {
+  word-break: break-word;
+}
+
 .note {
   color: var(--muted);
   font-size: var(--t-small);

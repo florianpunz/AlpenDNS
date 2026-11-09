@@ -407,7 +407,7 @@ nrd = { action = "flag", max_age = "30d", source = "/var/lib/alpendns/nrd.txt" }
 enabled = true
 listen = "127.0.0.1:8053"
 # Token auth; the UI is served by the same process.
-token_file = "/etc/alpendns/api.token"
+token_file = "/var/lib/alpendns/api.token"
 
 [metrics]
 enabled = true

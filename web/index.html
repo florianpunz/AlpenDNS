@@ -39,8 +39,18 @@
     </svg>
     <span class="wordmark"><b>Alpen</b>DNS</span>
   </h1>
-  <p class="note">The API token is in the file named by
-  <code>api.token_file</code> in the configuration.</p>
+  <p class="note">The API token is in the file
+  <span class="token-path"><code>/var/lib/alpendns/api.token</code><button type="button"
+  class="info-button" popovertarget="token-help" aria-label="About the API token">i</button></span>.</p>
+  <div id="token-help" class="token-help panel" popover>
+    <h2>API token</h2>
+    <p>Run this on the server to show it:</p>
+    <p><code>sudo cat /var/lib/alpendns/api.token</code></p>
+    <p>Did you set a different path? Then check <code>token_file</code> under
+    <code>[api]</code> in <code>/etc/alpendns/alpendns.toml</code>.</p>
+    <p>The path in use is also in the startup log:
+    <code>sudo journalctl -u alpendns -g token_file</code></p>
+  </div>
   <label for="token">Token</label>
   <input id="token" type="password" autocomplete="off" spellcheck="false">
   <button type="submit" class="primary">Sign in</button>

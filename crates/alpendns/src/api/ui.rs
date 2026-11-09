@@ -126,6 +126,33 @@ mod tests {
     }
 
     #[test]
+    fn the_login_says_where_the_token_is_and_how_to_show_it() {
+        assert!(
+            INDEX.contains("/var/lib/alpendns/api.token"),
+            "der Token-Pfad fehlt"
+        );
+        assert!(
+            !INDEX.contains("api.token_file</code> in the configuration"),
+            "der Hinweis nennt weiter nur den Konfigurationsschlüssel"
+        );
+        assert!(
+            INDEX.contains("popovertarget=\"token-help\""),
+            "kein Info-Knopf am Pfad"
+        );
+        assert!(
+            INDEX.contains("aria-label=\"About the API token\""),
+            "der Info-Knopf ist nicht benannt"
+        );
+        assert!(
+            INDEX.contains("id=\"token-help\"") && INDEX.contains(" popover>"),
+            "kein Popover"
+        );
+        assert!(INDEX.contains("sudo cat /var/lib/alpendns/api.token"));
+        assert!(INDEX.contains("sudo journalctl -u alpendns -g token_file"));
+        assert!(!INDEX.contains("style="), "Inline-Stil auf der Seite");
+    }
+
+    #[test]
     fn the_palette_has_one_accent_and_four_meanings() {
         assert_eq!(
             STYLE.matches("--accent:").count(),
