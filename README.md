@@ -121,9 +121,6 @@ only on a trusted network. Volumes, upgrades and the rest:
 * [Configuration reference](config/alpendns.example.toml) — the full format,
   including sections not yet implemented, marked `[not implemented — backlog]`
 
-The [live demo](https://florianpunz.github.io/AlpenDNS/) is this web UI with
-recorded data, no install — built from [`web/demo/`](web/demo/).
-
 ## Development
 
 Rust stable ([`rust-toolchain.toml`](rust-toolchain.toml) selects it).
