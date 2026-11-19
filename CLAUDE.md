@@ -113,11 +113,9 @@ is a startup error. Since phase 7 the signature chain itself is recomputed
 rather than trusting the upstream's AD bit (ADR-0016). The B.1 rule 1 deviation
 is closed: `hickory-proto` 0.26.3 contains the upstream rework that removed the
 TSIG underflow, and the known-crash input no longer panics. ADR-0006 keeps the
-assessment; the artifact was retired on 2026-10-31. Related, a documented
-advisory exception in `deny.toml`: RUSTSEC-2026-0009 concerns `time`, which has
-been **in the production tree** since the DNSSEC feature — the exception carries
-a narrower justification (the vulnerable path is not entered), no longer "not in
-the binary at all".
+assessment; the artifact was retired on 2026-10-31. The advisory exception that
+once stood in `deny.toml` for RUSTSEC-2026-0009 (`time`) is gone as well: with
+the MSRV of 1.88 the resolver picks `time` 0.3.55, which contains the fix.
 
 Since phase 8 there are five heuristics in `crate::detect` (DGA, tunneling,
 rebinding, typosquat, NRD). **All default to `flag`** and block nothing
