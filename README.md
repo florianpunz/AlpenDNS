@@ -86,9 +86,10 @@ The web UI is on <http://127.0.0.1:8053>; the token sits in `api.token_file`.
 
 ### As a service
 
-`cargo deb -p alpendns` builds the Debian package. Installation, the systemd
-unit and the open-resolver warning are in
-[docs/OPERATIONS.md](docs/OPERATIONS.md).
+`cargo deb -p alpendns` builds the Debian package. Tagged releases also land in
+a signed APT repository; installation from either, the systemd unit and the
+open-resolver warning are in
+[docs/OPERATIONS.md](docs/OPERATIONS.md#installing-from-the-apt-repository).
 
 ### Container
 

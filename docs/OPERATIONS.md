@@ -42,8 +42,9 @@ system does not matter.
 ### Releases and versions
 
 A pushed tag `v*` builds the package in GitHub Actions, publishes it as a
-GitHub release and rolls it into the signed APT repository on GitHub Pages —
-for `amd64` and `arm64`. The version number is raised **before the tag**, not by
+GitHub release and rolls it into the [signed APT
+repository](#installing-from-the-apt-repository) on GitHub Pages — for `amd64`
+and `arm64`. The version number is raised **before the tag**, not by
 CI: `scripts/bump-version.sh major|minor|patch`. Which of the
 three it is follows from what has come together since the last tag — the
 heaviest kind wins:
@@ -66,7 +67,7 @@ of change decides, and "something is new" is the heaviest kind there is.
 The coding agent raises the version itself before the tag; anyone releasing by
 hand calls the script themselves. If the tag does not match the version in
 `Cargo.toml`, CI aborts with a clear message rather than publishing the same
-number a second time. A release is three commands:
+number a second time. A release runs these commands:
 
 ```bash
 scripts/bump-version.sh major|minor|patch
@@ -77,29 +78,6 @@ git push origin main "v$version"
 ```
 
 The package can still be built locally, as described above.
-
-### Installing from the APT repository
-
-Every release lands in a signed APT repository on GitHub Pages. The path is
-case-sensitive:
-
-```bash
-sudo install -d -m 755 /usr/share/keyrings
-curl -fsSL https://florianpunz.github.io/AlpenDNS/apt/alpendns.gpg \
-  | sudo tee /usr/share/keyrings/alpendns-archive-keyring.gpg >/dev/null
-echo 'deb [signed-by=/usr/share/keyrings/alpendns-archive-keyring.gpg] https://florianpunz.github.io/AlpenDNS/apt stable main' \
-  | sudo tee /etc/apt/sources.list.d/alpendns.list
-sudo apt update
-sudo apt install alpendns
-```
-
-The configuration under `/etc/alpendns/` is a conffile and survives upgrades.
-For automatic upgrades:
-
-```bash
-echo 'Unattended-Upgrade::Allowed-Origins { "AlpenDNS:stable"; };' \
-  | sudo tee /etc/apt/apt.conf.d/51alpendns-unattended-upgrades
-```
 
 ### Installing the package
 
@@ -127,6 +105,114 @@ break them.
 
 The service user `alpendns` is a system user without a login shell and without a
 home directory.
+
+### Installing from the APT repository
+
+Every tag `v*` produces the GitHub release and rolls the same `.deb` files into
+a signed APT repository on the `gh-pages` branch, served by GitHub Pages. The
+repository carries the same package as the release; the difference is how it
+arrives and how it is updated. There is no repository server to run: `apt`
+verifies the signature, and HTTPS protects only the transport above it.
+
+| Property | Value |
+|---|---|
+| URL | `https://florianpunz.github.io/AlpenDNS/apt` |
+| Origin / Label | `AlpenDNS` |
+| Suite / Codename | `stable` |
+| Component | `main` |
+| Architectures | `amd64`, `arm64` |
+| Package | `alpendns`, version `<version>-1` |
+| Signing key | `59FC FC2A D6C0 25B0 7558 E159 172C 7B2F BB20 1F28` |
+| Public key | `apt/alpendns.gpg` under the URL above |
+
+> **The path is case-sensitive.** The repository is called `AlpenDNS`, and so is
+> the first path segment. `.../alpendns/apt` answers with 404; the
+> capitalisation in the lines below is not cosmetic.
+
+Add the key and the source:
+
+```bash
+sudo install -d -m 755 /usr/share/keyrings
+curl -fsSL https://florianpunz.github.io/AlpenDNS/apt/alpendns.gpg \
+  | sudo tee /usr/share/keyrings/alpendns-archive-keyring.gpg >/dev/null
+echo 'deb [signed-by=/usr/share/keyrings/alpendns-archive-keyring.gpg] https://florianpunz.github.io/AlpenDNS/apt stable main' \
+  | sudo tee /etc/apt/sources.list.d/alpendns.list
+sudo apt update
+sudo apt install alpendns
+```
+
+`signed-by` binds the key to this one source. It does not become a second trust
+anchor for Ubuntu's archive: remove the source file and the key no longer
+verifies anything.
+
+Check that the right key arrived before the first install:
+
+```bash
+gpg --show-keys --with-fingerprint /usr/share/keyrings/alpendns-archive-keyring.gpg
+```
+
+The fingerprint must be the one in the table. A different key means the
+download went somewhere else; do not install past it. The key is signing-only,
+RSA-4096, and expires on **2031-11-24**. The private half lives in the
+repository secret `APT_GPG_PRIVATE_KEY`; renewing it means a new key, a new
+secret and replacing the keyring on every host that uses the repository.
+
+`apt-cache policy alpendns` then shows what the machine has and what the
+repository offers:
+
+```
+alpendns:
+  Installed: 9.0.0-1
+  Candidate: 9.0.0-1
+  Version table:
+ *** 9.0.0-1 500
+        500 https://florianpunz.github.io/AlpenDNS/apt stable/main amd64 Packages
+```
+
+### Upgrades from the repository
+
+`apt upgrade` replaces the binary and the unit; `/etc/alpendns/alpendns.toml`
+is a conffile and keeps the edited version. The postinst reloads systemd and
+restarts the service. The resolver is off the air for the length of one start,
+because it binds its listeners only after the blocklists are loaded — with a
+warm cache that is the load time of the lists (around twenty seconds for a
+million entries), after a cache miss the download comes first. The full upgrade
+behaviour and the pre-upgrade `alpendns check` are in [§2](#2-upgrade).
+
+For automatic upgrades, allow the repository's origin next to the
+distribution's:
+
+```bash
+echo 'Unattended-Upgrade::Allowed-Origins { "AlpenDNS:stable"; };' \
+  | sudo tee /etc/apt/apt.conf.d/51alpendns-unattended-upgrades
+```
+
+The line is additive; `50unattended-upgrades` keeps the Ubuntu origins. The
+entry is `Origin` and `Archive`, which is what
+`unattended-upgrade --dry-run --debug` prints as `o=AlpenDNS,a=stable`.
+
+> **One version at a time.** The workflow rebuilds the repository on each
+> release and keeps only the newest package. `apt` can move forward but cannot
+> install an older release from it; a rollback uses the local `.deb` or the
+> backup in [§2](#2-upgrade), not `apt install alpendns=<old-version>`.
+
+### Removing the repository
+
+```bash
+sudo rm /etc/apt/sources.list.d/alpendns.list \
+        /usr/share/keyrings/alpendns-archive-keyring.gpg
+sudo apt update
+```
+
+The installed package stays. Removing source and key together keeps the next
+`apt update` from failing with a missing-key error for a repository that is no
+longer meant to be there.
+
+> **If `apt update` reports `NO_PUBKEY`, "not signed", or a 404:** fetch the
+> release file with `curl -fsSI
+> https://florianpunz.github.io/AlpenDNS/apt/dists/stable/InRelease` and check
+> the URL's capitalisation and the fingerprint of the keyring. A 200 with a
+> signature error is a key problem; a 404 is a path problem.
 
 ### After installation
 
