@@ -1,0 +1,6 @@
+Archive: stable
+Component: main
+Origin: AlpenDNS
+Label: AlpenDNS
+Architecture: amd64
+Description: AlpenDNS APT repository
