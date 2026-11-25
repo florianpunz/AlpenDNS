@@ -1,0 +1,4618 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AlpenDNS</title>
+<style>
+:root {
+  color-scheme: light;
+
+  --ground: #f1f0eb;
+  --surface: #ffffff;
+  --surface-2: #f8f7f2;
+  --surface-3: #ecebe5;
+  --glass: rgba(247, 246, 241, 0.86);
+  --glass-strong: rgba(251, 250, 246, 0.92);
+  --edge: rgba(255, 255, 255, 0.9);
+  --hairline: rgba(25, 24, 20, 0.10);
+  --hairline-strong: rgba(25, 24, 20, 0.20);
+  --hairline-soft: rgba(25, 24, 20, 0.055);
+  --shadow:
+    0 18px 48px rgba(48, 42, 32, 0.08),
+    0 2px 8px rgba(48, 42, 32, 0.04);
+  --shadow-sheet:
+    0 32px 80px rgba(48, 42, 32, 0.18),
+    0 4px 16px rgba(48, 42, 32, 0.08);
+  --blur: blur(20px) saturate(140%);
+
+  --text: #191814;
+  --muted: #55534d;
+  --faint: #6d6b63;
+  --accent: #2548c8;
+  --accent-soft: rgba(37, 72, 200, 0.09);
+  --on-accent: #ffffff;
+  --danger: #ae251d;
+  --warn: #7a4a00;
+  --success: #1d6b43;
+  --selection: #ebedfa;
+  --row-alt: rgba(25, 24, 20, 0.018);
+  --row-hover: rgba(37, 72, 200, 0.05);
+  --contour: rgba(25, 24, 20, 0.05);
+
+  --band-1: #6d6a61;
+  --band-2: #8a877d;
+  --band-3: #aaa79c;
+  --band-4: #cbc8bd;
+
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "DejaVu Sans Mono", "Ubuntu Mono", "Noto Sans Mono", "Cascadia Mono", monospace;
+
+  --t-micro: 0.6875rem;
+  --t-small: 0.8125rem;
+  --t-body: 0.9375rem;
+  --t-mark: 1.0625rem;
+  --t-figure: 1.875rem;
+  --t-lead: 1.375rem;
+
+  --s-4: 0.25rem;
+  --s-8: 0.5rem;
+  --s-16: 1rem;
+  --s-24: 1.5rem;
+  --s-32: 2rem;
+  --s-48: 3rem;
+
+  --page: 1400px;
+  --radius: 14px;
+  --radius-large: 18px;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --ground: #1b1a18;
+  --surface: #232220;
+  --surface-2: #262523;
+  --surface-3: #2d2b28;
+  --glass: rgba(35, 34, 32, 0.86);
+  --glass-strong: rgba(36, 35, 33, 0.93);
+  --edge: rgba(255, 255, 255, 0.08);
+  --hairline: rgba(255, 255, 255, 0.10);
+  --hairline-strong: rgba(255, 255, 255, 0.22);
+  --hairline-soft: rgba(255, 255, 255, 0.055);
+  --shadow:
+    0 18px 48px rgba(0, 0, 0, 0.35),
+    0 2px 8px rgba(0, 0, 0, 0.20);
+  --shadow-sheet:
+    0 32px 80px rgba(0, 0, 0, 0.55),
+    0 4px 16px rgba(0, 0, 0, 0.30);
+
+  --text: #f2efe9;
+  --muted: #bcb7ad;
+  --faint: #a5a097;
+  --accent: #9db4ff;
+  --accent-soft: rgba(157, 180, 255, 0.14);
+  --on-accent: #14161f;
+  --danger: #ff9a90;
+  --warn: #e6b062;
+  --success: #7fd3a6;
+  --selection: rgba(157, 180, 255, 0.16);
+  --row-alt: rgba(255, 255, 255, 0.022);
+  --row-hover: rgba(157, 180, 255, 0.08);
+  --contour: rgba(255, 255, 255, 0.055);
+
+  --band-1: #b9b4aa;
+  --band-2: #928e85;
+  --band-3: #6e6b64;
+  --band-4: #4b4944;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: var(--t-body);
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+h1,
+h2,
+p,
+figure,
+ol,
+ul,
+dl,
+dd {
+  margin: 0;
+}
+
+ul,
+ol {
+  padding: 0;
+  list-style: none;
+}
+
+button,
+input {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+a {
+  color: var(--accent);
+}
+
+code,
+kbd {
+  font-family: var(--mono);
+  font-size: 0.85em;
+}
+
+kbd {
+  border: 1px solid var(--hairline);
+  border-radius: 5px;
+  padding: 1px 5px;
+  color: var(--faint);
+  background: var(--surface-2);
+}
+
+svg {
+  display: block;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.wrap {
+  width: min(calc(100% - 96px), var(--page));
+  margin-inline: auto;
+}
+
+.ground {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background: var(--ground);
+  overflow: hidden;
+}
+
+.contours {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  color: var(--contour);
+}
+
+.shell {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--glass);
+  backdrop-filter: var(--blur);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.topbar-inner {
+  display: flex;
+  align-items: center;
+  gap: var(--s-16);
+  height: 64px;
+}
+
+.mark {
+  display: flex;
+  align-items: center;
+  gap: var(--s-8);
+  font-size: var(--t-mark);
+  letter-spacing: -0.01em;
+}
+
+.logo {
+  width: 30px;
+  height: 18px;
+}
+
+.logo path {
+  stroke: none;
+}
+
+.logo .ridge-back {
+  fill: var(--accent);
+  opacity: 0.5;
+}
+
+.logo .ridge-front {
+  fill: var(--accent);
+}
+
+.logo .snow {
+  fill: var(--on-accent);
+}
+
+.wordmark {
+  font-weight: 500;
+}
+
+.wordmark b {
+  color: var(--accent);
+  font-weight: 650;
+}
+
+.command-trigger {
+  display: flex;
+  align-items: center;
+  gap: var(--s-8);
+  margin-left: auto;
+  width: 300px;
+  height: 44px;
+  padding: 0 var(--s-8) 0 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--faint);
+  text-align: left;
+  transition: border-color 120ms ease, color 120ms ease;
+}
+
+.command-trigger:hover {
+  border-color: var(--hairline-strong);
+  color: var(--muted);
+}
+
+.command-trigger svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  flex: none;
+}
+
+.command-trigger span {
+  flex: 1;
+  font-size: var(--t-small);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.theme-toggle {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--muted);
+  transition: color 120ms ease, border-color 120ms ease;
+}
+
+.theme-toggle:hover {
+  color: var(--text);
+}
+
+.theme-toggle svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+}
+
+.icon-moon {
+  display: none;
+}
+
+:root[data-theme="dark"] .icon-sun {
+  display: none;
+}
+
+:root[data-theme="dark"] .icon-moon {
+  display: block;
+}
+
+.main {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  gap: var(--s-16);
+  min-height: 0;
+  padding-block: var(--s-24) var(--s-16);
+  overflow: hidden;
+}
+
+.statusline {
+  display: grid;
+  gap: var(--s-4);
+}
+
+.verdict-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-16);
+}
+
+.verdict {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--t-lead);
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+.status-detail {
+  color: var(--muted);
+  font-size: var(--t-small);
+}
+
+.live-note {
+  color: var(--faint);
+  font-size: var(--t-small);
+  font-variant-numeric: tabular-nums;
+}
+
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--muted);
+  flex: none;
+}
+
+.dot.is-live {
+  background: var(--success);
+}
+
+.dot.is-stale {
+  background: transparent;
+  border: 1.5px solid var(--muted);
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.metric {
+  display: grid;
+  grid-template-rows: auto auto auto 38px;
+  row-gap: 2px;
+  min-width: 0;
+  padding: var(--s-16) var(--s-24);
+}
+
+.metric + .metric {
+  border-left: 1px solid var(--hairline);
+}
+
+.metric-label {
+  color: var(--muted);
+  font-size: var(--t-small);
+}
+
+.metric-value {
+  font-size: var(--t-figure);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.metric-sub {
+  min-height: 1.15em;
+  color: var(--faint);
+  font-size: var(--t-micro);
+  font-variant-numeric: tabular-nums;
+}
+
+.spark {
+  width: 100%;
+  height: 36px;
+  margin-top: var(--s-8);
+  overflow: visible;
+}
+
+.spark path {
+  fill: none;
+  stroke: var(--faint);
+  stroke-width: 1.5;
+}
+
+.spark .line-blocked {
+  stroke: var(--danger);
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 1fr);
+  gap: var(--s-16);
+  min-height: 0;
+}
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.queries {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-height: 0;
+  border-radius: var(--radius-large);
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-16);
+  min-height: 60px;
+  padding: var(--s-8) var(--s-16);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.panel-head h2 {
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+.panel-body {
+  padding: var(--s-16);
+}
+
+.head-title {
+  display: flex;
+  align-items: center;
+  gap: var(--s-16);
+  min-width: 0;
+}
+
+.stream-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--faint);
+  font-size: var(--t-micro);
+}
+
+.stream-flag .dot {
+  width: 7px;
+  height: 7px;
+  background: var(--success);
+}
+
+.stream-flag.is-off .dot {
+  background: var(--muted);
+}
+
+.filters {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+  padding: 0 2px;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.chip {
+  height: 44px;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--t-small);
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.chip:hover {
+  color: var(--text);
+}
+
+.chip.is-active {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 1px 3px rgba(48, 42, 32, 0.12);
+}
+
+.search {
+  display: flex;
+  align-items: center;
+  gap: var(--s-8);
+  width: 220px;
+  height: 44px;
+  padding: 0 10px;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--faint);
+}
+
+.search svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  flex: none;
+}
+
+.search input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  font-size: var(--t-small);
+  outline: none;
+}
+
+.search input::placeholder {
+  color: var(--faint);
+}
+
+.log {
+  position: relative;
+  min-height: 0;
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
+}
+
+.log-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.log-table th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  height: 36px;
+  padding: 0 var(--s-16);
+  border-bottom: 1px solid var(--hairline);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-align: left;
+}
+
+.log-table td {
+  height: 44px;
+  padding: 0 var(--s-16);
+  border-bottom: 1px solid var(--hairline-soft);
+  font-size: 0.84375rem;
+  vertical-align: middle;
+}
+
+.log-table tbody tr {
+  transition: background-color 120ms ease;
+}
+
+.log-table tbody tr:nth-child(even) {
+  background: var(--row-alt);
+}
+
+.log-table tbody tr:hover {
+  background: var(--row-hover);
+}
+
+.log-table tbody tr.is-selected {
+  background: var(--selection);
+}
+
+.c-time {
+  width: 86px;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.c-type {
+  width: 66px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.75rem;
+}
+
+.c-client {
+  width: 132px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.c-result {
+  width: 112px;
+}
+
+.c-ms {
+  width: 76px;
+  text-align: right;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.log-table th.c-ms {
+  text-align: right;
+}
+
+.c-name {
+  display: flex;
+  align-items: center;
+  gap: var(--s-8);
+  min-width: 0;
+}
+
+.name-button {
+  display: block;
+  max-width: 100%;
+  height: 44px;
+  margin-left: -6px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 0.8125rem;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.name-button:hover {
+  color: var(--accent);
+}
+
+.name-static {
+  display: inline-block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.8125rem;
+}
+
+.is-blocked .name-button,
+.is-blocked .name-static {
+  color: var(--danger);
+}
+
+.times {
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+}
+
+.result {
+  font-size: var(--t-micro);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+.result.is-blocked {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.result.is-error {
+  color: var(--warn);
+}
+
+.result.is-muted {
+  color: var(--muted);
+}
+
+.log-foot {
+  padding: 10px var(--s-16);
+  border-top: 1px solid var(--hairline);
+  color: var(--faint);
+  font-size: 0.75rem;
+}
+
+.empty {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: var(--s-8);
+  padding: var(--s-32);
+  color: var(--muted);
+  text-align: center;
+  font-size: var(--t-small);
+}
+
+.log > .log-table[hidden] + .empty {
+  height: 100%;
+}
+
+.log-table td.is-warn {
+  color: var(--warn);
+}
+
+.empty p {
+  max-width: 340px;
+}
+
+.empty-icon {
+  width: 26px;
+  height: 26px;
+  fill: none;
+  stroke: var(--faint);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-16);
+  min-height: 0;
+  padding-bottom: var(--s-16);
+  overflow-y: auto;
+}
+
+.side-panel .panel-head {
+  min-height: 48px;
+}
+
+.side-panel .panel-head .note {
+  margin-left: auto;
+  color: var(--faint);
+  font-size: var(--t-micro);
+}
+
+.side-panel .empty {
+  padding: var(--s-16) 0;
+}
+
+.chart figcaption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-8);
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.key {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--faint);
+  font-size: var(--t-micro);
+}
+
+.swatch {
+  width: 8px;
+  height: 2px;
+  border-radius: 1px;
+}
+
+.sw-total {
+  background: var(--faint);
+}
+
+.sw-blocked {
+  background: var(--danger);
+}
+
+.graph {
+  width: 100%;
+  height: 56px;
+  margin-top: var(--s-8);
+}
+
+.graph path {
+  fill: none;
+  stroke-width: 1.5;
+}
+
+.line-total {
+  stroke: var(--faint);
+}
+
+.line-blocked {
+  stroke: var(--danger);
+}
+
+.up-columns {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--s-8);
+  margin-bottom: var(--s-8);
+  color: var(--faint);
+  font-size: var(--t-micro);
+}
+
+.upstreams {
+  display: grid;
+  gap: var(--s-16);
+}
+
+.upstream {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto;
+  grid-template-areas:
+    "dot name latency"
+    ". bar bar";
+  align-items: center;
+  gap: 5px var(--s-8);
+}
+
+.up-dot {
+  grid-area: dot;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--success);
+}
+
+.up-dot.is-down {
+  border: 1.5px solid var(--muted);
+  background: transparent;
+}
+
+.up-name {
+  grid-area: name;
+  font-size: var(--t-small);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.up-transport {
+  margin-left: 5px;
+  color: var(--faint);
+  font-size: var(--t-micro);
+}
+
+.up-latency {
+  grid-area: latency;
+  color: var(--muted);
+  font-size: var(--t-micro);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.up-latency .is-warn {
+  color: var(--warn);
+}
+
+.up-bar {
+  grid-area: bar;
+  display: block;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.up-bar span {
+  display: block;
+  height: 100%;
+  background: var(--band-1);
+}
+
+.privacy {
+  display: grid;
+}
+
+.privacy-row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--s-8);
+  min-height: 44px;
+  padding: 0;
+  border-bottom: 1px solid var(--hairline-soft);
+  font-size: var(--t-small);
+}
+
+.privacy-row:last-child {
+  border-bottom: 0;
+}
+
+.privacy-row .state svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.privacy-row .state .is-off {
+  display: none;
+}
+
+.privacy-row.is-off .state .is-on {
+  display: none;
+}
+
+.privacy-row.is-off .state .is-off {
+  display: block;
+}
+
+.privacy-row.is-off .privacy-label,
+.privacy-row.is-off .privacy-value {
+  color: var(--faint);
+}
+
+.privacy-value {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.link {
+  padding: 0 0 0 6px;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-size: var(--t-micro);
+  min-height: 44px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.bar {
+  display: flex;
+  height: 8px;
+  margin-bottom: var(--s-16);
+  border-radius: 4px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.bar span {
+  display: block;
+  height: 100%;
+}
+
+.band-1 {
+  background: var(--band-1);
+}
+
+.band-2 {
+  background: var(--band-2);
+}
+
+.band-3 {
+  background: var(--band-3);
+}
+
+.band-4 {
+  background: var(--band-4);
+}
+
+.legend {
+  display: grid;
+  gap: 6px;
+}
+
+.legend li {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--s-8);
+  color: var(--muted);
+  font-size: var(--t-micro);
+}
+
+.legend .swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.legend .count {
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.top {
+  display: grid;
+  gap: 7px;
+}
+
+.top li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: var(--s-8);
+  font-size: var(--t-small);
+}
+
+.top-name {
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.top li.is-blocked .top-name {
+  color: var(--danger);
+}
+
+.top-count {
+  color: var(--faint);
+  font-size: var(--t-micro);
+  font-variant-numeric: tabular-nums;
+}
+
+.flagged {
+  display: grid;
+  gap: var(--s-16);
+}
+
+.flagged li {
+  display: grid;
+  gap: 3px;
+  padding-bottom: var(--s-16);
+  border-bottom: 1px solid var(--hairline-soft);
+}
+
+.flagged li:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.flagged .subject {
+  font-family: var(--mono);
+  font-size: var(--t-small);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.flagged .meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-8);
+  color: var(--faint);
+  font-size: var(--t-micro);
+}
+
+.flagged .why {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.flagged .actions {
+  display: flex;
+  gap: var(--s-8);
+  margin-top: 5px;
+}
+
+.flagged .actions button {
+  height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: var(--t-micro);
+}
+
+.flagged .actions button:hover {
+  color: var(--text);
+  border-color: var(--hairline-strong);
+}
+
+.pagefoot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-16);
+  color: var(--faint);
+  font-size: 0.75rem;
+}
+
+.pagefoot p {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sheet {
+  position: fixed;
+  top: 88px;
+  right: max(var(--s-24), calc((100vw - var(--page)) / 2));
+  left: auto;
+  width: min(430px, calc(100vw - 32px));
+  max-height: calc(100dvh - 120px);
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-large);
+  background: var(--glass-strong);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--shadow-sheet);
+  color: var(--text);
+  overflow-y: auto;
+}
+
+.sheet::backdrop {
+  background: rgba(25, 22, 16, 0.12);
+}
+
+.sheet-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s-16);
+  padding: var(--s-16) var(--s-24) var(--s-8);
+}
+
+.sheet-kicker {
+  color: var(--faint);
+  font-size: var(--t-micro);
+}
+
+.sheet .subject {
+  margin-top: 2px;
+  color: var(--danger);
+  font-family: var(--mono);
+  font-size: 1.125rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.sheet .subject.is-allowed {
+  color: var(--text);
+}
+
+.context {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: var(--t-micro);
+  font-variant-numeric: tabular-nums;
+}
+
+.icon-button {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--muted);
+}
+
+.icon-button svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+}
+
+.verdict-badge {
+  padding: 0 var(--s-24) var(--s-8);
+  color: var(--danger);
+  font-size: var(--t-micro);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.verdict-badge.is-allowed {
+  color: var(--muted);
+}
+
+.pipeline {
+  padding: var(--s-8) var(--s-24) var(--s-8);
+  counter-reset: step;
+}
+
+.pipeline li {
+  position: relative;
+  display: grid;
+  gap: 1px;
+  padding: 0 0 var(--s-24) 38px;
+  counter-increment: step;
+}
+
+.pipeline li:last-child {
+  padding-bottom: var(--s-16);
+}
+
+.pipeline li::before {
+  content: counter(step);
+  position: absolute;
+  top: -1px;
+  left: 0;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--hairline);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: var(--t-micro);
+  font-variant-numeric: tabular-nums;
+}
+
+.pipeline li:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  top: 24px;
+  bottom: 2px;
+  left: 11px;
+  width: 1px;
+  background: var(--hairline);
+}
+
+.pipeline li.is-key::before {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.step-label {
+  font-size: var(--t-micro);
+  font-weight: 600;
+}
+
+.step-detail {
+  color: var(--muted);
+  font-size: var(--t-small);
+  overflow-wrap: anywhere;
+}
+
+.sheet .note {
+  padding: 0 var(--s-24);
+  color: var(--faint);
+  font-size: var(--t-micro);
+}
+
+.sheet-actions {
+  display: flex;
+  gap: var(--s-8);
+  padding: var(--s-16) var(--s-24) var(--s-24);
+}
+
+.primary {
+  height: 44px;
+  padding: 0 var(--s-16);
+  border: 0;
+  border-radius: 10px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+
+.primary:hover {
+  filter: brightness(1.06);
+}
+
+.secondary {
+  height: 44px;
+  padding: 0 var(--s-16);
+  border: 1px solid var(--hairline-strong);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+}
+
+.secondary:hover {
+  background: var(--surface-2);
+}
+
+.commandbar {
+  position: fixed;
+  top: 84px;
+  left: 50%;
+  width: min(560px, calc(100vw - 32px));
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--edge);
+  border-radius: var(--radius);
+  background: var(--glass-strong);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--shadow-sheet);
+  color: var(--text);
+  transform: translateX(-50%);
+}
+
+.commandbar::backdrop {
+  background: rgba(25, 22, 16, 0.10);
+}
+
+.commandbar form {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 var(--s-16);
+}
+
+.commandbar svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1.6;
+  flex: none;
+}
+
+.commandbar input {
+  flex: 1;
+  min-width: 0;
+  height: 56px;
+  border: 0;
+  background: transparent;
+  font-size: 1rem;
+  outline: none;
+}
+
+.commandbar input::placeholder {
+  color: var(--faint);
+}
+
+.login {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  gap: var(--s-16);
+  width: min(420px, calc(100vw - 32px));
+  padding: var(--s-32);
+  transform: translate(-50%, -50%);
+}
+
+.login .mark {
+  margin-bottom: var(--s-8);
+}
+
+.login label {
+  color: var(--muted);
+  font-size: var(--t-small);
+}
+
+.login input {
+  height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.login .primary {
+  margin-top: var(--s-8);
+}
+
+.token-path {
+  white-space: nowrap;
+}
+
+.info-button {
+  display: inline-grid;
+  place-items: center;
+  width: var(--s-16);
+  height: var(--s-16);
+  margin-left: var(--s-4);
+  padding: 0;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  line-height: 1;
+  vertical-align: middle;
+}
+
+.info-button:hover {
+  border-color: var(--text);
+  color: var(--text);
+}
+
+.token-help {
+  width: min(420px, calc(100vw - 32px));
+  padding: var(--s-24);
+  font-size: var(--t-small);
+}
+
+.token-help h2 {
+  margin-bottom: var(--s-16);
+  font-size: var(--t-mark);
+  font-weight: 600;
+}
+
+.token-help p + p {
+  margin-top: var(--s-8);
+}
+
+.token-help code {
+  word-break: break-word;
+}
+
+.note {
+  color: var(--muted);
+  font-size: var(--t-small);
+}
+
+.error {
+  color: var(--text);
+  font-weight: 600;
+  font-size: var(--t-small);
+}
+
+.notice {
+  margin-top: var(--s-32);
+  padding: var(--s-24);
+}
+
+@keyframes row-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+.log-table tbody tr {
+  animation: row-in 140ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .topbar,
+  .sheet,
+  .commandbar {
+    background: var(--surface);
+    backdrop-filter: none;
+  }
+}
+
+@media (max-width: 1100px) {
+  .search {
+    width: 170px;
+  }
+
+  .metric {
+    padding-inline: var(--s-16);
+  }
+}
+
+@media (max-width: 1000px) {
+  body {
+    overflow: auto;
+  }
+
+  .wrap {
+    width: min(calc(100% - 32px), var(--page));
+  }
+
+  .shell {
+    height: auto;
+    min-height: 100dvh;
+    overflow: visible;
+  }
+
+  .main {
+    display: flex;
+    flex-direction: column;
+    height: auto;
+    padding-block: var(--s-16);
+    overflow: visible;
+  }
+
+  .layout {
+    grid-template-columns: 1fr;
+  }
+
+  .queries {
+    height: 72vh;
+  }
+
+  .side {
+    overflow: visible;
+    padding-bottom: 0;
+  }
+
+  .metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .metric + .metric {
+    border-left: 0;
+  }
+
+  .metric:nth-child(even) {
+    border-left: 1px solid var(--hairline);
+  }
+
+  .metric:nth-child(n + 3) {
+    border-top: 1px solid var(--hairline);
+  }
+
+  .panel-head {
+    flex-wrap: wrap;
+    gap: var(--s-8);
+  }
+
+  .filters {
+    margin-left: 0;
+  }
+
+  .search {
+    width: 100%;
+  }
+
+  .sheet {
+    top: auto;
+    right: 8px;
+    bottom: 8px;
+    left: 8px;
+    width: auto;
+    max-height: 84dvh;
+  }
+
+  .pagefoot {
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 720px) {
+  .c-client,
+  .c-type {
+    display: none;
+  }
+
+  .log-table th,
+  .log-table td {
+    padding-inline: 8px;
+  }
+
+  .c-time {
+    width: 72px;
+  }
+
+  .c-result {
+    width: 96px;
+  }
+
+  .c-ms {
+    width: 56px;
+  }
+
+  .command-trigger {
+    width: 44px;
+    justify-content: center;
+    padding: 0;
+  }
+
+  .command-trigger span,
+  .command-trigger kbd {
+    display: none;
+  }
+
+  .verdict-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--s-4);
+  }
+
+  .pagefoot {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
+
+  .pagefoot p {
+    white-space: normal;
+  }
+}
+</style>
+<script>
+// Vor dem ersten Zeichnen, und deshalb im Kopf statt in app.js: stünde die Wahl
+// erst am Ende des Dokuments, blitzte bei jedem Laden kurz das helle Thema auf.
+// Ohne eigene Wahl gilt die des Systems.
+try {
+  var saved = localStorage.getItem("alpendns.theme");
+  if (saved !== "dark" && saved !== "light") {
+    saved = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  }
+  document.documentElement.dataset.theme = saved;
+} catch (e) {
+  // Ohne Speicher bleibt es beim hellen Thema, das :root festlegt.
+}
+</script>
+</head>
+<body>
+
+<div class="ground" aria-hidden="true">
+  <svg class="contours" viewBox="0 0 1440 900" preserveAspectRatio="xMidYMid slice">
+    <g fill="none" stroke="currentColor" stroke-width="1">
+      <path d="M1516 40C1514 63 1500 86 1488 106C1477 125 1464 144 1448 158C1431 171 1410 178 1390 185C1370 192 1352 197 1330 202C1308 206 1280 217 1259 212C1237 206 1214 187 1202 168C1190 150 1191 121 1186 100C1181 78 1173 61 1170 40C1167 19 1162 -6 1168 -27C1174 -48 1189 -69 1205 -85C1220 -102 1240 -120 1261 -128C1281 -135 1309 -138 1330 -133C1351 -127 1368 -107 1386 -96C1405 -86 1420 -80 1440 -70C1459 -59 1489 -49 1502 -31C1515 -13 1518 17 1516 40Z"/>
+      <path d="M1652 40C1646 78 1611 116 1589 147C1566 178 1540 197 1517 227C1494 257 1480 304 1449 328C1418 351 1369 368 1330 366C1291 364 1251 335 1216 314C1182 294 1150 273 1125 245C1099 218 1078 185 1064 150C1049 116 1046 79 1040 40C1035 1 1019 -46 1028 -85C1037 -124 1062 -173 1095 -195C1127 -217 1184 -213 1223 -217C1263 -222 1293 -220 1330 -222C1367 -225 1407 -241 1443 -234C1480 -227 1520 -206 1551 -181C1581 -156 1610 -120 1627 -83C1644 -46 1659 2 1652 40Z"/>
+      <path d="M1724 40C1721 97 1742 151 1732 207C1722 263 1703 333 1666 376C1628 419 1563 446 1507 466C1451 487 1387 503 1330 499C1273 495 1211 472 1163 443C1115 415 1085 366 1042 328C999 290 941 265 903 217C866 169 816 99 817 40C817 -19 869 -87 906 -136C944 -184 997 -213 1041 -249C1085 -285 1120 -325 1169 -349C1217 -374 1273 -386 1330 -394C1387 -401 1450 -406 1510 -394C1570 -382 1650 -363 1690 -320C1730 -277 1745 -194 1750 -134C1756 -74 1727 -17 1724 40Z"/>
+      <path d="M1964 40C1974 117 1948 208 1918 284C1888 359 1843 439 1785 495C1727 551 1646 603 1570 620C1495 638 1408 605 1330 599C1252 593 1187 595 1105 583C1023 572 906 577 840 530C774 482 725 380 707 298C690 216 723 120 737 40C752 -40 764 -114 795 -182C826 -250 872 -311 923 -367C973 -424 1030 -473 1098 -520C1166 -568 1248 -644 1330 -655C1412 -665 1522 -634 1589 -585C1656 -536 1687 -429 1732 -362C1776 -294 1819 -246 1858 -179C1896 -112 1954 -37 1964 40Z"/>
+      <path d="M310 900C308 925 306 951 297 973C288 996 271 1015 254 1034C238 1054 222 1077 199 1091C177 1105 146 1122 120 1120C94 1118 67 1094 46 1078C25 1063 13 1042 -5 1025C-24 1009 -52 998 -67 978C-82 957 -95 926 -96 900C-97 874 -85 844 -73 820C-61 796 -45 770 -25 755C-4 740 25 734 49 729C73 724 95 729 120 726C145 723 172 707 199 709C226 711 263 720 281 739C300 758 305 795 310 821C315 848 313 875 310 900Z"/>
+      <path d="M457 900C459 943 452 988 441 1033C429 1078 419 1135 389 1169C359 1203 303 1227 258 1234C214 1241 164 1215 120 1210C76 1206 38 1214 -7 1206C-52 1199 -112 1195 -148 1168C-184 1141 -209 1087 -224 1043C-240 998 -243 946 -238 900C-234 854 -218 806 -195 770C-171 734 -128 713 -97 683C-65 654 -43 623 -7 594C29 564 75 513 120 506C165 498 226 522 266 548C305 575 329 626 357 663C384 701 411 733 428 772C445 812 455 857 457 900Z"/>
+      <path d="M657 900C659 969 656 1051 624 1109C593 1167 520 1209 465 1245C411 1282 355 1295 298 1329C240 1362 187 1430 120 1449C53 1467 -42 1469 -104 1440C-166 1410 -213 1330 -252 1272C-291 1213 -319 1151 -337 1089C-356 1027 -365 962 -362 900C-360 838 -339 781 -324 716C-308 651 -307 570 -271 509C-235 449 -172 373 -106 353C-41 333 52 369 120 388C188 407 239 442 300 466C360 491 431 499 483 537C534 576 580 637 609 697C638 758 654 831 657 900Z"/>
+    </g>
+  </svg>
+</div>
+
+<noscript>
+  <div class="wrap">
+    <p class="panel notice">This page needs JavaScript for the live stream.
+    The data itself is served under <code>/api/status</code>.</p>
+  </div>
+</noscript>
+
+<form id="login" class="login panel" hidden>
+  <h1 class="mark">
+    <svg class="logo" viewBox="0 0 44 26" role="img" aria-label="Alpen">
+      <path class="ridge-back" d="M0 26 L12 6 L19 16 L23 10 L44 26 Z"/>
+      <path class="ridge-front" d="M6 26 L20 1 L34 26 Z"/>
+      <path class="snow" d="M20 1 L26 11.5 L22.9 9.6 L20 12 L17.1 9.6 L14 11.5 Z"/>
+    </svg>
+    <span class="wordmark"><b>Alpen</b>DNS</span>
+  </h1>
+  <p class="note">The API token is in the file
+  <span class="token-path"><code>/var/lib/alpendns/api.token</code><button type="button"
+  class="info-button" popovertarget="token-help" aria-label="About the API token">i</button></span>.</p>
+  <div id="token-help" class="token-help panel" popover>
+    <h2>API token</h2>
+    <p>Run this on the server to show it:</p>
+    <p><code>sudo cat /var/lib/alpendns/api.token</code></p>
+    <p>Did you set a different path? Then check <code>token_file</code> under
+    <code>[api]</code> in <code>/etc/alpendns/alpendns.toml</code>.</p>
+    <p>The path in use is also in the startup log:
+    <code>sudo journalctl -u alpendns -g token_file</code></p>
+  </div>
+  <label for="token">Token</label>
+  <input id="token" type="password" autocomplete="off" spellcheck="false">
+  <button type="submit" class="primary">Sign in</button>
+  <p id="login-error" class="error" hidden></p>
+</form>
+
+<div id="app" class="shell" hidden>
+
+  <header class="topbar">
+    <div class="wrap topbar-inner">
+      <h1 class="mark">
+        <svg class="logo" viewBox="0 0 44 26" role="img" aria-label="Alpen">
+          <path class="ridge-back" d="M0 26 L12 6 L19 16 L23 10 L44 26 Z"/>
+          <path class="ridge-front" d="M6 26 L20 1 L34 26 Z"/>
+          <path class="snow" d="M20 1 L26 11.5 L22.9 9.6 L20 12 L17.1 9.6 L14 11.5 Z"/>
+        </svg>
+        <span class="wordmark"><b>Alpen</b>DNS</span>
+      </h1>
+
+      <button type="button" class="command-trigger" id="command-open">
+        <svg viewBox="0 0 20 20" aria-hidden="true">
+          <circle cx="8.5" cy="8.5" r="5.5"/>
+          <path d="M12.6 12.6 17 17"/>
+        </svg>
+        <span>Inspect a domain…</span>
+        <kbd>/</kbd>
+      </button>
+
+      <button type="button" class="theme-toggle" id="theme-toggle"
+              aria-label="Switch to dark mode">
+        <svg class="icon-sun" viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="4"/>
+          <path d="M12 2.5v2.2M12 19.3v2.2M4.4 4.4l1.6 1.6M18 18l1.6 1.6M2.5 12h2.2M19.3 12h2.2M4.4 19.6L6 18M18 6l1.6-1.6"/>
+        </svg>
+        <svg class="icon-moon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M20.5 14.6A8.6 8.6 0 0 1 9.4 3.5a8.6 8.6 0 1 0 11.1 11.1z"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="wrap main">
+
+    <section class="statusline" aria-labelledby="verdict">
+      <div class="verdict-row">
+        <h2 class="verdict" id="verdict">
+          <span class="dot is-live" id="health-dot" aria-hidden="true"></span>
+          <span id="health">Resolving normally</span>
+        </h2>
+        <p class="live-note"><span id="counts-note">Counts since start</span> ·
+          <span id="stream-state">updates live</span></p>
+      </div>
+      <p class="status-detail" id="status-detail">–</p>
+    </section>
+
+    <section class="metrics" aria-labelledby="h-metrics">
+      <h2 id="h-metrics" class="sr-only">Key figures</h2>
+
+      <div class="metric">
+        <span class="metric-label">Queries</span>
+        <span class="metric-value" id="m-queries">–</span>
+        <span class="metric-sub" id="m-queries-sub"></span>
+        <svg class="spark" viewBox="0 0 240 36" preserveAspectRatio="none"
+             role="img" aria-label="Queries per second in the last minute">
+          <path id="s-queries" vector-effect="non-scaling-stroke" d=""/>
+        </svg>
+      </div>
+
+      <div class="metric">
+        <span class="metric-label">Blocked</span>
+        <span class="metric-value" id="m-blocked">–</span>
+        <span class="metric-sub" id="m-blocked-sub"></span>
+        <svg class="spark" viewBox="0 0 240 36" preserveAspectRatio="none"
+             role="img" aria-label="Blocked share per second in the last minute">
+          <path id="s-blocked" class="line-blocked" vector-effect="non-scaling-stroke" d=""/>
+        </svg>
+      </div>
+
+      <div class="metric">
+        <span class="metric-label">Cache hits</span>
+        <span class="metric-value" id="m-cache">–</span>
+        <span class="metric-sub" id="m-cache-sub">answered without upstream</span>
+        <svg class="spark" viewBox="0 0 240 36" preserveAspectRatio="none"
+             role="img" aria-label="Cache hit share per second in the last minute">
+          <path id="s-cache" vector-effect="non-scaling-stroke" d=""/>
+        </svg>
+      </div>
+
+      <div class="metric">
+        <span class="metric-label">Response time</span>
+        <span class="metric-value" id="m-latency">–</span>
+        <span class="metric-sub" id="m-latency-sub"></span>
+        <svg class="spark" viewBox="0 0 240 36" preserveAspectRatio="none"
+             role="img" aria-label="Mean response time per second in the last minute">
+          <path id="s-latency" vector-effect="non-scaling-stroke" d=""/>
+        </svg>
+      </div>
+    </section>
+
+    <div class="layout">
+
+      <section class="panel queries" aria-labelledby="h-live">
+        <div class="panel-head">
+          <div class="head-title">
+            <h2 id="h-live">Live queries</h2>
+            <span class="stream-flag" id="stream-flag">
+              <span class="dot" aria-hidden="true"></span>
+              <span id="stream-flag-text">streaming</span>
+            </span>
+          </div>
+
+          <div class="filters" role="group" aria-label="Filter queries">
+            <button type="button" class="chip is-active" data-filter="all"
+                    aria-pressed="true">All</button>
+            <button type="button" class="chip" data-filter="blocked"
+                    aria-pressed="false">Blocked</button>
+            <button type="button" class="chip" data-filter="errors"
+                    aria-pressed="false">Errors</button>
+          </div>
+
+          <label class="search" for="log-search">
+            <svg viewBox="0 0 20 20" aria-hidden="true">
+              <circle cx="8.5" cy="8.5" r="5.5"/>
+              <path d="M12.6 12.6 17 17"/>
+            </svg>
+            <input id="log-search" type="search" placeholder="Domain or client"
+                   autocomplete="off" spellcheck="false">
+          </label>
+        </div>
+
+        <div class="log" id="log-scroll" tabindex="0">
+          <table class="log-table" id="log-table">
+            <caption class="sr-only">The most recent queries</caption>
+            <thead>
+              <tr>
+                <th class="c-time" scope="col">Time</th>
+                <th class="c-name" scope="col">Domain</th>
+                <th class="c-type" scope="col">Type</th>
+                <th class="c-client" scope="col">Client</th>
+                <th class="c-result" scope="col">Result</th>
+                <th class="c-ms" scope="col">ms</th>
+              </tr>
+            </thead>
+            <tbody id="log"></tbody>
+          </table>
+          <div class="empty" id="log-empty">
+            <svg class="empty-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M3 12h4l3-7 4 14 3-7h4"/>
+            </svg>
+            <p id="log-empty-note">No query answered yet. New ones appear here on their own.</p>
+          </div>
+        </div>
+
+        <p class="log-foot" id="log-foot">Select a domain to see why it was answered that way.</p>
+      </section>
+
+      <aside class="side" id="side">
+
+        <section class="panel side-panel" aria-labelledby="h-day">
+          <div class="panel-head">
+            <h2 id="h-day">Last 24 hours</h2>
+          </div>
+          <div class="panel-body">
+            <figure class="chart" id="chart-traffic">
+              <figcaption>
+                <span>Queries</span>
+                <span class="key">
+                  <span class="swatch sw-total" aria-hidden="true"></span>total
+                  <span class="swatch sw-blocked" aria-hidden="true"></span>blocked
+                </span>
+              </figcaption>
+              <svg class="graph" viewBox="0 0 240 56" preserveAspectRatio="none"
+                   role="img" aria-label="Queries and blocked queries in the last 24 hours">
+                <path id="day-queries" class="line-total" vector-effect="non-scaling-stroke" d=""/>
+                <path id="day-blocked" class="line-blocked" vector-effect="non-scaling-stroke" d=""/>
+              </svg>
+            </figure>
+            <div class="empty" id="day-empty">
+              <svg class="empty-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 19h16M4 19V5M8 15l4-5 3 3 4-6"/>
+              </svg>
+              <p>The time series starts on startup and lives only in memory.
+              The first point appears after five minutes.</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel side-panel" aria-labelledby="h-up">
+          <div class="panel-head">
+            <h2 id="h-up">Upstreams</h2>
+            <p class="note" id="up-note"></p>
+          </div>
+          <div class="panel-body">
+            <p class="up-columns"><span>Upstream</span><span>p50 / p95 · last 256</span></p>
+            <ul class="upstreams" id="upstreams" aria-labelledby="h-up"></ul>
+          </div>
+        </section>
+
+        <section class="panel side-panel" aria-labelledby="h-privacy">
+          <div class="panel-head">
+            <h2 id="h-privacy">Privacy &amp; integrity</h2>
+          </div>
+          <div class="panel-body">
+            <ul class="privacy" id="privacy">
+              <li class="privacy-row">
+                <span class="state" aria-hidden="true">
+                  <svg class="is-on" viewBox="0 0 16 16"><path d="M3 8.5 6.4 12 13 4.5"/></svg>
+                  <svg class="is-off" viewBox="0 0 16 16"><path d="M4 8h8"/></svg>
+                </span>
+                <span class="privacy-label">ECS stripped</span>
+                <span class="privacy-value" id="pc-ecs">–</span>
+              </li>
+              <li class="privacy-row">
+                <span class="state" aria-hidden="true">
+                  <svg class="is-on" viewBox="0 0 16 16"><path d="M3 8.5 6.4 12 13 4.5"/></svg>
+                  <svg class="is-off" viewBox="0 0 16 16"><path d="M4 8h8"/></svg>
+                </span>
+                <span class="privacy-label">EDNS padding</span>
+                <span class="privacy-value" id="pc-pad">–</span>
+              </li>
+              <li class="privacy-row">
+                <span class="state" aria-hidden="true">
+                  <svg class="is-on" viewBox="0 0 16 16"><path d="M3 8.5 6.4 12 13 4.5"/></svg>
+                  <svg class="is-off" viewBox="0 0 16 16"><path d="M4 8h8"/></svg>
+                </span>
+                <span class="privacy-label">DNSSEC validation</span>
+                <span class="privacy-value" id="pc-secure">–</span>
+              </li>
+              <li class="privacy-row">
+                <span class="state" aria-hidden="true">
+                  <svg class="is-on" viewBox="0 0 16 16"><path d="M3 8.5 6.4 12 13 4.5"/></svg>
+                  <svg class="is-off" viewBox="0 0 16 16"><path d="M4 8h8"/></svg>
+                </span>
+                <span class="privacy-label">Bogus answers dropped</span>
+                <span class="privacy-value"><span id="pc-bogus">–</span>
+                  <button type="button" class="link" id="bogus-review" hidden>Review</button></span>
+              </li>
+              <li class="privacy-row">
+                <span class="state" aria-hidden="true">
+                  <svg class="is-on" viewBox="0 0 16 16"><path d="M3 8.5 6.4 12 13 4.5"/></svg>
+                  <svg class="is-off" viewBox="0 0 16 16"><path d="M4 8h8"/></svg>
+                </span>
+                <span class="privacy-label">0x20 randomization</span>
+                <span class="privacy-value" id="pc-case">–</span>
+              </li>
+              <li class="privacy-row">
+                <span class="state" aria-hidden="true">
+                  <svg class="is-on" viewBox="0 0 16 16"><path d="M3 8.5 6.4 12 13 4.5"/></svg>
+                  <svg class="is-off" viewBox="0 0 16 16"><path d="M4 8h8"/></svg>
+                </span>
+                <span class="privacy-label">DNS cookies</span>
+                <span class="privacy-value" id="pc-cookie">–</span>
+              </li>
+            </ul>
+          </div>
+        </section>
+
+        <section class="panel side-panel" aria-labelledby="h-reasons">
+          <div class="panel-head">
+            <h2 id="h-reasons">Block reasons</h2>
+          </div>
+          <div class="panel-body">
+            <div class="bar" id="reason-bar" hidden></div>
+            <ul class="legend" id="reason-legend"></ul>
+            <div class="empty" id="reason-empty">
+              <svg class="empty-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M5 12h14M12 5v14"/>
+              </svg>
+              <p>Nothing blocked yet. As soon as a rule matches, it will be listed here.</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel side-panel" aria-labelledby="h-flagged">
+          <div class="panel-head">
+            <h2 id="h-flagged">Flagged</h2>
+            <p class="note" id="flagged-note"></p>
+          </div>
+          <div class="panel-body">
+            <ul class="flagged" id="flagged" aria-labelledby="h-flagged"></ul>
+            <div class="empty" id="flagged-empty">
+              <svg class="empty-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 4v10M12 18h.01"/>
+              </svg>
+              <p id="flagged-note-empty">No heuristic has flagged anything.</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel side-panel" aria-labelledby="h-top">
+          <div class="panel-head">
+            <h2 id="h-top">Top names</h2>
+          </div>
+          <div class="panel-body">
+            <ol class="top" id="top" aria-labelledby="h-top"></ol>
+            <div class="empty" id="top-empty">
+              <svg class="empty-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M8 6h11M8 12h11M8 18h11M4 6h.01M4 12h.01M4 18h.01"/>
+              </svg>
+              <p id="top-note">No name seen often enough yet.</p>
+            </div>
+          </div>
+        </section>
+
+      </aside>
+    </div>
+
+    <footer class="pagefoot">
+      <p id="foot-lists">–</p>
+      <p id="foot-mode">–</p>
+      <p id="foot-version">–</p>
+    </footer>
+
+  </main>
+</div>
+
+<dialog id="inspector" class="sheet" aria-labelledby="inspect-name">
+  <div class="sheet-head">
+    <div>
+      <p class="sheet-kicker">Why this answer</p>
+      <h2 id="inspect-name" class="subject">–</h2>
+      <p class="context" id="inspect-meta"></p>
+    </div>
+    <button type="button" class="icon-button" id="inspect-close" aria-label="Close">
+      <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 5l10 10M15 5 5 15"/></svg>
+    </button>
+  </div>
+
+  <p class="verdict-badge" id="inspect-verdict" hidden></p>
+
+  <ol class="pipeline" id="inspect-steps"></ol>
+
+  <p class="note" id="inspect-note">Evaluated now against the current lists, not
+  replayed from the log.</p>
+
+  <div class="sheet-actions">
+    <button type="button" class="primary" id="inspect-allow" hidden>Allow this domain</button>
+    <button type="button" class="secondary" id="inspect-copy">Copy trace</button>
+  </div>
+</dialog>
+
+<dialog id="command" class="commandbar" aria-labelledby="command-title">
+  <form id="command-form" novalidate>
+    <svg viewBox="0 0 20 20" aria-hidden="true">
+      <circle cx="8.5" cy="8.5" r="5.5"/>
+      <path d="M12.6 12.6 17 17"/>
+    </svg>
+    <h2 id="command-title" class="sr-only">Inspect a domain</h2>
+    <input id="command-input" type="text" placeholder="Inspect a domain…"
+           autocomplete="off" spellcheck="false" aria-labelledby="command-title">
+    <kbd>Esc</kbd>
+  </form>
+</dialog>
+
+<script>
+// AlpenDNS — die Demo-Schicht.
+//
+// Diese Datei gehört nicht zum Produkt. `web/demo/build.sh` setzt sie beim
+// Bauen der öffentlichen Demo zwischen `index.html` und `app.js` und ersetzt
+// dort genau zwei Dinge: `fetch` und `EventSource`. Markup, Stylesheet und die
+// Oberfläche selbst bleiben unverändert das, was der Server ausliefert — die
+// Demo kann deshalb nicht anders aussehen als das Original, weil sie das
+// Original *ist*, nur mit einer anderen Datenquelle.
+//
+// ── Die erfundene Anlage hat keinen Zustand ────────────────────────────────
+//
+// Jede Zahl ist eine reine Funktion der Uhrzeit, ermittelt über einen
+// zustandslosen Hash statt über einen Zufallsgenerator. Das hat drei Folgen,
+// und alle drei sind gewollt:
+//
+//   * Zwei Besucher zur selben Sekunde sehen dieselbe Seite.
+//   * Ein Neuladen bringt dieselben Zeilen zurück — es waren Ereignisse dieser
+//     erfundenen Welt, keine frisch gewürfelten.
+//   * Das Ende von /api/recent schließt fugenlos an das erste Ereignis des
+//     Live-Stroms an. Genau das kann ein Besucher nachsehen.
+//
+// Ein Zufallsgenerator mit Startwert könnte das nicht: sein Ergebnis hinge
+// davon ab, wie viele Ziehungen vorher passiert sind, also davon, wann der
+// Besucher gekommen ist.
+//
+// ── Was erfunden ist und was nicht ─────────────────────────────────────────
+//
+// Erfunden sind die Zahlen und der Haushalt, der sie erzeugt. *Nicht* erfunden
+// sind die Wortlaute: die Entscheidungsketten stehen genauso in
+// `src/trace.rs`, die Begründungen der Heuristiken genauso in `src/detect/`,
+// die Liste mit den Resolvern, den Blocklisten, den Policies und dem Zeitplan
+// steht genauso in `config/alpendns.example.toml`. Die Demo erfindet keine
+// Vokabeln, sie erfindet einen Haushalt.
+"use strict";
+
+(function () {
+  // ── Zufall, der keiner ist ───────────────────────────────────────────────
+
+  /** Ein 32-Bit-Hash. Derselbe Einsatz, dasselbe Ergebnis — immer. */
+  function hash32(x) {
+    x = Math.imul(x ^ (x >>> 16), 0x45d9f3b);
+    x = Math.imul(x ^ (x >>> 16), 0x45d9f3b);
+    return (x ^ (x >>> 16)) >>> 0;
+  }
+
+  /** Eine Zahl in [0,1) — bestimmt durch (Sekunde, Nummer, Zweck). */
+  function rnd(sec, k, salt) {
+    return (
+      hash32((sec | 0) + Math.imul(k + 1, 0x9e3779b1) + Math.imul(salt, 0x85ebca6b)) /
+      4294967296
+    );
+  }
+
+  /** FNV-1a über einen Namen. Namen sind stabil, also auch ihr Weg. */
+  function stringHash(text) {
+    let hash = 2166136261;
+    for (let index = 0; index < text.length; index += 1) {
+      hash ^= text.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return hash;
+  }
+
+  const gauss = (x, mu, sigma) => Math.exp(-0.5 * ((x - mu) / sigma) ** 2);
+
+  // ── Die Uhr ──────────────────────────────────────────────────────────────
+
+  const BUCKET_SECONDS = 300;
+  const BUCKETS = 288; // 24 Stunden
+  const AGGREGATE_K = 5; // wie [privacy.logging] aggregate_k
+  const VERSION = "0.0.1"; // wie env!("CARGO_PKG_VERSION")
+  const UPTIME_SECONDS = 6 * 86400 + 7 * 3600 + 42 * 60;
+
+  const nowSec = () => Math.floor(Date.now() / 1000);
+
+  function hourOf(sec) {
+    const at = new Date(sec * 1000);
+    return at.getHours() + at.getMinutes() / 60 + at.getSeconds() / 3600;
+  }
+
+  function isWeekend(sec) {
+    const day = new Date(sec * 1000).getDay();
+    return day === 0 || day === 6;
+  }
+
+  /** Wann der erfundene Prozess gestartet ist. Absolut verankert, nicht an
+   *  Mitternacht: sonst sprängen Laufzeit und Zähler für jeden um, der die
+   *  Seite über Nacht offen lässt. */
+  const START = nowSec() - UPTIME_SECONDS;
+
+  // ── Der Tagesgang ────────────────────────────────────────────────────────
+
+  /** Anfragen je Sekunde. Der Sockel ist bewusst hoch: eine Demo, die nachts
+   *  stillsteht, sieht aus wie eine kaputte. */
+  function qps(sec) {
+    const hour = hourOf(sec);
+    const weekend = isWeekend(sec);
+    let value = 0.9;
+    value += (weekend ? 1.6 : 2.2) * gauss(hour, weekend ? 9.5 : 7.3, weekend ? 1.6 : 0.9);
+    value += (weekend ? 1.9 : 1.6) * gauss(hour, 13.0, 3.4);
+    value -= 0.7 * gauss(hour, 17.2, 0.9); // die Pendlerdelle
+    value += 3.4 * gauss(hour, 20.4, weekend ? 1.9 : 1.6);
+    return Math.max(0.25, value);
+  }
+
+  // ── Der Haushalt ─────────────────────────────────────────────────────────
+
+  /** Ein Gerät. `profile` ist seine Tagesform — ein Tablet ist nachmittags und
+   *  abends da, ein Arbeitsrechner vormittags, der Drucker immer. */
+  const CLIENTS = [
+    { name: "kids-tablet", ip: "10.0.10.42", policy: "kids", weight: 0.62, profile: "kids" },
+    { name: "kids-phone", ip: "10.0.10.51", policy: "kids", weight: 0.38, profile: "kids" },
+    { name: "living-room", ip: "10.0.10.60", policy: "default", weight: 1.0, profile: "evening" },
+    { name: "work-laptop", ip: "10.0.10.20", policy: "default", weight: 1.0, profile: "work" },
+    // Kein Eintrag in der Konfiguration: Drucker, Thermostat, Gäste. Die
+    // Policy heißt dann "default", und genau so steht es im Protokoll.
+    { name: "default", ip: "–", policy: "default", weight: 0.55, profile: "flat" },
+  ];
+
+  const PROFILES = {
+    kids: (h) => 0.02 + 1.0 * gauss(h, 19.5, 3.0) + 0.55 * gauss(h, 8.0, 1.1),
+    evening: (h) => 0.45 + 1.6 * gauss(h, 20.0, 3.0),
+    work: (h) => 0.25 + 1.3 * gauss(h, 11.5, 3.2) + 0.5 * gauss(h, 19.0, 2.0),
+    flat: () => 0.55,
+  };
+
+  /** Der Zeitplan "bedtime" aus der Beispielkonfiguration: montags bis
+   *  donnerstags und sonntags von 21:00 bis 07:00 wird für die Policy "kids"
+   *  alles außer der Allowlist geblockt. */
+  function inBedtime(sec) {
+    const at = new Date(sec * 1000);
+    const day = at.getDay();
+    if (day === 5 || day === 6) return false; // Freitag und Samstag sind frei
+    const hour = hourOf(sec);
+    return hour >= 21 || hour < 7;
+  }
+
+  // ── Namen ────────────────────────────────────────────────────────────────
+
+  /** Die Töpfe. `share` ist der Anteil an allen Anfragen, `boost` die
+   *  Tagesform, `blocked` die Zugehörigkeit zu einer der Listen. Nur Werbung
+   *  und Telemetrie stehen darauf — deshalb ist die Grundblockrate dieses
+   *  Haushalts genau die Summe ihrer beiden Anteile, und deshalb steht sie
+   *  nirgends als Zahl, sondern wird überall ausgerechnet. */
+  const POOLS = [
+    { key: "ads", share: 0.06, blocked: true, boost: (h) => 0.7 + 0.5 * gauss(h, 20.0, 3.5) },
+    { key: "telemetry", share: 0.035, blocked: true, boost: () => 1 },
+    { key: "streaming", share: 0.16, boost: (h) => 1 + 2.0 * gauss(h, 20.4, 2.0) },
+    { key: "cdn", share: 0.2, boost: () => 1 },
+    { key: "platform", share: 0.14, boost: () => 1 },
+    { key: "work", share: 0.16, boost: (h) => 0.6 + 0.9 * gauss(h, 11.5, 3.2) },
+    { key: "lan", share: 0.045, boost: () => 1 },
+    { key: "tail", share: 0.2, boost: () => 1 },
+  ];
+
+  /** Die Namen, die oft genug vorkommen, um gezählt zu werden.
+   *
+   *  `verdict` ist das, was die Policy mit ihnen macht: `blocked` steht auf
+   *  einer der beiden Listen, `allowlisted` steht ebenfalls darauf, aber
+   *  `local-allow` hat Vorrang, `flagged` fällt einer Heuristik auf — was
+   *  nichts blockt, weil alle fünf auf `flag` stehen. `list` ist die Liste,
+   *  die im Trefferfall im Trace steht. */
+  const NAMES = [
+    // Der Fernseher und die Musikanlage, abends.
+    { pool: "streaming", name: "youtube.com", w: 9 },
+    { pool: "streaming", name: "googlevideo.com", w: 7 },
+    { pool: "streaming", name: "nflxvideo.net", w: 5 },
+    { pool: "streaming", name: "audio-ak-spotify-com.akamaized.net", w: 4 },
+    { pool: "streaming", name: "netflix.com", w: 3 },
+    { pool: "streaming", name: "ttvnw.net", w: 2, list: "twitch" },
+
+    // Was immer im Haus passiert, ohne dass jemand etwas anklickt.
+    { pool: "cdn", name: "fonts.gstatic.com", w: 6 },
+    { pool: "cdn", name: "cdn.jsdelivr.net", w: 4 },
+    // Steht auf `oisd-big` und wird trotzdem durchgelassen: eine App braucht
+    // sie, und `local-allow` hat Vorrang. Genau dafür gibt es die Allowlist.
+    // Sie gehört in diesen Topf und nicht zu Werbung — nicht weil sie keine
+    // wäre, sondern weil ein CDN eben ständig gefragt wird. Und weil sie ständig
+    // gefragt wird, sieht ein Besucher sie auch: eine Freigabe, die im
+    // Protokoll nie auftaucht, erklärt nichts.
+    { pool: "cdn", name: "cdn.branch.io", w: 3, verdict: "allowlisted", list: "oisd-big" },
+    { pool: "cdn", name: "d1a2b3c4.cloudfront.net", w: 3 },
+    { pool: "cdn", name: "static.crates.io", w: 2 },
+    { pool: "cdn", name: "objects.githubusercontent.com", w: 2 },
+
+    { pool: "platform", name: "gs-loc.apple.com", w: 5 },
+    { pool: "platform", name: "connectivitycheck.gstatic.com", w: 4 },
+    { pool: "platform", name: "mesu.apple.com", w: 3 },
+    { pool: "platform", name: "time.cloudflare.com", w: 3 },
+
+    { pool: "work", name: "github.com", w: 4 },
+    { pool: "work", name: "slack.com", w: 3 },
+    { pool: "work", name: "api.github.com", w: 3 },
+    { pool: "work", name: "registry.npmjs.org", w: 3 },
+    { pool: "work", name: "crates.io", w: 2 },
+    { pool: "work", name: "docs.rs", w: 2 },
+
+    // Werbung und Messdienste. Das ist der Teil, der geblockt wird.
+    { pool: "ads", name: "graph.facebook.com", w: 6, verdict: "blocked", list: "oisd-big" },
+    { pool: "ads", name: "ads.doubleclick.net", w: 5, verdict: "blocked", list: "oisd-big" },
+    { pool: "ads", name: "analytics.tiktok.com", w: 4, verdict: "blocked", list: "oisd-big" },
+    { pool: "ads", name: "px.ads.linkedin.com", w: 3, verdict: "blocked", list: "oisd-big" },
+    { pool: "ads", name: "app-measurement.com", w: 3, verdict: "blocked", list: "oisd-big" },
+    { pool: "ads", name: "googlesyndication.com", w: 3, verdict: "blocked", list: "oisd-big" },
+    { pool: "ads", name: "criteo.com", w: 2, verdict: "blocked", list: "oisd-big" },
+    { pool: "ads", name: "scorecardresearch.com", w: 2, verdict: "blocked", list: "oisd-big" },
+    { pool: "ads", name: "adsrvr.org", w: 2, verdict: "blocked", list: "oisd-big" },
+
+    { pool: "telemetry", name: "vortex.data.microsoft.com", w: 3, verdict: "blocked", list: "stevenblack-unified" },
+    { pool: "telemetry", name: "settings-win.data.microsoft.com", w: 2, verdict: "blocked", list: "stevenblack-unified" },
+    { pool: "telemetry", name: "telemetry.mozilla.org", w: 2, verdict: "blocked", list: "stevenblack-unified" },
+    { pool: "telemetry", name: "device-metrics-us.amazon.com", w: 2, verdict: "blocked", list: "stevenblack-unified" },
+    { pool: "telemetry", name: "watson.telemetry.microsoft.com", w: 1, verdict: "blocked", list: "stevenblack-unified" },
+
+    // Ging nie ins Internet. Der einzige Ort, an dem Klartext-DNS erlaubt ist.
+    { pool: "lan", name: "nas.home.arpa", w: 3, forward: true },
+    { pool: "lan", name: "ha.home.arpa", w: 2, forward: true },
+    { pool: "lan", name: "drucker.home.arpa", w: 1, forward: true },
+  ];
+
+  /** Die drei Anfragen, die auffallen, ohne geblockt zu werden. Ein Gerät, das
+   *  alle paar Minuten einen neuen Namen erfindet, eins, das Daten über DNS
+   *  schaufelt, und eins, das auf eine private Adresse zeigt. */
+  const FLAGGED = [
+    {
+      name: "kqxvbnzmrtwp3.com",
+      detector: "dga",
+      label: "Algorithmically generated name",
+      score: "0.873",
+      reason:
+        "'kqxvbnzmrtwp3' does not fit naturally grown names: 4.1 bits of surprise per " +
+        "character triple, longest consonant run 12, digit share 8 %",
+    },
+    {
+      name: "y7hq2vxn8km4p.net",
+      detector: "dga",
+      label: "Algorithmically generated name",
+      score: "0.941",
+      reason:
+        "'y7hq2vxn8km4p' does not fit naturally grown names: 4.6 bits of surprise per " +
+        "character triple, longest consonant run 7, digit share 23 %",
+    },
+    {
+      name: "9f2a1c8e4b7d3a6f1e5c.sync.telemetry-update.net",
+      detector: "tunneling",
+      label: "Tunneling",
+      score: "0.910",
+      reason:
+        "Zone 'sync.telemetry-update.net': 412 unique subdomains in 1238 queries, " +
+        "label entropy 3.9 bits/character, mean label length 28, 86 of them TXT/NULL",
+    },
+    {
+      name: "b4e1d9a70c3f82.sync.telemetry-update.net",
+      detector: "tunneling",
+      label: "Tunneling",
+      score: "0.884",
+      reason:
+        "Zone 'sync.telemetry-update.net': 388 unique subdomains in 1104 queries, " +
+        "label entropy 3.8 bits/character, mean label length 26, 71 of them TXT/NULL",
+    },
+    {
+      name: "cam.homeip.net",
+      detector: "rebinding",
+      label: "DNS rebinding",
+      score: "1.000",
+      reason: "Answer to public name 'cam.homeip.net' contains the private address 10.0.10.7",
+    },
+    {
+      name: "nas.freeddns.org",
+      detector: "rebinding",
+      label: "DNS rebinding",
+      score: "1.000",
+      reason: "Answer to public name 'nas.freeddns.org' contains the private address 192.168.1.10",
+    },
+  ];
+
+  const UPSTREAMS = [
+    { name: "quad9", transport: "dot", rtt: 13 },
+    { name: "mullvad", transport: "doh", rtt: 24 },
+    { name: "dnsforge", transport: "doh", rtt: 33 },
+  ];
+
+  /** Die Registrable Domain — grob, aber ausreichend: die letzten zwei
+   *  Marken. `split_by_zone` hasht sie, also geht alles unter derselben Domain
+   *  immer denselben Weg. */
+  function registrable(name) {
+    const parts = name.split(".");
+    return parts.length <= 2 ? name : parts.slice(-2).join(".");
+  }
+
+  function upstreamFor(name) {
+    return hash32(stringHash(registrable(name))) % UPSTREAMS.length;
+  }
+
+  // ── Ziehen nach Gewicht ──────────────────────────────────────────────────
+
+  function pick(list, value) {
+    let total = 0;
+    for (const entry of list) total += entry.weight;
+    let rest = value * total;
+    for (const entry of list) {
+      rest -= entry.weight;
+      if (rest <= 0) return entry.item;
+    }
+    return list.length ? list[list.length - 1].item : null;
+  }
+
+  function clientWeights(hour) {
+    return CLIENTS.map((client) => ({
+      weight: client.weight * PROFILES[client.profile](hour),
+      item: client,
+    }));
+  }
+
+  function poolWeights(hour) {
+    return POOLS.map((pool) => ({
+      weight: pool.share * pool.boost(hour),
+      item: pool,
+    }));
+  }
+
+  /** Eine feste Abweichung je Name, zwischen 0,9 und 1,1.
+   *
+   *  Ohne sie bekämen zwei Namen mit demselben Gewicht genau dieselbe Zahl —
+   *  und zwei gleiche Zahlen nebeneinander in der Liste der häufigsten Namen
+   *  verraten sofort, dass hier gerechnet und nicht gezählt wurde. Echter
+   *  Verkehr bringt solche Gleichstände nicht hervor.
+   *
+   *  Die Abweichung hängt am Namen und nicht an der Uhr: derselbe Name hat
+   *  morgen dasselbe Gewicht, sonst sprängen die Zahlen beim Neuladen. */
+  const nameNoise = (name) => 0.9 + 0.2 * (hash32(stringHash(name)) / 4294967296);
+
+  function nameWeights(pool) {
+    return NAMES.filter((entry) => entry.pool === pool).map((entry) => ({
+      weight: entry.w * nameNoise(entry.name),
+      item: entry,
+    }));
+  }
+
+  /** Der lange Schwanz: Namen, die einmal oder zweimal vorkommen und deshalb
+   *  unter der k-Schwelle bleiben. Er darf keinen Namen erzeugen, der auch
+   *  oben steht, sonst ginge die Rechnung im Top-Panel nicht auf. */
+  function tailName(sec, k) {
+    const roll = rnd(sec, k, 41);
+    const hex = (n) => hash32(stringHash(String(sec) + ":" + k + ":" + n)).toString(16);
+    if (roll < 0.4) return `${hex(1).slice(0, 12)}.cloudfront.net`;
+    if (roll < 0.6) return `${hex(2)}${hex(3).slice(0, 8)}.s3.eu-central-1.amazonaws.com`;
+    if (roll < 0.75) {
+      const probes = ["wpad", "_dmarc", "_ldap._tcp", "autodiscover", "_sip._tcp"];
+      const host = NAMES[Math.floor(rnd(sec, k, 42) * NAMES.length) % NAMES.length].name;
+      return `${probes[Math.floor(rnd(sec, k, 43) * probes.length) % probes.length]}.${registrable(host)}`;
+    }
+    return `d${hex(4).slice(0, 6)}.${hex(5).slice(0, 6)}.example-cdn.net`;
+  }
+
+  // ── Ein einzelnes Ereignis ───────────────────────────────────────────────
+
+  /** Wie viele Anfragen in diese Sekunde fallen. Der Nachkommateil wird
+   *  ausgewürfelt, nicht abgeschnitten — sonst verschwände er. */
+  function eventsInSecond(sec) {
+    const rate = qps(sec);
+    const whole = Math.floor(rate);
+    const count = whole + (rnd(sec, 0, 2) < rate - whole ? 1 : 0);
+    const events = [];
+    for (let k = 0; k < count; k += 1) events.push(makeEvent(sec, k));
+    return events;
+  }
+
+  function makeEvent(sec, k) {
+    const hour = hourOf(sec);
+
+    // 1. Aus welchem Topf kommt die Frage?
+    const poolEntry = pick(poolWeights(hour), rnd(sec, k, 1));
+    let entry;
+    if (poolEntry.key === "tail") {
+      // Der Schwanz ist fast immer langweilig; alle paar Minuten steht einer
+      // der auffälligen Namen darin.
+      const flagged = rnd(sec, k, 2) < 0.0125;
+      if (flagged) {
+        const found = FLAGGED[Math.floor(rnd(sec, k, 3) * FLAGGED.length) % FLAGGED.length];
+        entry = { name: found.name, pool: "tail", flagged: found };
+      } else {
+        entry = { name: tailName(sec, k), pool: "tail" };
+      }
+    } else {
+      entry = pick(nameWeights(poolEntry.key), rnd(sec, k, 4)) ?? { name: "example.com", pool: poolEntry.key };
+    }
+
+    // 2. Von welchem Gerät?
+    const client = pick(clientWeights(hour), rnd(sec, k, 5));
+    const inWindow = inBedtime(sec) && client.policy === "kids";
+
+    // 3. Wie entscheidet die Policy? Die Reihenfolge ist die der echten
+    //    Pipeline: Allowlist vor Blockliste, und ein Treffer auf der
+    //    Allowlist beendet die Sache, bevor der Zeitplan greifen kann.
+    const verdict = decide(entry, client, inWindow);
+
+    // 4. Wie schnell, und mit welcher Antwort?
+    //
+    // Die Zahl entsteht genau einmal und wandert danach in die Zeile *und* in
+    // die Kette. Zweimal gewürfelt wäre sie zweimal verschieden, und wer eine
+    // langsame Zeile anklickt, läse in der Begründung eine schnelle.
+    const cached = !verdict.blocked && rnd(sec, k, 6) < hitRate(hour) * (entry.pool === "tail" ? 0.55 : 1);
+    const upstream = UPSTREAMS[upstreamFor(entry.name)];
+    let ms;
+    if (verdict.blocked) {
+      ms = 0.08 + rnd(sec, k, 7) * 0.35; // synthetisiert, kein Weg nach draußen
+    } else if (entry.forward) {
+      ms = 0.9 + rnd(sec, k, 7) * 1.4; // ins eigene Netz, nicht ins Internet
+    } else if (cached) {
+      ms = 0.15 + rnd(sec, k, 7) * 1.0; // ein Speicherzugriff, kein Netz
+    } else {
+      ms = upstream.rtt + 0.8 + rnd(sec, k, 7) * 2.0;
+      // Die eine Antwort in fünfzig, die hängt — und nur hier. Ein Cache-Treffer,
+      // der 180 ms braucht, wäre keine Latenz, sondern Unsinn: die Kette daneben
+      // sagt "from cache", und die Zahl widerspräche ihr.
+      if (rnd(sec, k, 8) < 0.02) ms = 110 + rnd(sec, k, 9) * 130;
+    }
+
+    const roll = rnd(sec, k, 10);
+    const rcode = verdict.blocked
+      ? "NXDOMAIN"
+      : roll < 0.965
+        ? "NoError"
+        : "NXDOMAIN"; // ein Tippfehler, ein umgezogener Name
+
+    const types = ["A", "A", "A", "A", "A", "A", "A", "AAAA", "AAAA", "HTTPS", "TXT"];
+    const type = types[Math.floor(rnd(sec, k, 11) * types.length) % types.length];
+
+    const event = {
+      sec,
+      name: entry.name,
+      type,
+      client: client.name,
+      blocked: verdict.blocked,
+      source: verdict.blocked ? "blocked" : cached ? "cache" : "upstream",
+      rcode,
+      ms,
+      why: [],
+      findings: [],
+    };
+
+    // 5. Die Kette.
+    const steps = [];
+    if (client.name === "default") {
+      steps.push("no client entry matches, 'default' applies");
+    } else {
+      steps.push(`Client '${client.name}' recognized by source address`);
+    }
+    steps.push(`Policy '${client.policy}'`);
+
+    const temporary = decisions.get(entry.name);
+    if (temporary && temporary.until > sec) {
+      const left = temporary.until - sec;
+      if (temporary.kind === "deny") {
+        event.blocked = true;
+        event.source = "blocked";
+        event.rcode = "NXDOMAIN";
+        steps.push(`temporary deny, ${left}s left`);
+        steps.push("Answer synthesized locally, mode Nxdomain");
+      } else {
+        event.blocked = false;
+        event.source = cached ? "cache" : "upstream";
+        event.rcode = "NoError";
+        steps.push(`temporary allow, ${left}s left`);
+        steps.push(...resolution(entry, cached, upstream, sec, k, ms));
+      }
+    } else if (verdict.allowlisted) {
+      steps.push(`Allowlist 'local-allow' line 118: 'branch.io'`);
+      steps.push(...resolution(entry, cached, upstream, sec, k, ms));
+    } else if (verdict.bySchedule) {
+      steps.push("Schedule 'bedtime' active: everything except the allowlist is blocked");
+      steps.push("Answer synthesized locally, mode Nxdomain");
+    } else if (verdict.byBlocklist) {
+      steps.push(blocklistStep(entry));
+      steps.push("Answer synthesized locally, mode Nxdomain");
+    } else {
+      if (entry.flagged) {
+        steps.push(
+          `${entry.flagged.label} flags (score ${entry.flagged.score}): ${entry.flagged.reason}`,
+        );
+        event.findings.push({
+          detector: entry.flagged.detector,
+          label: entry.flagged.label,
+          score: entry.flagged.score,
+          action: "flag",
+          reason: entry.flagged.reason,
+        });
+      }
+      steps.push(...resolution(entry, cached, upstream, sec, k, ms));
+    }
+
+    event.why = steps;
+    return event;
+  }
+
+  /** Alles, was nach der Policy passiert: Cache oder Weg nach draußen. Ein
+   *  Cache-Treffer hat keinen DNSSEC-Schritt — es gab nichts nachzurechnen.
+   *
+   *  `ms` kommt von außen herein und wird hier nicht noch einmal bestimmt: die
+   *  Zeile im Protokoll und der Satz in der Kette sind zwei Ansichten derselben
+   *  Antwort, und zwei Ansichten dürfen sich nicht widersprechen. */
+  function resolution(entry, cached, upstream, sec, k, ms) {
+    if (entry.forward) {
+      return [`Upstream '10.0.0.1' answered in ${ms.toFixed(1)}ms`];
+    }
+    if (cached) {
+      const left = 30 + Math.floor(rnd(sec, k, 12) * 280);
+      return [`from cache (valid, ${left} s left)`];
+    }
+    // Die Prüfung fällt im Transport, der Upstream-Eintrag danach im Pool —
+    // deshalb steht DNSSEC vor dem Resolver und nicht dahinter.
+    const verdict = rnd(sec, k, 13) < 0.94 ? "Secure" : "Insecure";
+    return [
+      `DNSSEC verified locally: ${verdict}`,
+      `Upstream '${upstream.name}' answered in ${ms.toFixed(1)}ms`,
+    ];
+  }
+
+  function blocklistStep(entry) {
+    // Eine Wildcard-Liste trifft die Domain, nicht den gefragten Namen.
+    // Deshalb steht im Trace bei oisd-big etwas anderes als das Gefragte.
+    const matched = entry.list === "oisd-big" ? registrable(entry.name) : entry.name;
+    const line = 1 + (hash32(stringHash(entry.name)) % 204000);
+    return `Blocklist '${entry.list}' line ${line}: '${matched}'`;
+  }
+
+  /** Was die Policy mit einem Namen macht. Die Reihenfolge ist die der echten
+   *  Pipeline und keine Erfindung dieser Datei. */
+  function decide(entry, client, inWindow) {
+    if (entry.verdict === "allowlisted") return { blocked: false, allowlisted: true };
+    if (inWindow) return { blocked: true, bySchedule: true };
+    if (entry.verdict === "blocked") return { blocked: true, byBlocklist: true };
+    return { blocked: false };
+  }
+
+  /** Wie oft der Cache greift. Nachts fast immer, zur Abendspitze seltener:
+   *  dann kommen viele Namen zum ersten Mal. */
+  const hitRate = (hour) => 0.93 - 0.15 * gauss(hour, 20.4, 3.0);
+
+  // ── Was ein Besucher anklicken kann ──────────────────────────────────────
+
+  /** Befristete Freigaben und Sperren. Der einzige Zustand dieser Datei — und
+   *  er gehört dem Besucher, nicht der erfundenen Anlage. */
+  const decisions = new Map();
+
+  // ── Die Zeitreihe ────────────────────────────────────────────────────────
+
+  const bucketIndex = (sec) => Math.floor(sec / BUCKET_SECONDS);
+
+  /** Der Teil des laufenden Eimers, der bereits vergangen ist — 1 für jeden
+   *  abgeschlossenen Eimer.
+   *
+   *  Der Boden von vier Sekunden ist Absicht: eine Kurve, deren rechte Kante in
+   *  den ersten Sekunden eines Eimers platt am Boden klebt und dann springt,
+   *  sieht aus, als hätte der Server ausgesetzt.
+   *
+   *  Die Funktion steht hier und nicht zweimal, weil `history()` und `totals()`
+   *  dieselben Eimer verschieden gerechnet haben — eins gegen vier Sekunden.
+   *  Der Unterschied ist winzig und trotzdem falsch: die Kurve und die Kennzahl
+   *  daneben zeigten für dieselbe Viertelstunde zwei Zahlen. */
+  const bucketFraction = (index, now) =>
+    index === bucketIndex(now) ? Math.max(now - index * BUCKET_SECONDS, 4) / BUCKET_SECONDS : 1;
+
+  /** Ein Eimer à fünf Minuten. `fraction` ist der Teil, der bereits vergangen
+   *  ist: der neueste Eimer wächst noch, genau wie beim echten Ring. */
+  function bucketAt(index, fraction) {
+    const start = index * BUCKET_SECONDS;
+    const span = BUCKET_SECONDS * fraction;
+    const jitter = 0.92 + 0.16 * rnd(index, 3, 21);
+    const queries = qps(start) * span * jitter;
+
+    const hour = hourOf(start);
+    const { byList, bySchedule } = blockedShares(start, hour);
+    const blockedByList = queries * byList;
+    const blockedBySchedule = queries * bySchedule;
+    const blocked = blockedByList + blockedBySchedule;
+
+    // Was nicht geblockt wurde, lief durch den Cache. Treffer und Fehler
+    // ergeben zusammen genau diese Menge — sonst widerspräche die Trefferquote
+    // der Anfragenzahl.
+    const answered = queries - blocked;
+    const misses = answered * (1 - hitRate(hour));
+    const hits = answered - misses;
+
+    // split_by_zone teilt nahezu gleichmäßig auf; die Abweichung ist
+    // Stichprobenrauschen, kein Muster.
+    const parts = UPSTREAMS.map((upstream, slot) => {
+      const share = 1 / UPSTREAMS.length + (rnd(index, slot + 1, 22) - 0.5) * 0.06;
+      return { weight: Math.max(0.01, share), item: upstream };
+    });
+    const spread = parts.reduce((sum, part) => sum + part.weight, 0);
+
+    return {
+      queries,
+      blocked,
+      cache_hits: hits,
+      cache_misses: misses,
+      upstreams: parts.map((part) => (misses * part.weight) / spread),
+      // Die Aufteilung nach Grund. Sie steht nicht in der Antwort an die Seite
+      // — dort steht sie in `/api/status` als Summe —, sondern nur hier, damit
+      // `totals()` sie aufaddieren kann. `publicBucket()` wirft sie wieder weg.
+      by_list: blockedByList,
+      by_schedule: blockedBySchedule,
+    };
+  }
+
+  /** Ein Eimer in der Form, die `/api/history` ausliefert — und in genau dieser.
+   *  Die Zerlegung nach Grund gehört nicht dazu; sie käme in der echten Antwort
+   *  auch nicht vor, und ein Feld, das nur die Demo hat, wäre eine Einladung,
+   *  sich darauf zu verlassen. */
+  function publicBucket(bucket) {
+    return {
+      queries: bucket.queries,
+      blocked: bucket.blocked,
+      cache_hits: bucket.cache_hits,
+      cache_misses: bucket.cache_misses,
+      upstreams: bucket.upstreams,
+    };
+  }
+
+  /** Wie sich die Anfragen dieser Stunde aufteilen: der Anteil, den die
+   *  Blocklisten nehmen, und der, den der Zeitplan nimmt.
+   *
+   *  Beides wird aus denselben Töpfen und Profilen abgeleitet, aus denen auch
+   *  die Ereignisse entstehen. Eine Konstante hier wäre bequemer und falsch:
+   *  die Kurve über 24 Stunden und das Protokoll daneben zeigten dann zwei
+   *  verschiedene Anlagen.
+   *
+   *  Die Reihenfolge aus `decide()` steckt in der zweiten Zeile: der Zeitplan
+   *  greift vor der Liste, also nimmt er der Liste die Fälle weg, in denen er
+   *  selbst zuschlägt. Ohne das Faktorenspiel zählte eine Abfrage zweimal. */
+  function blockedShares(sec, hour) {
+    const pools = poolWeights(hour);
+    const poolTotal = pools.reduce((sum, entry) => sum + entry.weight, 0);
+    const listed =
+      pools.filter((entry) => entry.item.blocked).reduce((sum, entry) => sum + entry.weight, 0) /
+      poolTotal;
+
+    const clients = clientWeights(hour);
+    const clientTotal = clients.reduce((sum, entry) => sum + entry.weight, 0);
+    const kids =
+      clients.filter((entry) => entry.item.policy === "kids").reduce((sum, entry) => sum + entry.weight, 0) /
+      clientTotal;
+    const bySchedule = inBedtime(sec) ? kids : 0;
+
+    return { byList: listed * (1 - bySchedule), bySchedule };
+  }
+
+  /** Die 24 Stunden bis jetzt, ältester Eimer zuerst — wie die echte Ansicht. */
+  function history() {
+    const now = nowSec();
+    const current = bucketIndex(now);
+    const buckets = [];
+    for (let offset = BUCKETS - 1; offset >= 0; offset -= 1) {
+      const index = current - offset;
+      buckets.push(publicBucket(bucketAt(index, bucketFraction(index, now))));
+    }
+    return {
+      bucket_seconds: BUCKET_SECONDS,
+      upstreams: UPSTREAMS.map((upstream) => upstream.name),
+      buckets,
+    };
+  }
+
+  /** Alles seit dem Start des erfundenen Prozesses. Dieselbe Eimerfunktion wie
+   *  die 24-Stunden-Ansicht — die Kennzahlen und die Kurve können deshalb
+   *  nicht auseinanderlaufen. */
+  let totalsCache = { at: 0, value: null };
+
+  function totals() {
+    const now = nowSec();
+    if (totalsCache.value && totalsCache.at === now) return totalsCache.value;
+
+    const first = bucketIndex(START);
+    const current = bucketIndex(now);
+    const sum = {
+      queries: 0,
+      blocked: 0,
+      byList: 0,
+      bySchedule: 0,
+      hits: 0,
+      misses: 0,
+      upstreams: UPSTREAMS.map(() => 0),
+    };
+    for (let index = first; index <= current; index += 1) {
+      const bucket = bucketAt(index, bucketFraction(index, now));
+      sum.queries += bucket.queries;
+      sum.blocked += bucket.blocked;
+      sum.byList += bucket.by_list;
+      sum.bySchedule += bucket.by_schedule;
+      sum.hits += bucket.cache_hits;
+      sum.misses += bucket.cache_misses;
+      bucket.upstreams.forEach((value, slot) => {
+        sum.upstreams[slot] += value;
+      });
+    }
+    totalsCache = { at: now, value: sum };
+    return sum;
+  }
+
+  // ── Die obersten Namen ───────────────────────────────────────────────────
+
+  /** Wie oft jeder Name über einen Tag gerechnet vorkommt, als Anteil an allen
+   *  Anfragen.
+   *
+   *  Dieselbe Verteilung, aus der auch die Ereignisse gezogen werden — nur über
+   *  24 Stunden aufsummiert statt für eine Sekunde ausgewertet. Der Tag wird
+   *  stündlich abgetastet; die Töpfe ändern sich nur mit der Stunde, und die
+   *  Gewichte innerhalb eines Topfes gar nicht.
+   *
+   *  Der Umweg lohnt sich: eine von Hand gewählte Verteilung für diese Liste
+   *  wäre eine zweite Wahrheit neben der ersten. Und sie flöge auf — zwei Namen
+   *  mit demselben Gewicht bekämen exakt dieselbe Zahl, und ein Gleichstand
+   *  zwischen zwei unabhängigen Namen ist in echtem Verkehr keiner. */
+  function nameShares() {
+    const shares = new Map();
+    const now = nowSec();
+    const buckets = 24;
+    for (let step = 0; step < buckets; step += 1) {
+      const hour = hourOf(now - step * 3600);
+      const pools = poolWeights(hour);
+      const poolSum = pools.reduce((sum, pool) => sum + pool.weight, 0);
+      for (const pool of pools) {
+        const names = nameWeights(pool.item.key);
+        const nameSum = names.reduce((sum, entry) => sum + entry.weight, 0);
+        if (nameSum === 0) continue; // der lange Schwanz hat hier keine Namen
+        for (const entry of names) {
+          const share = (pool.weight / poolSum) * (entry.weight / nameSum);
+          shares.set(entry.item.name, (shares.get(entry.item.name) ?? 0) + share / buckets);
+        }
+      }
+    }
+    return shares;
+  }
+
+  /** Die Namen über der k-Schwelle. Ihre Summe ist der Teil der Anfragen, den
+   *  die Ansicht zeigen darf; alles darunter steht als Summe daneben.
+   *
+   *  Die Rechnung muss aufgehen, sonst kann ein Besucher sie widerlegen: bei
+   *  k = 5 hat jeder verborgene Name höchstens vier Treffer, und jede Anfrage
+   *  ist entweder sichtbar oder verborgen — nie beides und nie keine. Deshalb
+   *  ist die Zahl unter der Schwelle keine Schätzung, sondern der Rest. */
+  function top(limit) {
+    const total = totals().queries;
+    const shares = nameShares();
+
+    const domains = NAMES.map((entry) => ({
+      name: entry.name,
+      count: Math.round(total * (shares.get(entry.name) ?? 0)),
+      blocked: entry.verdict === "blocked",
+    }))
+      .filter((entry) => entry.count >= AGGREGATE_K)
+      .sort((one, other) => other.count - one.count);
+
+    const shown = domains.reduce((acc, entry) => acc + entry.count, 0);
+    const belowQueries = Math.max(0, Math.round(total - shown));
+    // Im Schnitt 3,2 Treffer je verborgenem Namen — unter der Schwelle, und
+    // die Summe bleibt dadurch kleiner als das Vierfache der Anzahl.
+    const belowNames = Math.ceil(belowQueries / 3.2);
+
+    return {
+      threshold: AGGREGATE_K,
+      domains: domains.slice(0, limit),
+      below_threshold_queries: belowQueries,
+      below_threshold_names: belowNames,
+    };
+  }
+
+  // ── Die Endpunkte ────────────────────────────────────────────────────────
+
+  function status() {
+    const sum = totals();
+    const answered = sum.hits + sum.misses;
+    const reasons = {
+      blocklist: Math.round(sum.byList),
+      regex: 0,
+      schedule: Math.round(sum.bySchedule),
+      temporary_deny: decisions.size,
+      dga: 0,
+      tunneling: 0,
+      rebinding: 0,
+      typosquat: 0,
+      nrd: 0,
+      other: 0,
+    };
+
+    return {
+      version: VERSION,
+      uptime_seconds: nowSec() - START,
+      // "ring": Namen im Arbeitsspeicher, nichts auf der Platte. In "aggregate"
+      // — dem Auslieferungszustand — gäbe es hier gar nichts zu sehen.
+      logging_mode: "ring",
+      aggregate_k: AGGREGATE_K,
+      persists_to_disk: false,
+      block_reasons: Object.keys(reasons).map((reason) => ({ reason, count: reasons[reason] })),
+      privacy: {
+        // Nur dieser eine zählt, wenn ein Client tatsächlich ECS geschickt
+        // hat; die anderen drei zählen je ausgehender Anfrage. Vier gleiche
+        // Zahlen wären ein Verräter.
+        ecs_stripped: Math.round(sum.misses * 0.06),
+        padded: Math.round(sum.misses * 0.997),
+        case_randomized: Math.round(sum.misses * 0.999),
+        cookies: Math.round(sum.misses * 0.998),
+        enabled: {
+          ecs: true,
+          padding: true,
+          case_randomization: true,
+          cookies: true,
+        },
+      },
+      dnssec: {
+        enabled: true,
+        secure: Math.round(sum.misses * 0.94),
+        insecure: Math.round(sum.misses * 0.055),
+        // Ein paar verworfene Antworten. Eine dauerhafte Null sähe aus, als
+        // wäre die Prüfung abgeschaltet.
+        bogus: Math.round(sum.misses * 0.00008),
+        indeterminate: Math.round(sum.misses * 0.0049),
+      },
+      // Zwei der fünf stehen auf "off": Typosquat ohne protect-Liste findet
+      // nichts, NRD ohne Quelle läuft leer. Das ist der ehrliche Stand aus der
+      // ersten Beobachtungsperiode, nicht der Wunschzustand.
+      detectors: [
+        { name: "dga", label: "Algorithmically generated name", action: "flag", found: 214 },
+        { name: "tunneling", label: "Tunneling", action: "flag", found: 38 },
+        { name: "rebinding", label: "DNS rebinding", action: "flag", found: 11 },
+        { name: "typosquat", label: "Typosquatting", action: "off", found: 0 },
+        { name: "nrd", label: "Newly registered", action: "off", found: 0 },
+      ],
+      latency: {
+        p50_ms: 0.3 + 0.2 * Math.abs(Math.sin(nowSec() / 700)),
+        p95_ms: 24 + 9 * Math.abs(Math.sin(nowSec() / 1100)),
+      },
+      queries: Math.round(sum.queries),
+      blocked: Math.round(sum.blocked),
+      block_rate: sum.queries === 0 ? 0 : sum.blocked / sum.queries,
+      cache_hit_rate: answered === 0 ? 0 : sum.hits / answered,
+      cache_entries: 41286,
+      list_entries: 482119,
+      upstreams: UPSTREAMS.map((upstream, slot) => ({
+        name: upstream.name,
+        transport: upstream.transport,
+        ok: Math.round(sum.upstreams[slot]),
+        failed: slot === 1 ? 3 : 0,
+        rtt_ms: upstream.rtt + 2.5 * Math.sin(nowSec() / 900 + slot),
+        p50_ms: upstream.rtt + 1.5 * Math.sin(nowSec() / 1300 + slot),
+        p95_ms: upstream.rtt + 16 + 6 * Math.abs(Math.sin(nowSec() / 800 + slot)),
+        samples: Math.min(256, Math.round(sum.upstreams[slot])),
+        down: false,
+      })),
+    };
+  }
+
+  /** Die geladenen Listen mit ihrem Alter.
+   *
+   *  Die Aussage dieses Panels steht in der letzten Spalte, und sie ist die
+   *  einzige Stelle, an der diese Anlage krank aussieht: eine Liste, die seit
+   *  Wochen nicht mehr geholt wurde, filtert weiter — nur nach einem Stand, den
+   *  niemand mehr pflegt. Das ist kein Fehler, sondern das Alter; deshalb steht
+   *  es hier unbemerkt zwischen zwei gesunden Zeilen.
+   *
+   *  Die Summe der Einträge ist dieselbe wie `list_entries` in /api/status. Eine
+   *  Anlage, die es nicht gibt, darf sich trotzdem nicht selbst widersprechen:
+   *  wer beide Zahlen nebeneinanderlegt, sieht es sonst sofort.
+   *
+   *  `local-allow` kommt aus einer Datei statt von einer Adresse und hat deshalb
+   *  keinen Herausgeber — `published_at` bleibt null, der Titel entfällt. */
+  function lists() {
+    const now = nowSec();
+    return [
+      {
+        name: "stevenblack-unified",
+        entries: 186020,
+        format: "hosts",
+        fetched_at: isoLocal(now - (3 * 3600 + 12 * 60)),
+        published_at: isoLocal(now - 26 * 3600),
+      },
+      {
+        name: "oisd-big",
+        entries: 296061,
+        format: "wildcard",
+        fetched_at: isoLocal(now - (3 * 3600 + 14 * 60)),
+        published_at: isoLocal(now - 4 * 86400),
+      },
+      {
+        name: "local-allow",
+        entries: 38,
+        format: "domains",
+        fetched_at: isoLocal(now - 19 * 86400),
+        published_at: null,
+      },
+    ];
+  }
+
+  /** Die jüngsten Anfragen, neueste zuerst. Die letzte volle Sekunde ist die
+   *  Grenze: was danach kommt, liefert der Live-Strom — sonst stünde jede
+   *  Zeile zweimal im Protokoll. */
+  function recent(limit) {
+    const now = nowSec();
+    const out = [];
+    for (let sec = now - 1; sec > now - 900 && out.length < limit; sec -= 1) {
+      const batch = eventsInSecond(sec);
+      for (let index = batch.length - 1; index >= 0 && out.length < limit; index -= 1) {
+        out.push(fullEvent(batch[index]));
+      }
+    }
+    return out;
+  }
+
+  /** Die auffälligen Anfragen. Sie kommen aus demselben Strom wie das
+   *  Protokoll — nicht aus einer zweiten Quelle, die etwas anderes behaupten
+   *  könnte. */
+  function flagged(limit) {
+    const now = nowSec();
+    const out = [];
+    for (let sec = now - 1; sec > now - 1200 && out.length < limit; sec -= 1) {
+      const batch = eventsInSecond(sec);
+      for (let index = batch.length - 1; index >= 0 && out.length < limit; index -= 1) {
+        if (batch[index].findings.length) out.push(fullEvent(batch[index]));
+      }
+    }
+    return out;
+  }
+
+  function fullEvent(event) {
+    return {
+      at: isoLocal(event.sec),
+      name: event.name,
+      type: event.type,
+      client: event.client,
+      blocked: event.blocked,
+      source: event.source,
+      rcode: event.rcode,
+      why: event.why,
+      ms: event.ms,
+      ...(event.findings.length ? { findings: event.findings } : {}),
+    };
+  }
+
+  function streamEvent(event) {
+    return {
+      at: clockTime(event.sec),
+      blocked: event.blocked,
+      type: event.type,
+      source: event.source,
+      rcode: event.rcode,
+      ms: event.ms,
+      name: event.name,
+      client: event.client,
+      why: event.why,
+    };
+  }
+
+  /** Dieselbe Auswertung wie `alpendns policy test`: was würde jetzt
+   *  passieren? */
+  function explain(domain, client) {
+    const name = (domain || "").trim().toLowerCase();
+    const who = client || "default";
+    const policy = CLIENTS.find((entry) => entry.name === who)?.policy ?? "default";
+    const known =
+      NAMES.find((entry) => entry.name === name) ??
+      FLAGGED.find((entry) => entry.name === name) ?? { name, pool: "tail" };
+
+    const first =
+      who === "default"
+        ? "no client entry matches, 'default' applies"
+        : `Client '${who}' recognized by source address`;
+    const steps = [first, `Policy '${policy}'`];
+
+    const temporary = decisions.get(name);
+    if (temporary && temporary.until > nowSec()) {
+      const left = temporary.until - nowSec();
+      if (temporary.kind === "deny") {
+        steps.push(`temporary deny, ${left}s left`, "Answer synthesized locally, mode Nxdomain");
+        return { domain: name, client: who, blocked: true, steps };
+      }
+      steps.push(`temporary allow, ${left}s left`);
+      steps.push("from cache (valid, 240 s left)");
+      return { domain: name, client: who, blocked: false, steps };
+    }
+
+    if (known.verdict === "allowlisted") {
+      steps.push("Allowlist 'local-allow' line 118: 'branch.io'");
+      steps.push("from cache (valid, 240 s left)");
+      return { domain: name, client: who, blocked: false, steps };
+    }
+    if (inBedtime(nowSec()) && policy === "kids") {
+      steps.push("Schedule 'bedtime' active: everything except the allowlist is blocked");
+      steps.push("Answer synthesized locally, mode Nxdomain");
+      return { domain: name, client: who, blocked: true, steps };
+    }
+    if (known.verdict === "blocked") {
+      steps.push(blocklistStep(known));
+      steps.push("Answer synthesized locally, mode Nxdomain");
+      return { domain: name, client: who, blocked: true, steps };
+    }
+    const found = FLAGGED.find((entry) => entry.name === name);
+    if (found) {
+      steps.push(`${found.label} flags (score ${found.score}): ${found.reason}`);
+    }
+    steps.push(
+      found ? "DNSSEC verified locally: Secure" : "from cache (valid, 180 s left)",
+    );
+    if (found) steps.push(`Upstream '${UPSTREAMS[upstreamFor(name)].name}' answered in 22.4ms`);
+    return { domain: name, client: who, blocked: false, steps };
+  }
+
+  // ── Zeitformate ──────────────────────────────────────────────────────────
+
+  const pad = (value) => String(value).padStart(2, "0");
+
+  /** `%Y-%m-%dT%H:%M:%S%:z` — was /api/recent liefert. */
+  function isoLocal(sec) {
+    const at = new Date(sec * 1000);
+    const offset = -at.getTimezoneOffset();
+    const sign = offset < 0 ? "-" : "+";
+    const absolute = Math.abs(offset);
+    return (
+      `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}` +
+      `T${pad(at.getHours())}:${pad(at.getMinutes())}:${pad(at.getSeconds())}` +
+      `${sign}${pad(Math.floor(absolute / 60))}:${pad(absolute % 60)}`
+    );
+  }
+
+  /** `%H:%M:%S` — was der Live-Strom liefert. */
+  function clockTime(sec) {
+    const at = new Date(sec * 1000);
+    return `${pad(at.getHours())}:${pad(at.getMinutes())}:${pad(at.getSeconds())}`;
+  }
+
+  // ── Die Endpunkte, von außen gesehen ─────────────────────────────────────
+
+  function answer(path, params, method, body) {
+    switch (method + " " + path) {
+      case "GET /api/status":
+        return status();
+      case "GET /api/lists":
+        return lists();
+      case "GET /api/history":
+        return history();
+      case "GET /api/top":
+        return top(clamp(params.get("limit"), 50));
+      case "GET /api/recent":
+        return recent(clamp(params.get("limit"), 80));
+      case "GET /api/flagged":
+        return flagged(clamp(params.get("limit"), 25));
+      case "GET /api/explain":
+        return explain(params.get("domain"), params.get("client"));
+      case "GET /api/allow":
+      case "GET /api/deny":
+        return [...decisions]
+          .filter(([, value]) => value.until > nowSec())
+          .map(([domain, value]) => ({
+            domain,
+            remaining_seconds: value.until - nowSec(),
+          }));
+      case "POST /api/allow":
+      case "POST /api/deny": {
+        const domain = JSON.parse(body || "{}").domain ?? "";
+        decisions.set(domain, {
+          kind: path.endsWith("allow") ? "allow" : "deny",
+          until: nowSec() + 3600,
+        });
+        return { domain, remaining_seconds: 3600 };
+      }
+      default:
+        return null;
+    }
+  }
+
+  const clamp = (raw, fallback) => Math.min(500, Math.max(1, Number(raw) || fallback));
+
+  /** Ersetzt `fetch`. Der Token-Header wird nicht geprüft: es gibt keinen
+   *  Server, der ihn prüfen könnte. */
+  window.fetch = function (input, init) {
+    const url = typeof input === "string" ? input : (input && input.url) || String(input);
+    const [path, query] = url.split("?");
+    const method = ((init && init.method) || "GET").toUpperCase();
+    const body = (init && init.body) || null;
+
+    let data = null;
+    try {
+      data = answer(path, new URLSearchParams(query || ""), method, body);
+    } catch (error) {
+      console.warn("demo: " + path + " konnte nicht beantwortet werden", error);
+    }
+
+    if (method === "GET" && path === EVENTS_PATH) {
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream({
+        start(controller) {
+          let second = 0;
+          let sent = 0;
+          const timer = setInterval(() => {
+            const sec = nowSec();
+            if (sec !== second) {
+              second = sec;
+              sent = 0;
+            }
+            const queue = eventsInSecond(sec);
+            if (sent < queue.length) {
+              const data = JSON.stringify(streamEvent(queue[sent]));
+              controller.enqueue(encoder.encode(`data: ${data}\n\n`));
+              sent += 1;
+            }
+          }, 250);
+          const stop = () => {
+            clearInterval(timer);
+            try {
+              controller.close();
+            } catch {
+              /* already closed */
+            }
+          };
+          (init && init.signal)?.addEventListener("abort", stop);
+        },
+      });
+      return Promise.resolve(
+        new Response(stream, {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        }),
+      );
+    }
+
+    if (data === null) {
+      // Ein 200 mit {} wäre schlimmer als ein 404: die nächste Fassung von
+      // app.js stürbe an `.map` von undefined statt an einer leeren Fläche.
+      console.warn("demo: " + method + " " + path + " kennt die Demo nicht");
+      return Promise.resolve(
+        new Response(JSON.stringify({ error: "not found" }), {
+          status: 404,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    }
+    return Promise.resolve(
+      new Response(JSON.stringify(data), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+  };
+
+  /** Der Pfad des Live-Stroms. Steht hier als Zeichenkette und nicht nur in
+   *  `app.js`, damit `build.sh` ihn in beiden Dateien findet: der Strom ist der
+   *  einzige Endpunkt, der nicht über `fetch` läuft, und ohne diese Zeile müsste
+   *  die Drift-Prüfung ihn in der Shell ausnehmen. */
+  const EVENTS_PATH = "/api/events";
+
+  /** Ersetzt `EventSource`. Ein echter Server schickt, was gerade passiert;
+   *  hier wird es aus der Uhr abgeleitet — und zwar höchstens ein Ereignis je
+   *  Takt, damit die Zeilen über die Sekunde verteilt eintreffen statt in
+   *  einem Schub. */
+  class DemoEventSource {
+    constructor(url) {
+      this.url = url;
+      // Anders als bei `fetch` ist die Adresse hier folgenlos: der Strom kommt
+      // ohnehin aus der Uhr. Wenn `app.js` den Endpunkt je umbenennt, ist diese
+      // Zeile die einzige Stelle, an der es auffällt.
+      if (!String(url).startsWith(EVENTS_PATH)) {
+        console.warn("demo: unerwarteter Strom unter " + url);
+      }
+      this.readyState = 1;
+      this.onmessage = null;
+      this.closed = false;
+      this.second = 0;
+      this.sent = 0;
+      this.timer = setInterval(() => this.pump(), 250);
+    }
+
+    pump() {
+      if (this.closed || typeof this.onmessage !== "function") return;
+      const sec = nowSec();
+      if (sec !== this.second) {
+        this.second = sec;
+        this.sent = 0;
+      }
+      const queue = eventsInSecond(sec);
+      if (this.sent < queue.length) {
+        this.onmessage({ data: JSON.stringify(streamEvent(queue[this.sent])) });
+        this.sent += 1;
+      }
+    }
+
+    /** Muss wirklich aufräumen: app.js schließt vor jedem Neuverbinden, und
+     *  ein liegengebliebener Takt schriebe weiter in eine abgehängte Tabelle. */
+    close() {
+      this.closed = true;
+      this.readyState = 2;
+      clearInterval(this.timer);
+      this.timer = null;
+      this.onmessage = null;
+    }
+  }
+  window.EventSource = DemoEventSource;
+
+  // ── Der Hinweis ──────────────────────────────────────────────────────────
+  //
+  // Ohne ihn könnte ein Besucher glauben, er sähe sein eigenes DNS. Er sitzt
+  // als Pille neben dem Schriftzug und bedient sich derselben Variablen wie
+  // die Faktenzeile daneben — keine neuen Farben, keine neuen Abstände.
+
+  const NOTICE = "Demo · sample data";
+  const NOTICE_TITLE =
+    "This page is a self-contained demo. Every number in it is generated in " +
+    "your browser: there is no server behind it and no DNS query was made.";
+
+  function addNotice() {
+    const mark = document.querySelector(".topbar-inner .mark");
+    if (!mark) return;
+    const style = document.createElement("style");
+    style.textContent =
+      ".demo-pill{font-size:var(--t-micro);" +
+      "letter-spacing:0.08em;color:var(--faint);border:1px solid var(--hairline);" +
+      "border-radius:var(--radius);padding:var(--s-4) var(--s-8);" +
+      "white-space:nowrap;cursor:help}";
+    document.head.append(style);
+    const pill = document.createElement("span");
+    pill.className = "demo-pill";
+    pill.textContent = NOTICE;
+    pill.title = NOTICE_TITLE;
+    mark.after(pill);
+    document.title = "AlpenDNS — Demo";
+  }
+
+  // ── Ohne Speicher geht es auch ───────────────────────────────────────────
+  //
+  // app.js liest den Token ganz oben ohne try/catch. Wirft der Zugriff auf
+  // localStorage — privates Fenster, strenge Einstellungen —, stirbt das ganze
+  // Skript und die Seite bliebe leer; nicht einmal die Anmeldung erschiene.
+
+  try {
+    window.localStorage.getItem("alpendns.probe");
+  } catch {
+    const memory = new Map();
+    try {
+      Object.defineProperty(window, "localStorage", {
+        configurable: true,
+        value: {
+          getItem: (key) => (memory.has(key) ? memory.get(key) : null),
+          setItem: (key, value) => memory.set(key, String(value)),
+          removeItem: (key) => memory.delete(key),
+          clear: () => memory.clear(),
+        },
+      });
+    } catch {
+      /* dann eben ohne */
+    }
+  }
+
+  addNotice();
+
+  // Für die Nachprüfung ohne Browser: die Welt ist eine reine Funktion, also
+  // lässt sie sich von außen befragen, ohne dass eine Seite gezeichnet wird.
+  window.__demoWorld = {
+    status,
+    lists,
+    history,
+    top,
+    recent,
+    flagged,
+    explain,
+    eventsInSecond,
+    qps,
+    totals,
+    isoLocal,
+  };
+})();
+</script>
+<script>
+"use strict";
+
+const TOKEN_KEY = "alpendns.token";
+const THEME_KEY = "alpendns.theme";
+const POLL_MS = 5000;
+const HISTORY_MS = 60000;
+const MAX_ROWS = 200;
+const SPARK_SECONDS = 60;
+const SPARK_BUCKET = 2;
+const MS_WARN = 250;
+const MIN_SAMPLES = 20;
+const ERROR_RCODES = new Set(["SERVFAIL", "REFUSED", "FORMERR", "NOTIMP"]);
+
+let token = localStorage.getItem(TOKEN_KEY) || "";
+let stream = null;
+let status = null;
+let history = null;
+let shares = [];
+let listInfos = [];
+let filter = "all";
+let searchTerm = "";
+let quietMode = "";
+let namesAvailable = true;
+let started = false;
+let selectedEntry = null;
+let inspectSeq = 0;
+let lastTrace = "";
+let lastSubject = "";
+
+const $ = (id) => document.getElementById(id);
+
+const entries = [];
+const pending = [];
+let flushScheduled = false;
+
+const series = {
+  queries: new Array(SPARK_SECONDS).fill(0),
+  blocked: new Array(SPARK_SECONDS).fill(0),
+  cache: new Array(SPARK_SECONDS).fill(0),
+  latency: new Array(SPARK_SECONDS).fill(0),
+};
+let bucket = { queries: 0, blocked: 0, cache: 0, ms: 0 };
+
+function td(className) {
+  const cell = document.createElement("td");
+  cell.className = className;
+  return cell;
+}
+
+function span(className) {
+  const node = document.createElement("span");
+  node.className = className;
+  return node;
+}
+
+async function api(path) {
+  const response = await fetch(path, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return response.json();
+}
+
+async function post(path, body) {
+  const response = await fetch(path, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) throw new Error(String(response.status));
+  return response.json();
+}
+
+const LOCALE = "en-US";
+
+const TRANSPORTS = { dot: "DoT", doh: "DoH", doq: "DoQ" };
+
+const transportLabel = (value) => TRANSPORTS[value] ?? String(value).toUpperCase();
+
+const thousands = (value) => Number(value ?? 0).toLocaleString(LOCALE);
+
+const percent = (value) =>
+  `${(Number(value ?? 0) * 100).toLocaleString(LOCALE, {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  })} %`;
+
+const decimal = (value, digits) =>
+  Number(value ?? 0).toLocaleString(LOCALE, {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  });
+
+function msText(value) {
+  if (value === null || value === undefined) return "–";
+  return value >= 100 ? decimal(value, 0) : decimal(value, 1);
+}
+
+function clockTime(at) {
+  return at.includes("T") ? at.slice(11, 19) : at;
+}
+
+const RELATIVE = new Intl.RelativeTimeFormat(LOCALE, { numeric: "auto" });
+
+function relativeTime(iso, now = Date.now()) {
+  const then = Date.parse(iso);
+  if (Number.isNaN(then)) return null;
+  const seconds = (then - now) / 1000;
+  const units = [
+    ["year", 31_536_000],
+    ["month", 2_592_000],
+    ["week", 604_800],
+    ["day", 86_400],
+    ["hour", 3_600],
+    ["minute", 60],
+  ];
+  for (const [unit, size] of units) {
+    if (Math.abs(seconds) >= size) {
+      return RELATIVE.format(Math.round(seconds / size), unit);
+    }
+  }
+  return RELATIVE.format(Math.round(seconds), "second");
+}
+
+function formatUptime(seconds) {
+  const d = Math.floor(seconds / 86400);
+  const h = Math.floor((seconds % 86400) / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (d > 0) return `${thousands(d)} d ${h} h`;
+  if (h > 0) return `${h} h ${m} min`;
+  return `${m} min`;
+}
+
+function linePath(values, peak, step, base, span) {
+  if (values.length === 0) return "";
+  const top = base - span;
+  const clamp = (y) => Math.min(base, Math.max(top, y));
+  const points = values.map((value, index) => [
+    index * step,
+    base - (value / peak) * span,
+  ]);
+  if (points.length === 1) {
+    return `M${points[0][0].toFixed(1)} ${points[0][1].toFixed(1)}`;
+  }
+
+  const segments = [`M${points[0][0].toFixed(1)} ${points[0][1].toFixed(1)}`];
+  const last = points.length - 1;
+  for (let i = 0; i < last; i += 1) {
+    const before = points[i === 0 ? 0 : i - 1];
+    const from = points[i];
+    const to = points[i + 1];
+    const after = points[i + 2 > last ? last : i + 2];
+    const c1x = from[0] + (to[0] - before[0]) / 6;
+    const c1y = clamp(from[1] + (to[1] - before[1]) / 6);
+    const c2x = to[0] - (after[0] - from[0]) / 6;
+    const c2y = clamp(to[1] - (after[1] - from[1]) / 6);
+    segments.push(
+      `C${c1x.toFixed(1)} ${c1y.toFixed(1)} ` +
+        `${c2x.toFixed(1)} ${c2y.toFixed(1)} ` +
+        `${to[0].toFixed(1)} ${to[1].toFixed(1)}`,
+    );
+  }
+  return segments.join("");
+}
+
+function setPath(id, d) {
+  $(id).setAttribute("d", d);
+}
+
+function pushSample(name, value) {
+  const values = series[name];
+  values.push(value);
+  if (values.length > SPARK_SECONDS) values.shift();
+}
+
+function bucketSamples(values) {
+  const points = [];
+  for (let start = 0; start < values.length; start += SPARK_BUCKET) {
+    const slice = values.slice(start, start + SPARK_BUCKET);
+    points.push(slice.reduce((sum, value) => sum + value, 0) / slice.length);
+  }
+  return points;
+}
+
+function sparkRange(points) {
+  let low = Math.min(...points);
+  let high = Math.max(...points);
+  const mean = points.reduce((sum, value) => sum + value, 0) / points.length;
+  const floor = Math.abs(mean) * 0.2;
+  if (high - low < floor) {
+    const middle = (high + low) / 2;
+    low = middle - floor / 2;
+    high = middle + floor / 2;
+  }
+  return { low, high };
+}
+
+function polylinePath(values, low, high, step, base, span) {
+  const range = high - low;
+  return values
+    .map((value, index) => {
+      const x = (index * step).toFixed(1);
+      const y = (base - ((value - low) / range) * span).toFixed(1);
+      return `${index === 0 ? "M" : "L"}${x} ${y}`;
+    })
+    .join("");
+}
+
+function drawSpark(name) {
+  const points = bucketSamples(series[name]);
+  const { low, high } = sparkRange(points);
+  if (high === low) {
+    setPath(`s-${name}`, "M0 33L240 33");
+    return;
+  }
+  setPath(
+    `s-${name}`,
+    polylinePath(points, low, high, 240 / (points.length - 1), 33, 29),
+  );
+}
+
+function drawAllSparks() {
+  drawSpark("queries");
+  drawSpark("blocked");
+  drawSpark("cache");
+  drawSpark("latency");
+}
+
+function tickSparks() {
+  if (document.hidden) return;
+  const queries = bucket.queries;
+  pushSample("queries", queries);
+  pushSample("blocked", queries ? (bucket.blocked / queries) * 100 : 0);
+  pushSample("cache", queries ? (bucket.cache / queries) * 100 : 0);
+  pushSample("latency", queries ? bucket.ms / queries : 0);
+  bucket = { queries: 0, blocked: 0, cache: 0, ms: 0 };
+
+  drawAllSparks();
+}
+
+function setReachable(reachable) {
+  $("health-dot").classList.toggle("is-stale", !reachable);
+  $("health-dot").classList.toggle("is-live", reachable);
+  if (!reachable) {
+    $("health").textContent = "Status unreachable";
+    $("status-detail").textContent =
+      "No response from the API — the numbers are the last known state.";
+  }
+}
+
+function renderStatus(next) {
+  status = next;
+  quietMode = next.logging_mode === "ring" || next.logging_mode === "full"
+    ? ""
+    : next.logging_mode;
+  namesAvailable = quietMode === "";
+
+  const upstreams = next.upstreams ?? [];
+  const reachable = upstreams.filter((upstream) => !upstream.down).length;
+  const transports = new Set(upstreams.map((upstream) => upstream.transport));
+  const protocol = transports.size === 1 ? ` over ${transportLabel([...transports][0])}` : "";
+  const healthy = upstreams.length > 0 && reachable === upstreams.length;
+
+  $("health").textContent = healthy ? "Resolving normally" : "Resolving with problems";
+  $("health-dot").classList.toggle("is-live", healthy);
+  $("health-dot").classList.toggle("is-stale", !healthy);
+
+  $("status-detail").textContent = [
+    upstreams.length
+      ? `${reachable} of ${upstreams.length} upstreams reachable${protocol}`
+      : "no upstream configured",
+    `up ${formatUptime(next.uptime_seconds)}`,
+  ].join(" · ");
+
+  $("m-queries").textContent = thousands(next.queries);
+  $("m-blocked").textContent = percent(next.block_rate);
+  $("m-blocked-sub").textContent = `${thousands(next.blocked)} queries`;
+  $("m-cache").textContent = percent(next.cache_hit_rate);
+
+  if (next.latency?.p50_ms !== null && next.latency?.p50_ms !== undefined) {
+    $("m-latency").textContent = `${msText(next.latency.p50_ms)} ms`;
+    $("m-latency-sub").textContent =
+      `median · p95 ${msText(next.latency.p95_ms)} ms`;
+  } else {
+    $("m-latency").textContent = "–";
+    $("m-latency-sub").textContent = "no measurement yet";
+  }
+
+  renderUpstreams(next);
+  renderPrivacy(next);
+  renderReasons(next.block_reasons ?? []);
+  renderFooter(next);
+  syncEmptyStates();
+}
+
+function renderUpstreams(next) {
+  const box = $("upstreams");
+  box.replaceChildren();
+
+  const list = next.upstreams ?? [];
+  list.forEach((upstream, index) => {
+    const item = document.createElement("li");
+    item.className = "upstream";
+
+    const dot = span("up-dot");
+    if (upstream.down) dot.classList.add("is-down");
+
+    const name = span("up-name");
+    name.textContent = upstream.name;
+    const transport = span("up-transport");
+    transport.textContent = transportLabel(upstream.transport);
+    name.append(transport);
+
+    const latency = span("up-latency");
+    if (upstream.samples === 0) {
+      latency.textContent = "no queries yet";
+    } else if (
+      upstream.samples < MIN_SAMPLES ||
+      upstream.p50_ms === null ||
+      upstream.p95_ms === null
+    ) {
+      latency.textContent = `${upstream.samples} samples`;
+    } else {
+      latency.textContent =
+        `${msText(upstream.p50_ms)} / ${msText(upstream.p95_ms)} ms`;
+      if (upstream.p95_ms >= MS_WARN) latency.classList.add("is-warn");
+    }
+
+    const bar = span("up-bar");
+    const fill = span("");
+    const share = shares[index] ?? 0;
+    fill.style.width = `${share.toFixed(1)}%`;
+    bar.title = `${share.toFixed(1)} % of upstream answers in the last 24 hours`;
+    bar.append(fill);
+
+    item.append(dot, name, latency, bar);
+    box.append(item);
+  });
+
+  const mix = new Map();
+  for (const upstream of list) {
+    mix.set(upstream.transport, (mix.get(upstream.transport) ?? 0) + 1);
+  }
+  $("up-note").textContent = [...mix]
+    .map(([transport, count]) => `${count}× ${transportLabel(transport)}`)
+    .join(" · ");
+}
+
+function setPrivacy(id, enabled, text) {
+  const value = $(id);
+  const row = value.closest(".privacy-row");
+  row.classList.toggle("is-off", !enabled);
+  value.textContent = enabled ? text : "Off";
+}
+
+function renderPrivacy(next) {
+  const switches = next.privacy?.enabled ?? {};
+  const counters = next.privacy ?? {};
+
+  setPrivacy("pc-ecs", switches.ecs, `${thousands(counters.ecs_stripped)} seen`);
+  setPrivacy("pc-pad", switches.padding, `${thousands(counters.padded)} padded`);
+  setPrivacy(
+    "pc-secure",
+    next.dnssec.enabled,
+    `${thousands(next.dnssec.secure)} valid`,
+  );
+  setPrivacy(
+    "pc-bogus",
+    next.dnssec.enabled,
+    `${thousands(next.dnssec.bogus)} dropped`,
+  );
+  setPrivacy(
+    "pc-case",
+    switches.case_randomization,
+    `${thousands(counters.case_randomized)} randomized`,
+  );
+  setPrivacy("pc-cookie", switches.cookies, `${thousands(counters.cookies)} sent`);
+
+  $("bogus-review").hidden = !(next.dnssec.bogus > 0 && namesAvailable);
+}
+
+const REASON_LABELS = {
+  blocklist: "Blocklist",
+  regex: "Regex rule",
+  schedule: "Schedule",
+  temporary_deny: "temporarily denied",
+  dga: "Generated name",
+  tunneling: "Tunneling",
+  rebinding: "Rebinding",
+  typosquat: "Typosquatting",
+  nrd: "Newly registered",
+  other: "unassigned",
+};
+
+function renderReasons(reasons) {
+  const total = reasons.reduce((sum, entry) => sum + entry.count, 0);
+  const bar = $("reason-bar");
+  const legend = $("reason-legend");
+  bar.replaceChildren();
+  legend.replaceChildren();
+
+  bar.hidden = total === 0;
+  $("reason-empty").hidden = total !== 0;
+  if (total === 0) return;
+
+  reasons
+    .filter((entry) => entry.count > 0)
+    .forEach((entry, index) => {
+      const band = `band-${(index % 4) + 1}`;
+
+      const segment = span(band);
+      segment.style.width = `${(entry.count / total) * 100}%`;
+      segment.title = `${REASON_LABELS[entry.reason] ?? entry.reason}: ${thousands(entry.count)}`;
+      bar.append(segment);
+
+      const item = document.createElement("li");
+      const swatch = span(`swatch ${band}`);
+      const name = span("");
+      name.textContent = REASON_LABELS[entry.reason] ?? entry.reason;
+      const count = span("count");
+      count.textContent = thousands(entry.count);
+      item.append(swatch, name, count);
+      legend.append(item);
+    });
+}
+
+function renderFooter(next) {
+  const oldest = listInfos
+    .map((info) => info.fetched_at)
+    .filter(Boolean)
+    .sort()[0];
+  const entriesText = `${thousands(next.list_entries)} blocklist entries`;
+  $("foot-lists").textContent = oldest
+    ? `${entriesText} · oldest list updated ${relativeTime(oldest)}`
+    : entriesText;
+
+  $("foot-mode").textContent = next.persists_to_disk
+    ? "Every query is also written to the log file (mode full)."
+    : {
+        ring: "Names are kept in memory only (mode ring).",
+        aggregate: "Queries are counted without names (mode aggregate).",
+        none: "Only counters are kept (mode none).",
+      }[next.logging_mode] ?? `Logging mode ${next.logging_mode}.`;
+  $("foot-version").textContent = `AlpenDNS ${next.version}`;
+}
+
+async function refreshStatus() {
+  const next = await api("/api/status");
+  setReachable(true);
+  renderStatus(next);
+  return next;
+}
+
+function computeShares(view) {
+  const sums = (view.upstreams ?? []).map(() => 0);
+  for (const item of view.buckets ?? []) {
+    (item.upstreams ?? []).forEach((value, index) => {
+      sums[index] = (sums[index] ?? 0) + value;
+    });
+  }
+  const total = sums.reduce((sum, value) => sum + value, 0);
+  shares = sums.map((value) => (total ? (value / total) * 100 : 0));
+}
+
+function drawDay(view) {
+  const buckets = view.buckets ?? [];
+  const ready = buckets.length >= 2;
+  $("chart-traffic").hidden = !ready;
+  $("day-empty").hidden = ready;
+  if (!ready) {
+    setPath("day-queries", "");
+    setPath("day-blocked", "");
+    return;
+  }
+
+  const step = 240 / (buckets.length - 1);
+  const queries = buckets.map((item) => item.queries);
+  const blocked = buckets.map((item) => item.blocked);
+  const peak = Math.max(1, ...queries);
+
+  setPath("day-queries", linePath(queries, peak, step, 54, 46));
+  setPath("day-blocked", linePath(blocked, peak, step, 54, 46));
+}
+
+async function refreshHistory() {
+  const view = await api("/api/history");
+  history = view;
+  computeShares(view);
+  drawDay(view);
+  if (status) renderUpstreams(status);
+}
+
+async function refreshLists() {
+  listInfos = await api("/api/lists");
+  if (status) renderFooter(status);
+}
+
+function isError(event) {
+  return event.source === "failed" || ERROR_RCODES.has(String(event.rcode).toUpperCase());
+}
+
+function sameQuery(one, other) {
+  return Boolean(
+    one.name &&
+      other.name &&
+      one.name === other.name &&
+      one.type === other.type &&
+      (one.client ?? "") === (other.client ?? "") &&
+      one.blocked === other.blocked &&
+      one.rcode === other.rcode &&
+      (one.source ?? "") === (other.source ?? ""),
+  );
+}
+
+function matchesFilter(entry) {
+  const event = entry.event;
+  if (filter === "blocked" && !event.blocked) return false;
+  if (filter === "errors" && !isError(event)) return false;
+  if (searchTerm) {
+    const haystack = `${event.name ?? ""} ${event.client ?? ""}`.toLowerCase();
+    if (!haystack.includes(searchTerm)) return false;
+  }
+  return true;
+}
+
+function applyFilter(entry) {
+  entry.tr.hidden = !matchesFilter(entry);
+}
+
+function paintResult(cell, event) {
+  cell.replaceChildren();
+  const result = span("result");
+  if (event.blocked) {
+    result.classList.add("is-blocked");
+    result.textContent = "BLOCKED";
+    result.title = event.rcode;
+  } else if (isError(event)) {
+    result.classList.add("is-error");
+    result.textContent = String(event.rcode).toUpperCase();
+  } else {
+    result.classList.add("is-muted");
+    result.textContent = String(event.rcode).toUpperCase();
+  }
+  cell.append(result);
+}
+
+function paintMs(cell, event) {
+  cell.classList.remove("is-warn");
+  if (event.blocked) {
+    cell.textContent = "";
+    return;
+  }
+  if (event.source === "cache") {
+    cell.textContent = "cache";
+    return;
+  }
+  if (event.source === "local") {
+    cell.textContent = "local";
+    return;
+  }
+  if (event.source === "failed") {
+    cell.textContent = "–";
+    return;
+  }
+  cell.textContent = msText(event.ms);
+  if (event.ms >= MS_WARN) cell.classList.add("is-warn");
+}
+
+function paintName(entry) {
+  const event = entry.event;
+  const cell = entry.cells.name;
+
+  if (event.name) {
+    if (!entry.button) {
+      entry.button = document.createElement("button");
+      entry.button.type = "button";
+      entry.button.className = "name-button";
+      entry.button.title = "Why this answer";
+      cell.append(entry.button);
+      entry.times = span("times");
+      cell.append(entry.times);
+    }
+    entry.button.textContent = event.name;
+    entry.button.dataset.domain = event.name;
+    if (event.client) entry.button.dataset.client = event.client;
+    if (entry.times) {
+      entry.times.textContent = entry.count > 1 ? `×${entry.count}` : "";
+    }
+  } else {
+    cell.replaceChildren();
+    const empty = span("name-static");
+    empty.textContent = "–";
+    cell.append(empty);
+  }
+}
+
+function buildEntry(event) {
+  const tr = document.createElement("tr");
+  const cells = {
+    time: td("c-time"),
+    name: td("c-name"),
+    type: td("c-type"),
+    client: td("c-client"),
+    result: td("c-result"),
+    ms: td("c-ms"),
+  };
+  tr.append(...Object.values(cells));
+
+  const entry = { event, tr, count: 1, cells, button: null, times: null };
+  fillEntry(entry);
+  tr.dataset.domain = event.name ?? "";
+  if (event.client) tr.dataset.client = event.client;
+  return entry;
+}
+
+function fillEntry(entry) {
+  const event = entry.event;
+  entry.tr.classList.toggle("is-blocked", event.blocked);
+  entry.cells.time.textContent = clockTime(event.at);
+  entry.cells.type.textContent = event.type ?? "–";
+  entry.cells.client.textContent = event.client ?? "–";
+  paintName(entry);
+  paintResult(entry.cells.result, event);
+  paintMs(entry.cells.ms, event);
+}
+
+function pushEvent(event) {
+  const top = entries[0];
+  if (top && sameQuery(top.event, event)) {
+    top.event = event;
+    top.count += 1;
+    fillEntry(top);
+    applyFilter(top);
+    return;
+  }
+
+  if (
+    !event.name &&
+    top &&
+    !top.event.name &&
+    top.event.type === event.type &&
+    top.event.blocked === event.blocked &&
+    top.event.rcode === event.rcode &&
+    (top.event.source ?? "") === (event.source ?? "")
+  ) {
+    top.event = event;
+    top.count += 1;
+    fillEntry(top);
+    applyFilter(top);
+    return;
+  }
+
+  const entry = buildEntry(event);
+  applyFilter(entry);
+  entries.unshift(entry);
+  $("log").prepend(entry.tr);
+
+  while (entries.length > MAX_ROWS) {
+    const removed = entries.pop();
+    removed.tr.remove();
+  }
+}
+
+function flushRows() {
+  flushScheduled = false;
+  if (pending.length === 0) return;
+  for (const event of pending) pushEvent(event);
+  pending.length = 0;
+  syncEmptyStates();
+}
+
+function addRow(event) {
+  bucket.queries += 1 + (event.skipped ?? 0);
+  if (event.blocked) bucket.blocked += 1;
+  if (event.source === "cache") bucket.cache += 1;
+  bucket.ms += Number(event.ms ?? 0);
+
+  if (document.hidden) return;
+  pending.push(event);
+  if (pending.length > MAX_ROWS) pending.splice(0, pending.length - MAX_ROWS);
+  if (!flushScheduled) {
+    flushScheduled = true;
+    requestAnimationFrame(flushRows);
+  }
+}
+
+function syncEmptyStates() {
+  const total = entries.length;
+  const visible = entries.filter((entry) => !entry.tr.hidden).length;
+
+  $("log-table").hidden = total === 0;
+  $("log-empty").hidden = visible > 0;
+
+  if (total === 0) {
+    $("log-empty-note").textContent = quietMode
+      ? `Mode '${quietMode}': the server keeps no names, so nothing can appear here.`
+      : "No query answered yet. New ones appear on their own.";
+  } else {
+    $("log-empty-note").textContent = "No query matches this filter.";
+  }
+
+  $("log-foot").textContent = quietMode
+    ? `Mode '${quietMode}': names are not retained. Set privacy.logging.mode to 'ring' or 'full' to see domains.`
+    : "Select a domain to see why it was answered that way.";
+
+  $("flagged-empty").hidden = $("flagged").childElementCount > 0;
+}
+
+function setFilter(next) {
+  filter = next;
+  for (const chip of document.querySelectorAll(".chip")) {
+    const active = chip.dataset.filter === next;
+    chip.classList.toggle("is-active", active);
+    chip.setAttribute("aria-pressed", String(active));
+  }
+  for (const entry of entries) applyFilter(entry);
+  syncEmptyStates();
+}
+
+const BLOCK_MODES = { Nxdomain: "NXDOMAIN", ZeroIp: "0.0.0.0", Sinkhole: "sinkhole" };
+
+const STEP_FORMS = [
+  [/^no client entry matches, '(.+)' applies$/, "Client",
+    (m) => `${m[1]} · no rule matched`],
+  [/^Client '(.+)' recognized by source address$/, "Client",
+    (m) => `${m[1]} · source address`],
+  [/^Policy '(.+)'$/, "Policy", (m) => m[1]],
+  [/^temporary (allow|deny), (.+) left$/, "Temporary",
+    (m) => `${m[1]} · ${m[2]} left`],
+  [/^Allowlist '(.+)' line (\d+): '(.+)'$/, "Allowlist",
+    (m) => `${m[1]} · line ${m[2]} · ${m[3]}`],
+  [/^Blocklist '(.+)' line (\d+): '(.+)'$/, "Blocklist",
+    (m) => `${m[1]} · line ${m[2]} · ${m[3]}`, true],
+  [/^Regex rule from policy '(.+)': \/(.+)\/$/, "Regex",
+    (m) => `${m[1]} · /${m[2]}/`],
+  [/^Schedule '(.+)' active: .+$/, "Schedule",
+    (m) => `${m[1]} · allowlist only`],
+  [/^from cache \((valid|expired), (\d+) s left\)$/, "Answer",
+    (m) => `cache · ${m[1]} · ${m[2]} s left`],
+  [/^Upstream '(.+)' answered in (.+)$/, "Answer",
+    (m) => `${m[1]} · ${m[2]}`],
+  [/^DNSSEC verified locally: (.+)$/, "DNSSEC", (m) => m[1]],
+  [/^(.+) (blocks|flags|logs) \(score (.+)\): .*$/, "Detection",
+    (m) => `${m[1]} · ${m[2]} · ${m[3]}`],
+  [/^Answer synthesized locally, mode (.+)$/, "Answer",
+    (m) => `synthesized · ${BLOCK_MODES[m[1]] ?? m[1]}`, true],
+  [/^from local zone '(.+)', (\d+) record\(s\)$/, "Answer",
+    (m) => `local zone ${m[1]} · ${m[2]} record(s)`],
+  [/^the same question failed moments ago; .+$/, "Answer",
+    () => "not asked · failed moments ago"],
+];
+
+function describeStep(step) {
+  for (const [pattern, label, detail, key] of STEP_FORMS) {
+    const match = pattern.exec(step);
+    if (match) return { label, detail: detail(match), key: Boolean(key) };
+  }
+  return { label: "Step", detail: step, key: false };
+}
+
+function pipelineItem({ label, detail, key }) {
+  const item = document.createElement("li");
+  if (key) item.classList.add("is-key");
+  const station = span("step-label");
+  station.textContent = label;
+  const outcome = span("step-detail");
+  outcome.textContent = detail;
+  item.append(station, outcome);
+  return item;
+}
+
+function answerStep(record) {
+  const recorded = (record.why ?? []).find((step) =>
+    /^(from cache \(|Upstream '|from local zone |the same question failed)/.test(step),
+  );
+  if (recorded) return describeStep(recorded);
+  switch (record.source) {
+    case "cache":
+      return { label: "Answer", detail: "cache", key: true };
+    case "local":
+      return { label: "Answer", detail: "local zone", key: true };
+    case "failed":
+      return { label: "Answer", detail: "failed · upstream not asked", key: true };
+    case "blocked":
+      return null;
+    default:
+      return {
+        label: "Answer",
+        detail: `upstream · ${msText(record.ms)} ms`,
+        key: true,
+      };
+  }
+}
+
+function renderInspector(answer, record) {
+  const subject = $("inspect-name");
+  subject.textContent = answer.domain;
+  subject.classList.toggle("is-allowed", !answer.blocked);
+
+  const meta = [];
+  if (record) {
+    meta.push(record.type ?? "–", clockTime(record.at), `client ${record.client ?? "unknown"}`);
+  } else {
+    meta.push("evaluated just now", `client ${answer.client}`);
+  }
+  $("inspect-meta").textContent = meta.join(" · ");
+
+  const badge = $("inspect-verdict");
+  badge.hidden = false;
+  badge.textContent = answer.blocked ? "Blocked" : "Allowed";
+  badge.classList.toggle("is-allowed", !answer.blocked);
+
+  const list = $("inspect-steps");
+  list.replaceChildren();
+  let answered = false;
+  for (const step of answer.steps ?? []) {
+    const described = describeStep(step);
+    if (described.label === "Answer") answered = true;
+    list.append(pipelineItem(described));
+  }
+  let fromLog = false;
+  if (!answered && record) {
+    const step = answerStep(record);
+    if (step) {
+      list.append(pipelineItem(step));
+      fromLog = true;
+    }
+  }
+  if (list.childElementCount === 0) {
+    const item = document.createElement("li");
+    const outcome = span("step-detail");
+    outcome.textContent = "No step was recorded.";
+    item.append(outcome);
+    list.append(item);
+  }
+
+  lastTrace = [...list.children]
+    .map((item) => {
+      const label = item.querySelector(".step-label")?.textContent ?? "";
+      const detail = item.querySelector(".step-detail")?.textContent ?? "";
+      return `${label}: ${detail}`;
+    })
+    .join("\n");
+  lastSubject = answer.domain;
+  $("inspect-note").textContent = fromLog
+    ? "Evaluated now against the current lists; the answer is the one that was recorded."
+    : "Evaluated now against the current lists, not replayed from the log.";
+  $("inspect-allow").hidden = !answer.blocked;
+  $("inspect-allow").textContent = "Allow this domain";
+  $("inspect-allow").disabled = false;
+}
+
+async function openInspector({ name, client, entry, record }) {
+  if (!name) return;
+  if (selectedEntry && selectedEntry !== entry) {
+    selectedEntry.tr.classList.remove("is-selected");
+  }
+  selectedEntry = entry ?? null;
+  if (entry) entry.tr.classList.add("is-selected");
+
+  const sequence = ++inspectSeq;
+  $("inspect-name").textContent = name;
+  $("inspect-name").classList.remove("is-allowed");
+  $("inspect-meta").textContent = record
+    ? [record.type ?? "–", clockTime(record.at), `client ${record.client ?? "unknown"}`].join(" · ")
+    : "evaluated just now";
+  $("inspect-verdict").hidden = true;
+  $("inspect-steps").replaceChildren();
+  $("inspect-note").textContent = "Evaluating against the current lists…";
+  $("inspect-allow").hidden = true;
+  $("inspect-copy").textContent = "Copy trace";
+  lastTrace = "";
+  lastSubject = name;
+
+  const dialog = $("inspector");
+  if (!dialog.open) dialog.showModal();
+
+  const query = new URLSearchParams({ domain: name });
+  if (client && client !== "–" && client !== "unknown" && client !== "default") {
+    query.set("client", client);
+  }
+
+  try {
+    const answer = await api(`/api/explain?${query}`);
+    if (sequence !== inspectSeq) return;
+    renderInspector(answer, record);
+  } catch {
+    if (sequence !== inspectSeq) return;
+    $("inspect-note").textContent = "Evaluation was not possible.";
+  }
+}
+
+function loadRecent(recent) {
+  for (let index = recent.length - 1; index >= 0; index -= 1) {
+    pushEvent(recent[index]);
+  }
+  syncEmptyStates();
+}
+
+async function refreshTop() {
+  const report = await api("/api/top?limit=8");
+  const list = $("top");
+  list.replaceChildren();
+
+  for (const entry of report.domains ?? []) {
+    const item = document.createElement("li");
+    if (entry.blocked) item.classList.add("is-blocked");
+    const name = span("top-name");
+    name.textContent = entry.name;
+    const count = span("top-count");
+    count.textContent = thousands(entry.count);
+    item.append(name, count);
+    list.append(item);
+  }
+
+  $("top-empty").hidden = list.childElementCount > 0;
+  $("top-note").textContent =
+    quietMode === "none"
+      ? "Mode 'none': the server keeps no names."
+      : "No name seen often enough yet.";
+}
+
+async function refreshFlagged() {
+  const found = await api("/api/flagged?limit=25");
+  const list = $("flagged");
+  list.replaceChildren();
+
+  for (const entry of found) {
+    for (const finding of entry.findings ?? []) {
+      list.append(flaggedRow(entry, finding));
+    }
+  }
+
+  $("flagged-note").textContent = found.length
+    ? `${thousands(found.length)} in the last few minutes`
+    : "";
+  $("flagged-note").hidden = found.length === 0;
+  $("flagged-note-empty").textContent = quietMode
+    ? `mode '${quietMode}': the server keeps no names, so nothing can appear here.`
+    : "No heuristic has flagged anything.";
+  syncEmptyStates();
+}
+
+function flaggedRow(entry, finding) {
+  const item = document.createElement("li");
+
+  const subject = span("subject");
+  subject.textContent = entry.name;
+
+  const meta = document.createElement("p");
+  meta.className = "meta";
+  const label = span("");
+  label.textContent = finding.label;
+  const score = span("score");
+  score.textContent = finding.score;
+  const action = span("");
+  action.textContent = finding.action === "block" ? "blocked" : "flagged";
+  meta.append(label, score, action);
+
+  const why = document.createElement("p");
+  why.className = "why";
+  why.textContent = finding.reason;
+
+  const actions = document.createElement("div");
+  actions.className = "actions";
+  actions.append(
+    decideButton("Allow", "/api/allow", entry.name),
+    decideButton("Deny", "/api/deny", entry.name),
+  );
+
+  item.append(subject, meta, why, actions);
+  return item;
+}
+
+function decideButton(caption, path, domain) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = caption;
+  button.addEventListener("click", async () => {
+    button.disabled = true;
+    try {
+      await post(path, { domain, seconds: 3600 });
+      button.textContent = `${caption} ✓`;
+    } catch {
+      button.textContent = "failed";
+      button.disabled = false;
+    }
+  });
+  return button;
+}
+
+function connectStream() {
+  if (stream) stream.abort();
+  const controller = new AbortController();
+  stream = controller;
+  void pump(controller.signal);
+}
+
+function setStreamState(live) {
+  $("stream-state").textContent = live ? "updates live" : "reconnecting";
+  $("stream-flag").classList.toggle("is-off", !live);
+  $("stream-flag-text").textContent = live ? "streaming" : "reconnecting";
+}
+
+async function pump(signal) {
+  while (!signal.aborted) {
+    try {
+      const response = await fetch("/api/events", {
+        headers: { Authorization: `Bearer ${token}` },
+        signal,
+      });
+      if (!response.ok) throw new Error(String(response.status));
+      setStreamState(true);
+      await readEvents(response.body, signal);
+    } catch {
+      if (signal.aborted) return;
+    }
+    setStreamState(false);
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+  }
+}
+
+async function readEvents(body, signal) {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    if (signal.aborted) {
+      await reader.cancel().catch(() => {});
+      return;
+    }
+    const { value, done } = await reader.read();
+    if (done) return;
+    buffer += decoder.decode(value, { stream: true });
+    let end;
+    while ((end = buffer.indexOf("\n\n")) >= 0) {
+      const block = buffer.slice(0, end);
+      buffer = buffer.slice(end + 2);
+      const data = block
+        .split("\n")
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.slice(5).replace(/^ /, ""))
+        .join("\n");
+      if (!data) continue;
+      try {
+        addRow(JSON.parse(data));
+      } catch {}
+    }
+  }
+}
+
+function openCommand() {
+  const dialog = $("command");
+  if (dialog.open) return;
+  $("command-input").value = "";
+  dialog.showModal();
+  $("command-input").focus();
+}
+
+function isTyping(target) {
+  return (
+    target instanceof HTMLElement &&
+    (target.isContentEditable ||
+      target.tagName === "INPUT" ||
+      target.tagName === "TEXTAREA" ||
+      target.tagName === "SELECT")
+  );
+}
+
+function showApp() {
+  $("login").hidden = true;
+  $("app").hidden = false;
+}
+
+async function start() {
+  await refreshStatus();
+  showApp();
+
+  await Promise.allSettled([
+    api("/api/recent?limit=80").then(loadRecent),
+    refreshHistory(),
+    refreshFlagged(),
+    refreshLists(),
+    refreshTop(),
+  ]);
+
+  if (started) return;
+  started = true;
+
+  connectStream();
+  setInterval(tickSparks, 1000);
+  setInterval(() => {
+    if (document.hidden) return;
+    refreshHistory().catch(() => {});
+  }, HISTORY_MS);
+  setInterval(() => {
+    if (document.hidden) return;
+    refreshLists().catch(() => {});
+  }, HISTORY_MS);
+  setInterval(async () => {
+    if (document.hidden) return;
+    try {
+      await refreshStatus();
+      await refreshFlagged();
+      await refreshTop();
+    } catch {
+      setReachable(false);
+    }
+  }, POLL_MS);
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) return;
+    bucket = { queries: 0, blocked: 0, cache: 0, ms: 0 };
+    refreshStatus().catch(() => setReachable(false));
+    refreshHistory().catch(() => {});
+  });
+}
+
+function setTheme(mode) {
+  document.documentElement.dataset.theme = mode;
+  $("theme-toggle").setAttribute(
+    "aria-label",
+    mode === "dark" ? "Switch to light mode" : "Switch to dark mode",
+  );
+}
+
+$("theme-toggle").addEventListener("click", () => {
+  const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+  try {
+    localStorage.setItem(THEME_KEY, next);
+  } catch {}
+  setTheme(next);
+});
+
+setTheme(document.documentElement.dataset.theme || "light");
+
+$("login").addEventListener("submit", async (submitEvent) => {
+  submitEvent.preventDefault();
+  token = $("token").value.trim();
+  try {
+    await start();
+    localStorage.setItem(TOKEN_KEY, token);
+  } catch {
+    const error = $("login-error");
+    error.textContent = "The token was not accepted.";
+    error.hidden = false;
+  }
+});
+
+$("log").addEventListener("click", (event) => {
+  const button = event.target.closest(".name-button");
+  if (!button || !button.dataset.domain) return;
+  const entry = entries.find((item) => item.button === button) ?? null;
+  void openInspector({
+    name: button.dataset.domain,
+    client: button.dataset.client ?? null,
+    entry,
+    record: entry?.event ?? null,
+  });
+});
+
+for (const chip of document.querySelectorAll(".chip")) {
+  chip.addEventListener("click", () => setFilter(chip.dataset.filter));
+}
+
+$("log-search").addEventListener("input", (event) => {
+  searchTerm = event.target.value.trim().toLowerCase();
+  for (const entry of entries) applyFilter(entry);
+  syncEmptyStates();
+});
+
+$("bogus-review").addEventListener("click", () => {
+  setFilter("errors");
+  $("log-scroll").scrollIntoView({ block: "nearest" });
+});
+
+$("command-open").addEventListener("click", openCommand);
+
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "/" || isTyping(event.target) || $("inspector").open) return;
+  event.preventDefault();
+  openCommand();
+});
+
+$("command").addEventListener("click", (event) => {
+  const dialog = $("command");
+  if (event.target === dialog) dialog.close();
+});
+
+$("command-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const name = $("command-input").value.trim();
+  if (!name) return;
+  $("command").close();
+  const known = entries.find(
+    (entry) => entry.event.name?.toLowerCase() === name.toLowerCase(),
+  );
+  void openInspector({
+    name,
+    client: known?.event.client ?? null,
+    entry: known ?? null,
+    record: known?.event ?? null,
+  });
+});
+
+$("inspect-close").addEventListener("click", () => $("inspector").close());
+
+$("inspector").addEventListener("close", () => {
+  if (selectedEntry) selectedEntry.tr.classList.remove("is-selected");
+  selectedEntry = null;
+});
+
+$("inspect-copy").addEventListener("click", async () => {
+  const button = $("inspect-copy");
+  try {
+    await navigator.clipboard.writeText(lastTrace);
+    button.textContent = "Copied";
+  } catch {
+    button.textContent = "Copy failed";
+  }
+  setTimeout(() => {
+    button.textContent = "Copy trace";
+  }, 1500);
+});
+
+$("inspect-allow").addEventListener("click", async () => {
+  const button = $("inspect-allow");
+  if (!lastSubject) return;
+  button.disabled = true;
+  try {
+    await post("/api/allow", { domain: lastSubject, seconds: 300 });
+    button.textContent = "Allowed for 5 minutes";
+    const query = new URLSearchParams({ domain: lastSubject });
+    const answer = await api(`/api/explain?${query}`);
+    renderInspector(answer, selectedEntry?.event ?? null);
+    $("inspect-allow").textContent = "Allowed for 5 minutes";
+    $("inspect-allow").disabled = true;
+  } catch {
+    button.textContent = "Failed";
+    button.disabled = false;
+  }
+});
+
+drawAllSparks();
+
+start().catch(() => {
+  $("login").hidden = false;
+  $("token").focus();
+});
+</script>
+</body>
+</html>
