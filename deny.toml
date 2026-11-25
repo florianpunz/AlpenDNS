@@ -11,6 +11,32 @@ all-features = true
 # jeweils mit einer Begründung und der Bedingung, wann sie wegfällt.
 # Die Prüfung läuft seit dem wöchentlichen Lauf in ci.yml auch ohne Commit; was
 # dann zu tun ist, steht in CONTRIBUTING.md unter "Dependencies and advisories".
+ignore = [
+    { id = "RUSTSEC-2026-0542", reason = """
+humantime 2.4.0: als unmaintained markiert. Das Advisory begründet das damit,
+dass chrono unmaintained ist und humantime daran hängt; alle Versionen seien
+betroffen, ein sicheres Upgrade gibt es nicht.
+
+**Keine verwundbare Stelle, nur ein Wartungsstand.** Das Advisory nennt keine
+Fehlfunktion. Die Prüfung fällt trotzdem darüber, weil `unmaintained` in dieser
+Konfiguration ein Fehler ist.
+
+**Der Pfad ist lokal, nicht vom Netz.** humantime kommt ausschließlich über
+humantime-serde herein und parst Zeitangaben wie `3s` und `24h` aus
+/etc/alpendns/alpendns.toml — zehn Felder in `crates/alpendns/src/config.rs`
+tragen `#[serde(with = "humantime_serde")]`. Die Datei ist root-eigen und wird
+beim Start einmal gelesen; kein Byte aus einer DNS-Antwort oder einem
+Blocklisten-Download erreicht den Parser. chrono steht nicht im Baum
+(`cargo tree -i chrono` findet nichts), und humantime 2.4.0 selbst hat keine
+Abhängigkeiten.
+
+**Umkehrbedingung:** die Ausnahme fällt weg, sobald humantime oder
+humantime-serde eine gepflegte Fassung ohne dieses Advisory bekommt oder ein
+gepflegter Ersatz für das Parsen der Zeitangaben einzieht. Sie wird beim
+nächsten wöchentlichen Lauf erneut gelesen (CONTRIBUTING.md, "Dependencies and
+advisories").
+""" },
+]
 yanked = "deny"
 
 [licenses]
