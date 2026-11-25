@@ -1,67 +1,53 @@
 name: Demo
 
-# Baut die öffentliche Demo der Oberfläche und legt sie auf GitHub Pages.
-#
-# Veröffentlicht wird genau eine Datei: web/dist/alpendns-demo.html, umbenannt
-# zu index.html. web/demo/build.sh setzt die drei Dateien, die der Server
-# ausliefert, mit der Demo-Schicht zu einer selbsttragenden Seite zusammen und
-# bricht ab, wenn das Erzeugnis nach außen verweist oder app.js einen Endpunkt
-# abruft, den die Demo nicht bedient. Die veröffentlichte Seite kann deshalb
-# nicht still verrotten — entweder der Build ist grün oder es gibt keine Seite.
-#
-# Deshalb gibt es hier auch keinen zweiten Build-Schritt und keine Kopie der
-# Prüfungen: die Zusicherungen stehen im Skript, nicht im Workflow.
-#
-# Einmalig von Hand nötig: Settings → Pages → Source auf "GitHub Actions".
 on:
   push:
     branches: [main]
     paths:
-      # Nur wenn sich die Oberfläche oder ihr Bauwerkzeug ändert. Ein
-      # Doku-Commit soll keine Demo neu ausliefern.
       - "web/**"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
-# Zwei Pushes kurz nacheinander: der zweite soll den ersten nicht überholen.
-# Anders als beim Release ist Abbruch hier richtig — veröffentlicht wird der
-# jeweils letzte Stand, nicht jeder.
 concurrency:
-  group: pages
-  cancel-in-progress: true
+  group: gh-pages
+  cancel-in-progress: false
 
 jobs:
-  build:
+  publish:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-
+        with:
+          fetch-depth: 0
       - name: Build the demo
         run: sh web/demo/build.sh
-
-      # Pages erwartet eine index.html an der Wurzel des Artefakts. Statt sie
-      # umzubenennen wird kopiert: der Build-Ausgabename bleibt die einzige
-      # Stelle, an der er steht.
-      - name: Put it in place as index.html
+      - name: Publish to gh-pages
         run: |
-          mkdir -p publish
-          cp web/dist/alpendns-demo.html publish/index.html
-
-      - uses: actions/upload-pages-artifact@v5
-        with:
-          path: publish
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v5
+          set -euo pipefail
+          if git ls-remote --exit-code --heads origin gh-pages >/dev/null 2>&1; then
+            git worktree add pages origin/gh-pages -B gh-pages
+          else
+            git worktree add --detach pages
+            git -C pages checkout --orphan gh-pages
+            git -C pages rm -rf .
+          fi
+          cp web/dist/alpendns-demo.html pages/index.html
+          git -C pages config user.name "github-actions[bot]"
+          git -C pages config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C pages add index.html
+          if git -C pages diff --cached --quiet; then
+            echo "index.html is already up to date."
+            exit 0
+          fi
+          git -C pages commit -m "docs: publish the demo"
+          for attempt in 1 2 3; do
+            if git -C pages push origin gh-pages; then
+              exit 0
+            fi
+            git -C pages pull --rebase origin gh-pages || true
+            sleep 5
+          done
+          exit 1

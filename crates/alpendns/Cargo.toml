@@ -108,4 +108,4 @@ enable = true
 # Port 53 belegt), soll das eine erklärte Meldung geben und nicht ein halb
 # konfiguriertes Paket.
 start = false
-restart-after-upgrade = true
+restart-after-upgrade = false

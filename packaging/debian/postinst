@@ -24,9 +24,11 @@ fi
 
 #DEBHELPER#
 
-# Nur bei der Erstinstallation ($2 ist leer). Beim Upgrade hat die von
-# cargo-deb erzeugte Passage oben schon neu gestartet, und die Meldung mit den
-# ersten Schritten will dann niemand mehr lesen.
+if [ "$1" = "configure" ] && [ -n "$2" ] && [ -d /run/systemd/system ]; then
+    systemctl daemon-reload
+    systemctl try-restart alpendns.service || true
+fi
+
 if [ "$1" = "configure" ] && [ -z "$2" ] && [ -d /run/systemd/system ]; then
     if systemctl start alpendns.service; then
         cat <<'MSG'

@@ -41,9 +41,10 @@ system does not matter.
 
 ### Releases and versions
 
-The `push` to `main` builds the package in GitHub Actions and publishes it as a
-GitHub release — for `amd64` and `arm64`. The version number is raised **before
-the push**, not by CI: `scripts/bump-version.sh major|minor|patch`. Which of the
+A pushed tag `v*` builds the package in GitHub Actions, publishes it as a
+GitHub release and rolls it into the signed APT repository on GitHub Pages —
+for `amd64` and `arm64`. The version number is raised **before the tag**, not by
+CI: `scripts/bump-version.sh major|minor|patch`. Which of the
 three it is follows from what has come together since the last tag — the
 heaviest kind wins:
 
@@ -62,12 +63,43 @@ That a new feature already moves the first position is a deliberate departure
 from SemVer, where it is a `minor` and only a break is a `major`. Here the kind
 of change decides, and "something is new" is the heaviest kind there is.
 
-The coding agent raises the version itself before the push; anyone pushing by
-hand calls the script themselves. If the rule is broken and the version already
-exists as a tag in the repo, CI aborts with a clear message rather than
-publishing the same number a second time.
+The coding agent raises the version itself before the tag; anyone releasing by
+hand calls the script themselves. If the tag does not match the version in
+`Cargo.toml`, CI aborts with a clear message rather than publishing the same
+number a second time. A release is three commands:
+
+```bash
+scripts/bump-version.sh major|minor|patch
+version="$(sed -nE 's/^version = "([0-9]+\.[0-9]+\.[0-9]+)"$/\1/p' Cargo.toml | head -n1)"
+git commit -am "chore(release): $version"
+git tag -a "v$version" -m "v$version"
+git push origin main "v$version"
+```
 
 The package can still be built locally, as described above.
+
+### Installing from the APT repository
+
+Every release lands in a signed APT repository on GitHub Pages. The path is
+case-sensitive:
+
+```bash
+sudo install -d -m 755 /usr/share/keyrings
+curl -fsSL https://florianpunz.github.io/AlpenDNS/apt/alpendns.gpg \
+  | sudo tee /usr/share/keyrings/alpendns-archive-keyring.gpg >/dev/null
+echo 'deb [signed-by=/usr/share/keyrings/alpendns-archive-keyring.gpg] https://florianpunz.github.io/AlpenDNS/apt stable main' \
+  | sudo tee /etc/apt/sources.list.d/alpendns.list
+sudo apt update
+sudo apt install alpendns
+```
+
+The configuration under `/etc/alpendns/` is a conffile and survives upgrades.
+For automatic upgrades:
+
+```bash
+echo 'Unattended-Upgrade::Allowed-Origins { "AlpenDNS:stable"; };' \
+  | sudo tee /etc/apt/apt.conf.d/51alpendns-unattended-upgrades
+```
 
 ### Installing the package
 

@@ -1,23 +1,13 @@
 name: Release
 
-# Baut bei jedem Push auf main das .deb (amd64 + arm64) und veröffentlicht es
-# als GitHub Release. Die Versionsnummer kommt aus Cargo.toml — sie wurde bereits
-# VOR dem Push erhöht (scripts/bump-version.sh major|minor|patch, einmal je
-# Release), siehe docs/OPERATIONS.md. Deshalb gibt es hier keinen Bot-Commit
-# zurück nach main: der würde den Hand-Push-Workflow (CLAUDE.md B.7) mit
-# non-fast-forward-Ablehnungen stören.
-#
-# Auf Pull Requests läuft dieses Workflow nicht; dort prüft nur ci.yml.
 on:
   push:
-    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: write
 
-# Zwei Pushes kurz nacheinander: der zweite Lauf wartet, bis der erste fertig
-# ist, und sieht dann dessen Tag. Ohne das könnten beide gleichzeitig "Tag fehlt"
-# feststellen und der zweite liefe in einen undurchsichtigen gh-Fehler.
 concurrency:
   group: release
   cancel-in-progress: false
@@ -26,6 +16,7 @@ jobs:
   deb:
     runs-on: ${{ matrix.runs-on }}
     strategy:
+      fail-fast: false
       matrix:
         include:
           - runs-on: ubuntu-latest
@@ -64,29 +55,30 @@ jobs:
         run: |
           version="$(sed -nE 's/^version = "([0-9]+\.[0-9]+\.[0-9]+)"$/\1/p' Cargo.toml | head -n1)"
           lock_version="$(sed -nE '/^name = "alpendns"$/,/^$/ s/^version = "([0-9]+\.[0-9]+\.[0-9]+)"$/\1/p' Cargo.lock)"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
           if [ -z "$version" ]; then
             echo "no version found in Cargo.toml" >&2
             exit 1
           fi
-          # Beide Dateien müssen dieselbe Version führen, sonst churned das
-          # Lockfile beim nächsten lokalen Build still nach.
           if [ "$lock_version" != "$version" ]; then
             echo "Cargo.lock (alpendns: $lock_version) and Cargo.toml ($version) have diverged — scripts/bump-version.sh applies both." >&2
             exit 1
           fi
-          # Fail closed statt Doppel-Veröffentlichung: existiert der Tag schon,
-          # wurde die Version vor dem Commit nicht erhöht.
-          if git ls-remote --tags origin "refs/tags/v$version" | grep -q .; then
-            echo "Tag v$version already exists — the version in Cargo.toml was not raised (scripts/bump-version.sh)." >&2
+          if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match the version in Cargo.toml (v$version)." >&2
             exit 1
           fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
       - name: Create the GitHub release
         env:
-          # gh liest in Actions nicht automatisch GITHUB_TOKEN — es will GH_TOKEN
-          # explizit. Ohne die Zeile bricht der Schritt mit Exit-Code 4 ab.
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "v${{ steps.v.outputs.version }}" dist/*.deb --generate-notes
+        run: |
+          tag="${{ steps.v.outputs.tag }}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" dist/*.deb --clobber
+          else
+            gh release create "$tag" dist/*.deb --generate-notes --target "$GITHUB_SHA"
+          fi
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
       - name: Set up Buildx
@@ -106,3 +98,96 @@ jobs:
           tags: |
             ghcr.io/florianpunz/alpendns:${{ steps.v.outputs.version }}
             ghcr.io/florianpunz/alpendns:latest
+
+  apt:
+    needs: deb
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: gh-pages
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Fetch the packages
+        uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Read the version
+        id: v
+        run: |
+          version="$(sed -nE 's/^version = "([0-9]+\.[0-9]+\.[0-9]+)"$/\1/p' Cargo.toml | head -n1)"
+          if [ -z "$version" ]; then
+            echo "no version found in Cargo.toml" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+      - name: Install reprepro
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends reprepro gnupg
+      - name: Import the signing key
+        env:
+          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+        run: |
+          if [ -z "$APT_GPG_PRIVATE_KEY" ]; then
+            echo "Secret APT_GPG_PRIVATE_KEY is not set." >&2
+            exit 1
+          fi
+          echo "$APT_GPG_PRIVATE_KEY" | gpg --batch --import
+          fingerprint="$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr:/ {print $10; exit}')"
+          if [ -z "$fingerprint" ]; then
+            echo "No signing key imported." >&2
+            exit 1
+          fi
+          echo "APT_KEY_ID=$fingerprint" >> "$GITHUB_ENV"
+      - name: Build the APT repository
+        run: |
+          set -euo pipefail
+          mkdir -p apt/conf
+          cat > apt/conf/distributions <<EOF
+          Origin: AlpenDNS
+          Label: AlpenDNS
+          Suite: stable
+          Codename: stable
+          Architectures: amd64 arm64
+          Components: main
+          Description: AlpenDNS APT repository
+          SignWith: $APT_KEY_ID
+          EOF
+          printf 'verbose\n' > apt/conf/options
+          reprepro -b apt remove stable alpendns || true
+          reprepro -b apt includedeb stable dist/*.deb
+          gpg --export "$APT_KEY_ID" > apt/alpendns.gpg
+      - name: Publish to gh-pages
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --heads origin gh-pages >/dev/null 2>&1; then
+            git worktree add pages origin/gh-pages -B gh-pages
+          else
+            git worktree add --detach pages
+            git -C pages checkout --orphan gh-pages
+            git -C pages rm -rf .
+          fi
+          rm -rf pages/apt
+          mkdir -p pages/apt
+          cp -a apt/dists apt/pool pages/apt/
+          cp apt/alpendns.gpg pages/apt/
+          git -C pages config user.name "github-actions[bot]"
+          git -C pages config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C pages add -A
+          if git -C pages diff --cached --quiet; then
+            echo "gh-pages is already up to date."
+            exit 0
+          fi
+          git -C pages commit -m "chore: publish the APT repository for ${{ steps.v.outputs.tag }}"
+          for attempt in 1 2 3; do
+            if git -C pages push origin gh-pages; then
+              exit 0
+            fi
+            git -C pages pull --rebase origin gh-pages || true
+            sleep 5
+          done
+          exit 1
