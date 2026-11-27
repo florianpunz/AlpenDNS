@@ -170,6 +170,7 @@ cargo fmt --all --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-features
 cargo deny check
+node --test web/spark.test.js
 ```
 
 pass, **and** the change either brings a new test or a line of justification for

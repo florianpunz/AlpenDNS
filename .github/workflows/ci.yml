@@ -31,6 +31,8 @@ jobs:
         run: cargo clippy --all-targets --all-features
       - name: Test
         run: cargo test --all-features
+      - name: Test the web UI
+        run: node --test web/spark.test.js
 
   container:
     runs-on: ubuntu-latest

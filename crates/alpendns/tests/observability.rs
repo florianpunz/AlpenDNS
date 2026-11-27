@@ -707,6 +707,7 @@ async fn the_ui_is_served_without_a_token() {
         ("/app.css", "text/css"),
         ("/app.js", "text/javascript"),
         ("/theme.js", "text/javascript"),
+        ("/spark.js", "text/javascript"),
     ] {
         let response = api.get_without_token(path).await;
         assert!(

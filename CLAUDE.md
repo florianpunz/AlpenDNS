@@ -249,7 +249,7 @@ arbitrary from outside and are not:
 ### B.4 Testing
 
 Complete in `docs/TESTING.md`, which also carries the **definition of done** —
-the four commands that must be green before a change counts as finished.
+the five commands that must be green before a change counts as finished.
 "Compiles" is not finished. The minimum that applies to every change:
 
 * Every bugfix begins with a test that reproduces the bug.

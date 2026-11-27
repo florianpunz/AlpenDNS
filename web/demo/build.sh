@@ -4,8 +4,8 @@
 # Webserver gelegt werden kann — kein Rust-Prozess, kein Port, kein Token, kein
 # TLS.
 #
-# Das Verfahren ist bewusst klein: die vier Dateien, die der Server ausliefert
-# (web/index.html, web/app.css, web/theme.js, web/app.js), werden in eine Datei
+# Das Verfahren ist bewusst klein: die fünf Dateien, die der Server ausliefert
+# (web/index.html, web/app.css, web/theme.js, web/spark.js, web/app.js), werden in eine Datei
 # gesetzt, dazu die Demo-Schicht aus web/demo/demo.js. Die Demo *ist* damit die
 # echte Oberfläche — sie kann nicht anders aussehen als das Original, weil sie
 # das Original enthält. Eigen ist ihr nur die Datenquelle.
@@ -30,6 +30,7 @@ src="$root/web/index.html"
 css="$root/web/app.css"
 theme="$root/web/theme.js"
 js="$root/web/app.js"
+spark="$root/web/spark.js"
 demo="$here/demo.js"
 out="$root/web/dist/alpendns-demo.html"
 
@@ -38,7 +39,7 @@ fail() {
   exit 1
 }
 
-for file in "$src" "$css" "$theme" "$js" "$demo"; do
+for file in "$src" "$css" "$theme" "$spark" "$js" "$demo"; do
   [ -f "$file" ] || fail "fehlt: $file"
 done
 
@@ -58,6 +59,7 @@ trap 'rm -f -- "$tmp"' EXIT INT TERM
 
 count_css=0
 count_theme=0
+count_spark=0
 count_js=0
 
 {
@@ -75,6 +77,12 @@ count_js=0
         # app.css greift.
         printf '<script>\n'
         cat -- "$theme"
+        printf '</script>\n'
+        ;;
+      *'src="/spark.js"'*)
+        count_spark=$((count_spark + 1))
+        printf '<script>\n'
+        cat -- "$spark"
         printf '</script>\n'
         ;;
       *'src="/app.js"'*)
@@ -99,6 +107,7 @@ count_js=0
 
 [ "$count_css" -eq 1 ] || fail "href=\"/app.css\" $count_css× gefunden, genau 1× erwartet"
 [ "$count_theme" -eq 1 ] || fail "src=\"/theme.js\" $count_theme× gefunden, genau 1× erwartet"
+[ "$count_spark" -eq 1 ] || fail "src=\"/spark.js\" $count_spark× gefunden, genau 1× erwartet"
 [ "$count_js" -eq 1 ] || fail "src=\"/app.js\" $count_js× gefunden, genau 1× erwartet"
 
 # Das Setzen ist ein reines Nebeneinanderstellen. Enthielte eine der Dateien die
@@ -112,6 +121,7 @@ check_inline() {
 
 check_inline "$css" '</style'
 check_inline "$theme" '</script'
+check_inline "$spark" '</script'
 check_inline "$js" '</script'
 check_inline "$demo" '</script'
 
@@ -171,7 +181,7 @@ mv -- "$tmp" "$out"
 
 printf 'web/dist/alpendns-demo.html  %s Bytes\n\n' "$bytes"
 printf 'Aus welchen Ständen sie gebaut ist:\n'
-for file in "$src" "$css" "$theme" "$js" "$demo"; do
+for file in "$src" "$css" "$theme" "$spark" "$js" "$demo"; do
   printf '  %s  %s\n' "$(sha256sum -- "$file" | cut -d' ' -f1)" "${file#"$root/"}"
 done
 printf '\nBediente Endpunkte: %s\n' "$(printf '%s' "$served" | tr '\n' ' ')"

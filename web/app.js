@@ -33,13 +33,11 @@ const entries = [];
 const pending = [];
 let flushScheduled = false;
 
-const series = {
-  queries: new Array(SPARK_SECONDS).fill(0),
-  blocked: new Array(SPARK_SECONDS).fill(0),
-  cache: new Array(SPARK_SECONDS).fill(0),
-  latency: new Array(SPARK_SECONDS).fill(0),
-};
-let bucket = { queries: 0, blocked: 0, cache: 0, ms: 0 };
+const spark = createSpark(
+  SPARK_SECONDS / SPARK_BUCKET,
+  SPARK_BUCKET * 1000,
+  Date.now(),
+);
 
 function td(className) {
   const cell = document.createElement("td");
@@ -170,21 +168,6 @@ function setPath(id, d) {
   $(id).setAttribute("d", d);
 }
 
-function pushSample(name, value) {
-  const values = series[name];
-  values.push(value);
-  if (values.length > SPARK_SECONDS) values.shift();
-}
-
-function bucketSamples(values) {
-  const points = [];
-  for (let start = 0; start < values.length; start += SPARK_BUCKET) {
-    const slice = values.slice(start, start + SPARK_BUCKET);
-    points.push(slice.reduce((sum, value) => sum + value, 0) / slice.length);
-  }
-  return points;
-}
-
 function sparkRange(points) {
   let low = Math.min(...points);
   let high = Math.max(...points);
@@ -210,7 +193,7 @@ function polylinePath(values, low, high, step, base, span) {
 }
 
 function drawSpark(name) {
-  const points = bucketSamples(series[name]);
+  const points = spark.series[name];
   const { low, high } = sparkRange(points);
   if (high === low) {
     setPath(`s-${name}`, "M0 33L240 33");
@@ -230,15 +213,7 @@ function drawAllSparks() {
 }
 
 function tickSparks() {
-  if (document.hidden) return;
-  const queries = bucket.queries;
-  pushSample("queries", queries);
-  pushSample("blocked", queries ? (bucket.blocked / queries) * 100 : 0);
-  pushSample("cache", queries ? (bucket.cache / queries) * 100 : 0);
-  pushSample("latency", queries ? bucket.ms / queries : 0);
-  bucket = { queries: 0, blocked: 0, cache: 0, ms: 0 };
-
-  drawAllSparks();
+  if (rollSpark(spark, Date.now()) && !document.hidden) drawAllSparks();
 }
 
 function setReachable(reachable) {
@@ -673,10 +648,7 @@ function flushRows() {
 }
 
 function addRow(event) {
-  bucket.queries += 1 + (event.skipped ?? 0);
-  if (event.blocked) bucket.blocked += 1;
-  if (event.source === "cache") bucket.cache += 1;
-  bucket.ms += Number(event.ms ?? 0);
+  if (countSpark(spark, event, Date.now()) && !document.hidden) drawAllSparks();
 
   if (document.hidden) return;
   pending.push(event);
@@ -1113,7 +1085,7 @@ async function start() {
 
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) return;
-    bucket = { queries: 0, blocked: 0, cache: 0, ms: 0 };
+    drawAllSparks();
     refreshStatus().catch(() => setReachable(false));
     refreshHistory().catch(() => {});
   });

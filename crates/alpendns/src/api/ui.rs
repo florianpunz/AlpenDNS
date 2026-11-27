@@ -15,6 +15,7 @@ use axum::routing::get;
 const INDEX: &str = include_str!("../../../../web/index.html");
 pub(super) const STYLE: &str = include_str!("../../../../web/app.css");
 const SCRIPT: &str = include_str!("../../../../web/app.js");
+const SPARK: &str = include_str!("../../../../web/spark.js");
 /// Der Theme-Block, der vor dem ersten Zeichnen laufen muss. Eigene Datei statt
 /// eines Inline-Blocks, damit die CSP kein `'unsafe-inline'` und keinen
 /// Hash-Nachlauf braucht.
@@ -26,6 +27,7 @@ pub fn router() -> Router<super::ApiState> {
         .route("/app.css", get(style))
         .route("/app.js", get(script))
         .route("/theme.js", get(theme))
+        .route("/spark.js", get(spark))
 }
 
 fn serve(content_type: &'static str, body: &'static str) -> Response {
@@ -55,6 +57,10 @@ async fn script() -> Response {
 
 async fn theme() -> Response {
     serve("text/javascript; charset=utf-8", THEME)
+}
+
+async fn spark() -> Response {
+    serve("text/javascript; charset=utf-8", SPARK)
 }
 
 #[cfg(test)]
@@ -99,6 +105,7 @@ mod tests {
             ("app.css", STYLE),
             ("app.js", SCRIPT),
             ("theme.js", THEME),
+            ("spark.js", SPARK),
         ] {
             for needle in [
                 "http://",
@@ -652,7 +659,7 @@ mod tests {
         assert!(SCRIPT.contains("if (document.hidden) return;"));
         assert!(SCRIPT.contains("visibilitychange"));
         assert!(
-            SCRIPT.contains("event.skipped ?? 0"),
+            SPARK.contains("event.skipped ?? 0"),
             "der Puls verliert die ausgelassenen Anfragen"
         );
     }
@@ -661,13 +668,16 @@ mod tests {
     fn the_sparkline_has_a_baseline_and_a_fixed_window() {
         assert!(SCRIPT.contains("const SPARK_BUCKET = 2;"), "kein 2-s-Eimer");
         assert!(
-            SCRIPT.contains("new Array(SPARK_SECONDS).fill(0)"),
+            SPARK.contains(".fill(0)"),
             "ohne Daten steht keine Grundlinie"
         );
         assert!(
-            SCRIPT.contains("values.slice(start, start + SPARK_BUCKET)"),
-            "die Werte werden nicht geglättet"
+            !SPARK.contains("Date.now"),
+            "die Eimer lesen die Uhr selbst und lassen sich nicht testen"
         );
+        let spark = INDEX.find("src=\"/spark.js\"").expect("spark.js fehlt");
+        let app = INDEX.find("src=\"/app.js\"").expect("app.js fehlt");
+        assert!(spark < app, "spark.js muss vor app.js geladen werden");
         assert!(
             SCRIPT.contains("240 / (points.length - 1)"),
             "die Linie füllt die Zelle nicht"
