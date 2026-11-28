@@ -434,6 +434,13 @@ impl crate::resolve::ResolveBackend for OdohBackend {
             Some(Ok(response)) => response.into_message(),
             Some(Err(error)) => match crate::dnssec::from_error(&error) {
                 Some((verdict, recovered)) => {
+                    let rechecked = match verdict {
+                        crate::dnssec::Verdict::Bogus => {
+                            crate::dnssec::recheck_chain_end(handle, &recovered, false).await
+                        }
+                        _ => None,
+                    };
+                    let (verdict, recovered) = rechecked.unwrap_or((verdict, recovered));
                     settled = Some(verdict);
                     recovered
                 }

@@ -230,6 +230,90 @@ pub fn from_error(error: &hickory_net::NetError) -> Option<(Verdict, Message)> {
     Some((verdict, message))
 }
 
+pub async fn recheck_chain_end<H: hickory_net::DnsHandle>(
+    handle: &H,
+    recovered: &Message,
+    pad: bool,
+) -> Option<(Verdict, Message)> {
+    use futures_util::StreamExt as _;
+
+    let record_type = recovered.queries.first()?.query_type();
+    let end = chain_end(recovered)?;
+
+    let mut request = Message::query();
+    request.metadata.recursion_desired = true;
+    request.add_query(hickory_proto::op::Query::query(end.clone(), record_type));
+    if pad
+        && let Err(error) =
+            crate::privacy::pad_to_block(&mut request, crate::privacy::PADDING_BLOCK)
+    {
+        tracing::debug!(%error, "padding not possible");
+    }
+    let mut options = hickory_proto::op::DnsRequestOptions::default();
+    options.case_randomization = false;
+    options.use_edns = true;
+
+    let mut stream = handle.send(hickory_proto::op::DnsRequest::new(request, options));
+    let checked = match stream.next().await? {
+        Ok(response) => response.into_message(),
+        Err(error) => from_error(&error)?.1,
+    };
+
+    if checked.metadata.response_code != recovered.metadata.response_code
+        || checked.answers.iter().any(|record| {
+            record.name == end
+                && (record.record_type() == record_type
+                    || record.record_type() == hickory_proto::rr::RecordType::CNAME)
+        })
+    {
+        return None;
+    }
+
+    let mut combined = recovered.clone();
+    combined.authorities = checked.authorities;
+    let verdict = verdict(&combined);
+    (!verdict.must_be_dropped()).then_some((verdict, combined))
+}
+
+fn chain_end(message: &Message) -> Option<hickory_proto::rr::Name> {
+    use hickory_proto::op::ResponseCode;
+    use hickory_proto::rr::{RData, RecordType};
+
+    let query = message.queries.first()?;
+    if query.query_type() == RecordType::CNAME
+        || !matches!(
+            message.metadata.response_code,
+            ResponseCode::NoError | ResponseCode::NXDomain
+        )
+    {
+        return None;
+    }
+
+    let mut current = query.name().clone();
+    for _ in 0..message.answers.len() {
+        let Some(link) = message
+            .answers
+            .iter()
+            .find(|record| record.record_type() == RecordType::CNAME && record.name == current)
+        else {
+            break;
+        };
+        if !matches!(link.proof, Proof::Secure | Proof::Insecure) {
+            return None;
+        }
+        let RData::CNAME(target) = &link.data else {
+            return None;
+        };
+        current = target.0.clone();
+    }
+
+    let answered = message
+        .answers
+        .iter()
+        .any(|record| record.name == current && record.record_type() == query.query_type());
+    (current != *query.name() && !answered).then_some(current)
+}
+
 /// Ob die Antwort ein Ausfall des Upstreams ist statt eines Befunds über die
 /// Zone: kein einziger Record und ein RCODE, der Scheitern meldet.
 fn is_empty_failure(message: &Message) -> bool {

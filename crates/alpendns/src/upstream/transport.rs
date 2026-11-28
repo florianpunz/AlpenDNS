@@ -181,6 +181,14 @@ impl Transport {
             Some(Ok(response)) => response.into_message(),
             Some(Err(error)) => match dnssec::from_error(&error) {
                 Some((verdict, recovered)) => {
+                    let rechecked = match (verdict, connection.validating.as_ref()) {
+                        (dnssec::Verdict::Bogus, Some(handle)) => {
+                            dnssec::recheck_chain_end(handle, &recovered, self.privacy.padding)
+                                .await
+                        }
+                        _ => None,
+                    };
+                    let (verdict, recovered) = rechecked.unwrap_or((verdict, recovered));
                     settled = Some(verdict);
                     recovered
                 }

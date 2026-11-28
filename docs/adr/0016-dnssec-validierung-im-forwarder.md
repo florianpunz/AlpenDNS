@@ -219,6 +219,59 @@ CD shows up that runs into SERVFAIL, the answer is not to switch the check off
 again but to handle CD in `dnssec::for_client` — per client, at the outer edge,
 behind the cache.
 
+## Addendum of 2026-11-28: legitimate zones counted as bogus
+
+The homelab showed 16 "Bogus answers dropped" in under two hours, and every one
+of them was wrong: Quad9 answered the same questions with NOERROR, most with AD.
+Two causes, both in `hickory-net`, neither a broken zone:
+
+1. **CNAME into an unsigned zone** (`accounts.youtube.com`): 0.26.3 aborted the
+   DS lookups with "exceeded max validation depth" and reported Bogus. Fixed by
+   0.26.4; the version requirement in `Cargo.toml` is raised to it, so a
+   downgrade cannot bring it back.
+2. **CNAME in front of NODATA** (`www.speedtest.net AAAA`, `….api.met.no AAAA`):
+   hickory checks the NSEC/NSEC3 proof against the name that was asked instead of
+   the end of the chain, and for that name the proof cannot add up. Still open in
+   0.26.4 and in hickory's `main` (related: hickory-dns#3592).
+
+For the second one `dnssec::recheck_chain_end` asks the question hickory should
+have checked — `(end of chain, type)`, once, over the same validating handle, so
+the same upstream and no other provider sees the name. The answer is assembled
+from the chain of the first response and the proof of the second; both carry
+hickory's stamps, AlpenDNS does not judge a record it has not had recomputed. A
+broken chain link or a proof that is wrong for the target too stays Bogus
+(`tests/dnssec.rs`, four vectors with real signatures).
+
+The details that keep the detour narrow:
+
+* **When it runs at all.** Only after hickory has said Bogus, only for NOERROR
+  or NXDOMAIN, never for a CNAME question, and only if the answer section holds
+  a chain from the asked name whose every link hickory stamped Secure or
+  Insecure. A link stamped Bogus or Indeterminate ends it: the detour may replace
+  the proof at the end of the chain, never wave a link through.
+* **The chain walk is bounded** by the number of records in the answer section.
+  Each step consumes one CNAME, so a loop `a → b → a` ends instead of spinning.
+* **The recheck must agree with the first answer.** Same RCODE, and the target
+  must still not hold the asked type or a CNAME. Otherwise the chain was
+  incomplete or the first answer lied, and neither is the case this detour is
+  for — it stays Bogus.
+* **Padding.** The direct transport pads the recheck like the original query;
+  the ODoH transport does not, because `OdohTransport::send` pads every message
+  itself.
+* **The counter counts once.** The verdict is recorded where it always was, in
+  `apply_verdict`; the recheck itself records nothing.
+
+The test zone in `tests/dnssec.rs` has the NSEC chain `example.test.` →
+`alias.example.test.` → `www.example.test.` → back; `alias` is a CNAME to `www`,
+which holds only an A record. An AAAA question for `alias` is exactly the shape
+hickory fails on.
+
+This is the case the reversal condition below asks about, and the answer it
+gives holds: the validation was not the problem, the validator was. **Reversal
+condition of this addendum:** once hickory validates negative answers behind a
+CNAME itself, `recheck_chain_end` is dead weight and goes — the test
+`a_cname_to_a_name_without_the_type_is_not_bogus` then passes without it.
+
 ## Reversal condition
 
 If in the practical test from phase 9 broken zones lead to outages that nobody

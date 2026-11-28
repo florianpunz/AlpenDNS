@@ -34,14 +34,16 @@ use hickory_net::dnssec::DnssecDnsHandle;
 use hickory_net::runtime::TokioRuntimeProvider;
 use hickory_proto::dnssec::crypto::Ed25519SigningKey;
 use hickory_proto::dnssec::rdata::DNSSECRData;
+use hickory_proto::dnssec::rdata::NSEC;
 use hickory_proto::dnssec::rdata::{DNSKEY, RRSIG};
 use hickory_proto::dnssec::{DnssecSigner, SigningKey as _, TrustAnchors};
 use hickory_proto::op::{DnsRequest, DnsResponse, Message, OpCode, ResponseCode};
-use hickory_proto::rr::rdata::A;
+use hickory_proto::rr::rdata::{A, CNAME, SOA};
 use hickory_proto::rr::{DNSClass, Name, RData, Record, RecordSet, RecordType};
 
 const ZONE: &str = "example.test.";
 const HOST: &str = "www.example.test.";
+const ALIAS: &str = "alias.example.test.";
 
 fn name(text: &str) -> Name {
     Name::from_ascii(text).expect("gültiger Name")
@@ -56,6 +58,8 @@ enum Damage {
     BrokenSignature,
     /// Der A-Record kommt ohne Signatur, obwohl die Zone signiert ist.
     MissingSignature,
+    BrokenCname,
+    BrokenProof,
 }
 
 /// Eine kleine signierte Zone, die auf Anfragen antwortet.
@@ -103,9 +107,9 @@ impl Zone {
     }
 
     /// Signiert eine RRSet und hängt Records plus RRSIG in die Antwort.
-    fn signed_into(&self, message: &mut Message, rrset: &RecordSet, sign: bool) {
+    fn signed_into(&self, section: &mut Vec<Record>, rrset: &RecordSet, sign: bool) {
         for record in rrset.records_without_rrsigs() {
-            message.answers.push(record.clone());
+            section.push(record.clone());
         }
         if !sign {
             return;
@@ -116,10 +120,16 @@ impl Zone {
         let inception = time::OffsetDateTime::now_utc() - time::Duration::minutes(1);
         let mut rrsig = RRSIG::from_rrset(rrset, DNSClass::IN, inception, &self.signer)
             .expect("RRSIG erzeugbar");
-        if self.damage == Damage::BrokenSignature && rrset.record_type() == RecordType::A {
+        let damaged = match self.damage {
+            Damage::BrokenSignature => RecordType::A,
+            Damage::BrokenCname => RecordType::CNAME,
+            Damage::BrokenProof => RecordType::NSEC,
+            Damage::None | Damage::MissingSignature => RecordType::Unknown(0),
+        };
+        if rrset.record_type() == damaged {
             rrsig = broken(&rrsig);
         }
-        message.answers.push(Record::from_rdata(
+        section.push(Record::from_rdata(
             rrset.name().clone(),
             rrset.ttl(),
             RData::DNSSEC(DNSSECRData::RRSIG(rrsig)),
@@ -141,23 +151,64 @@ impl Zone {
                 let mut rrset = RecordSet::new(self.zone(), RecordType::DNSKEY, 0);
                 rrset.add_rdata(RData::DNSSEC(DNSSECRData::DNSKEY(self.dnskey.clone())));
                 rrset.set_ttl(3600);
-                self.signed_into(&mut response, &rrset, true);
+                self.signed_into(&mut response.answers, &rrset, true);
             }
-            (name, RecordType::A) if name == self.host() => {
-                let mut rrset = RecordSet::new(self.host(), RecordType::A, 0);
-                rrset.add_rdata(RData::A(A::new(192, 0, 2, 42)));
+            (name, RecordType::A) if name == self.host() => self.host_a(&mut response),
+            (name, RecordType::AAAA) if name == self.host() => self.host_nodata(&mut response),
+            (name, RecordType::A | RecordType::AAAA) if name == self.alias() => {
+                let mut rrset = RecordSet::new(self.alias(), RecordType::CNAME, 0);
+                rrset.add_rdata(RData::CNAME(CNAME(self.host())));
                 rrset.set_ttl(300);
-                self.signed_into(
-                    &mut response,
-                    &rrset,
-                    self.damage != Damage::MissingSignature,
-                );
+                self.signed_into(&mut response.answers, &rrset, true);
+                if query.query_type() == RecordType::A {
+                    self.host_a(&mut response);
+                } else {
+                    self.host_nodata(&mut response);
+                }
             }
             // Alles andere existiert in dieser Zone nicht. Ein DS-Lookup landet
             // hier — beim Trust Anchor wird er gar nicht erst gestellt.
             _ => response.metadata.response_code = ResponseCode::NXDomain,
         }
         response
+    }
+
+    fn host_a(&self, response: &mut Message) {
+        let mut rrset = RecordSet::new(self.host(), RecordType::A, 0);
+        rrset.add_rdata(RData::A(A::new(192, 0, 2, 42)));
+        rrset.set_ttl(300);
+        self.signed_into(
+            &mut response.answers,
+            &rrset,
+            self.damage != Damage::MissingSignature,
+        );
+    }
+
+    fn host_nodata(&self, response: &mut Message) {
+        let mut soa = RecordSet::new(self.zone(), RecordType::SOA, 0);
+        soa.add_rdata(RData::SOA(SOA::new(
+            name("ns.example.test."),
+            name("hostmaster.example.test."),
+            1,
+            3600,
+            600,
+            86400,
+            300,
+        )));
+        soa.set_ttl(300);
+        self.signed_into(&mut response.authorities, &soa, true);
+
+        let mut nsec = RecordSet::new(self.host(), RecordType::NSEC, 0);
+        nsec.add_rdata(RData::DNSSEC(DNSSECRData::NSEC(NSEC::new_cover_self(
+            self.zone(),
+            [RecordType::A],
+        ))));
+        nsec.set_ttl(300);
+        self.signed_into(&mut response.authorities, &nsec, true);
+    }
+
+    fn alias(&self) -> Name {
+        name(ALIAS).to_lowercase()
     }
 
     fn zone(&self) -> Name {
@@ -200,25 +251,54 @@ impl DnsHandle for FakeUpstream {
     }
 }
 
-/// Fragt `www.example.test.` durch die Validierung und gibt die Antwort zurück.
-async fn resolve(damage: Damage) -> Message {
+fn validating(damage: Damage) -> DnssecDnsHandle<FakeUpstream> {
     let zone = Arc::new(Zone::new(damage));
     let anchors = zone.trust_anchors();
-    let handle = DnssecDnsHandle::with_trust_anchor(FakeUpstream(Arc::clone(&zone)), anchors);
+    DnssecDnsHandle::with_trust_anchor(FakeUpstream(zone), anchors)
+}
 
+async fn send(
+    handle: &DnssecDnsHandle<FakeUpstream>,
+    host: &str,
+    record_type: RecordType,
+) -> Result<DnsResponse, hickory_net::NetError> {
     let mut request = Message::query();
-    request.add_query(hickory_proto::op::Query::query(name(HOST), RecordType::A));
-
+    request.add_query(hickory_proto::op::Query::query(name(host), record_type));
     let mut stream = handle.send(DnsRequest::new(
         request,
         hickory_proto::op::DnsRequestOptions::default(),
     ));
-    stream
-        .next()
+    stream.next().await.expect("eine Antwort")
+}
+
+/// Fragt `www.example.test.` durch die Validierung und gibt die Antwort zurück.
+async fn resolve(damage: Damage) -> Message {
+    send(&validating(damage), HOST, RecordType::A)
         .await
-        .expect("eine Antwort")
         .expect("die Antwort ist dekodierbar")
         .into_message()
+}
+
+async fn verdict_like_the_transport(
+    damage: Damage,
+    host: &str,
+    record_type: RecordType,
+) -> Verdict {
+    let handle = validating(damage);
+    match send(&handle, host, record_type).await {
+        Ok(response) => dnssec::verdict(&response.into_message()),
+        Err(error) => {
+            let (verdict, recovered) =
+                dnssec::from_error(&error).expect("ein Urteil, kein Ausfall");
+            if verdict != Verdict::Bogus {
+                return verdict;
+            }
+            match dnssec::recheck_chain_end(&handle, &recovered, false).await {
+                Some((verdict, _)) => verdict,
+                None => Verdict::Bogus,
+            }
+        }
+    }
 }
 
 #[tokio::test]
@@ -328,4 +408,28 @@ async fn what_each_client_gets_is_decided_per_client() {
             .any(|record| record.record_type() == RecordType::RRSIG),
         "dem Client mit DO fehlt die Kette"
     );
+}
+
+#[tokio::test]
+async fn a_cname_to_a_name_without_the_type_is_not_bogus() {
+    let verdict = verdict_like_the_transport(Damage::None, ALIAS, RecordType::AAAA).await;
+    assert_eq!(verdict, Verdict::Secure);
+}
+
+#[tokio::test]
+async fn the_positive_answer_behind_a_cname_stays_secure() {
+    let verdict = verdict_like_the_transport(Damage::None, ALIAS, RecordType::A).await;
+    assert_eq!(verdict, Verdict::Secure);
+}
+
+#[tokio::test]
+async fn a_broken_cname_in_front_of_nodata_stays_bogus() {
+    let verdict = verdict_like_the_transport(Damage::BrokenCname, ALIAS, RecordType::AAAA).await;
+    assert_eq!(verdict, Verdict::Bogus);
+}
+
+#[tokio::test]
+async fn a_broken_proof_behind_a_cname_stays_bogus() {
+    let verdict = verdict_like_the_transport(Damage::BrokenProof, ALIAS, RecordType::AAAA).await;
+    assert_eq!(verdict, Verdict::Bogus);
 }
