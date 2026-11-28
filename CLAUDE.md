@@ -80,9 +80,9 @@ Architecture and rationale: `docs/ARCHITECTURE.md`, `docs/adr/`.
 
 The author is a system administrator, not a trained software developer, and is
 learning on this project. Concretely: explain non-obvious decisions briefly in
-the commit or in the answer, rather than building them in without comment. One
-line of "why this way and not the other" is worth more than three paragraphs of
-documentation.
+the commit message or in the answer, and decisions with weight in an ADR — never
+in a code comment (B.2). One line of "why this way and not the other" is worth
+more than three paragraphs of documentation.
 
 **Status:** phases 1–9 are implemented and accepted. `docs/ROADMAP.md` is the canonical
 source for the phase state, the numbers and the open gaps — do not restate it
@@ -198,8 +198,11 @@ These rules do not override "Simplicity First" — they define what counts as
 * Config serialization: `serde` + `toml`.
 * A new dependency needs one line of justification in the PR/commit. `cargo deny`
   runs in CI: no GPL-incompatible licenses, no crates with open RUSTSEC advisories.
-* Public items in library crates have doc comments. Private functions only when
-  the *why* does not follow from the code.
+* **No code comments, ever** — no `//`, no `///`, no `//!`, no `#` in TOML, in
+  new or changed code, tests included. The *why* goes into the commit message;
+  decisions with weight go into an ADR under `docs/adr/`. When removing a comment
+  would lose a reason, check that it is in one of the two and add it there if
+  not. Comments that already exist in the code stay untouched (part A.3).
 * Formatting: `cargo fmt` with default settings. No discussion about it.
 
 ### B.3 Structure
