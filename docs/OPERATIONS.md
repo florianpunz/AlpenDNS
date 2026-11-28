@@ -864,6 +864,12 @@ names are not there either** — those go exclusively through the logging layer,
 and that follows `privacy.logging.mode`. Remove it again after troubleshooting:
 `sudo systemctl revert alpendns`.
 
+The DNS library underneath (`hickory`) stays silent at every level, because its
+messages carry the query name in the text. For a DNSSEC problem it has to be
+named explicitly — `Environment=RUST_LOG=debug,hickory=debug` — and **then names
+do land in the journal**, whatever `privacy.logging.mode` says. Only for the
+duration of the search, and revert afterwards.
+
 ---
 
 ## 5. What the hardening directives mean

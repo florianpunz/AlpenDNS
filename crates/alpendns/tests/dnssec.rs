@@ -433,3 +433,63 @@ async fn a_broken_proof_behind_a_cname_stays_bogus() {
     let verdict = verdict_like_the_transport(Damage::BrokenProof, ALIAS, RecordType::AAAA).await;
     assert_eq!(verdict, Verdict::Bogus);
 }
+
+const LEAKED: &str = "leak-probe.example.test.";
+
+#[derive(Clone, Default)]
+struct Captured(Arc<std::sync::Mutex<Vec<u8>>>);
+
+impl std::io::Write for Captured {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0
+            .lock()
+            .expect("Puffer nicht vergiftet")
+            .extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for Captured {
+    type Writer = Self;
+
+    fn make_writer(&'a self) -> Self::Writer {
+        self.clone()
+    }
+}
+
+async fn diagnostics_with(rust_log: Option<&str>) -> String {
+    let captured = Captured::default();
+    let subscriber = tracing_subscriber::fmt()
+        .with_env_filter(alpendns::logging::diagnostics_filter(rust_log))
+        .with_writer(captured.clone())
+        .with_ansi(false)
+        .finish();
+    let _guard = tracing::subscriber::set_default(subscriber);
+
+    let _ = send(&validating(Damage::None), LEAKED, RecordType::A).await;
+
+    let bytes = captured.0.lock().expect("Puffer nicht vergiftet").clone();
+    String::from_utf8(bytes).expect("UTF-8")
+}
+
+#[tokio::test]
+async fn no_query_name_from_hickory_reaches_the_log_by_default() {
+    let log = diagnostics_with(None).await;
+    assert!(!log.contains("leak-probe"), "{log}");
+}
+
+#[tokio::test]
+async fn rust_log_debug_alone_does_not_let_hickory_through() {
+    let log = diagnostics_with(Some("debug")).await;
+    assert!(!log.contains("leak-probe"), "{log}");
+}
+
+#[tokio::test]
+async fn rust_log_debug_with_hickory_named_lets_hickory_through() {
+    let log = diagnostics_with(Some("debug,hickory=debug")).await;
+    assert!(log.contains("leak-probe"), "{log}");
+}

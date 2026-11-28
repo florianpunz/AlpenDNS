@@ -57,3 +57,27 @@ The four modes and the default stay. Only *what* `aggregate` counts with was swa
 instead of a count-min sketch, an exact table under a salted hash. At realistic traffic
 the sketch was so imprecise that the top-domain output stayed empty. Numbers and
 rationale: [ADR-0015](0015-exakte-zaehlung-statt-sketch.md).
+
+## Addendum, 2026-11-28: the DNS library's own log
+
+`privacy.logging.mode` governs `crate::logging`, and only that. `hickory-net` writes the
+question into its own `tracing` messages (`Query { name: … }`, up to WARN), and those
+went straight to the journal: in the homelab every bogus answer left its name there, in
+`aggregate` mode. Filtering only the name is not possible — it sits in the message text,
+not in a field — so `logging::diagnostics_filter` adds `hickory=off` to whatever
+`RUST_LOG` says.
+
+* **Explicit means: `RUST_LOG` contains the word `hickory`.** `RUST_LOG=debug` alone keeps
+  hickory silent, so OPERATIONS.md's promise holds that `debug` carries no names.
+  `RUST_LOG=debug,hickory=debug` lets it through; whoever writes that has named the
+  library and is told in OPERATIONS.md that names follow.
+* **No `RUST_LOG`, an empty one or an unreadable one means `info`**, as before the change.
+* **If the fixed directive `hickory=off` ever failed to parse**, the filter becomes `off`:
+  no diagnostics at all rather than diagnostics with names. The branch exists only
+  because `parse` returns a `Result`.
+* **No new configuration key.** `RUST_LOG` already is the switch for diagnostics; a
+  second one would be a second place to forget.
+
+Tests in `tests/dnssec.rs` drive real hickory validation against a fake signed zone, so
+the WARN line with the name is hickory's own, not a stand-in: without `RUST_LOG` and with
+`RUST_LOG=debug` no name arrives, with `RUST_LOG=debug,hickory=debug` it does.

@@ -30,6 +30,20 @@ use counts::Counts;
 use ring::Ring;
 
 use crate::latency::{Histogram, Percentiles};
+
+pub fn diagnostics_filter(rust_log: Option<&str>) -> tracing_subscriber::EnvFilter {
+    let base = rust_log.map(str::trim).filter(|text| !text.is_empty());
+    let filter = base
+        .and_then(|text| tracing_subscriber::EnvFilter::try_new(text).ok())
+        .unwrap_or_else(|| tracing_subscriber::EnvFilter::new("info"));
+    if base.is_some_and(|text| text.contains("hickory")) {
+        return filter;
+    }
+    match "hickory=off".parse() {
+        Ok(directive) => filter.add_directive(directive),
+        Err(_) => tracing_subscriber::EnvFilter::new("off"),
+    }
+}
 use crate::trace::Step;
 
 /// Wie viel eine Anfrage hinterlässt.
