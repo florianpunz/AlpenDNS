@@ -1,17 +1,17 @@
 Package: alpendns
-Version: 9.1.0-1
+Version: 9.2.0-1
 Architecture: amd64
 Homepage: https://florianpunz.github.io/alpendns/
 Maintainer: Florian Punz <florian.punz04@gmail.com>
-Installed-Size: 12125
+Installed-Size: 12156
 Depends: adduser, libc6 (>= 2.34), systemd
 Priority: optional
 Section: net
-Filename: pool/main/a/alpendns/alpendns_9.1.0-1_amd64.deb
-Size: 3656364
-SHA256: 5850994d3783f16331302cd631ab1bf76d2c0ce18509065a947e87d2d505c23d
-SHA1: 4e1bd0c8f31c869d1c86167819c456955ed0b1b3
-MD5sum: 4bc1fa86a7155316ead4f6d7cd5a79a0
+Filename: pool/main/a/alpendns/alpendns_9.2.0-1_amd64.deb
+Size: 3666488
+SHA256: ad86a2ac783a0e02fa4b9292e3f1f1f07f718919c92d3f79f0c6b280c07330e2
+SHA1: 31b6041d82260df29ae07b125c2a7c04e1e70bfb
+MD5sum: 8fb35899114ad0adb4c1717fb4ddd5de
 Description: Privacy-focused DNS server
  AlpenDNS ist ein forwarding DNS-Resolver für das eigene Netz. Er filtert gegen
  Blocklisten und Policies und leitet ausschließlich verschlüsselt weiter
