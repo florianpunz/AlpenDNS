@@ -40,12 +40,12 @@ todo = "warn"
 # Ausnahme zu RUSTSEC-2026-0009 in deny.toml.
 # Mindestens 0.26.3: `TrustAnchors::insert_with_name` gibt es erst dort, und seit
 # hickory-net 0.26.3 wird der Ankername beim Prüfen verglichen (tests/dnssec.rs).
-hickory-proto = { version = "0.26.3", features = ["dnssec-ring"] }
+hickory-proto = { version = "0.26.4", features = ["dnssec-ring"] }
 # Transporte für DoT/DoH/DoQ. Seit 0.26 ein eigenes Crate, getrennt vom
 # Resolver — wir wollen die Verbindung, nicht dessen Cache und Policy.
 # Nur die -ring-Varianten: aws-lc-rs führt die OpenSSL-Lizenz mit, die nicht in
 # der Allowlist von deny.toml steht.
-hickory-net = { version = "0.26.3", features = ["tls-ring", "https-ring", "quic-ring", "webpki-roots", "dnssec-ring"] }
+hickory-net = { version = "0.26.4", features = ["tls-ring", "https-ring", "quic-ring", "webpki-roots", "dnssec-ring"] }
 # ClientConfig-Typ für die TLS-Konfiguration. default-features aus, weil rustls
 # sonst aws-lc-rs als Krypto-Backend zieht.
 rustls = { version = "0.23", default-features = false, features = ["std", "ring", "tls12"] }

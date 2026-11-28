@@ -224,7 +224,10 @@ mod tests {
             res.add_answer(Record::from_rdata(
                 name.clone(),
                 60,
-                RData::TXT(TXT::new(vec!["x".repeat(200)])),
+                RData::TXT(
+                    TXT::try_new(std::iter::once("x".repeat(200).into_bytes()))
+                        .expect("200 Byte passen in einen String"),
+                ),
             ));
         }
         assert!(res.to_vec().expect("kodierbar").len() > 1232);

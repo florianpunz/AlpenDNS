@@ -300,7 +300,10 @@ async fn large_answer_sets_tc_over_udp_but_is_complete_over_tcp() {
             response.add_answer(Record::from_rdata(
                 name("example.com."),
                 60,
-                RData::TXT(TXT::new(vec!["x".repeat(200)])),
+                RData::TXT(
+                    TXT::try_new(std::iter::once("x".repeat(200).into_bytes()))
+                        .expect("200 Byte passen in einen String"),
+                ),
             ));
         }
         Some(response)
